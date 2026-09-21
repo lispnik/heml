@@ -198,11 +198,13 @@
 
 (defun choose-backend-type (&optional display)
   (let ((want
-         (if display
-             ;; $DISPLAY is set, can use the preferred display
-             *default-backend*
-             ;; $DISPLAY unset, revert to TTY
-             :tty)))
+         (cond
+           ;; $DISPLAY is set, can use the preferred display
+           (display *default-backend*)
+           ;; Cocoa needs no $DISPLAY
+           ((validate-backend-type :cocoa) :cocoa)
+           ;; $DISPLAY unset, revert to TTY
+           (t :tty))))
     (cond
       ((validate-backend-type want))
       ((car *available-backends*))

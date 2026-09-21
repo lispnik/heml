@@ -294,9 +294,9 @@ GB
        :type string)
       (("backend" "backend-type")
        :type string
-       :documentation "backend to use, one of tty, clx, or qt. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, falls back to TTY.  See also --tty et al."
+       :documentation "backend to use, one of tty, clx, qt, or cocoa. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
        :action ,(alexandria:curry #'keywordize :backend-type))
-      ,@(iter:iter (iter:for b in '(:tty :clx :qt))
+      ,@(iter:iter (iter:for b in '(:tty :clx :qt :cocoa))
                    (iter:collect
                     `(,(string-downcase b)
                       :type boolean
@@ -428,6 +428,15 @@ GB
 
 (defvar *main-event-base* nil)
 
+;;; A backend whose window system must own the calling thread -- Cocoa's
+;;; must have the main thread -- runs the editor on another one.  FUN is the
+;;; whole editor session; the method returns what FUN returns.
+;;;
+(defgeneric invoke-with-editor-thread (backend-type fun))
+
+(defmethod invoke-with-editor-thread ((backend-type t) fun)
+  (funcall fun))
+
 ;;; This function does all the hard work for Hemlock initialization, in
 ;;; particular backend initialization.  It differs from the main function
 ;;; in that it lets the caller take control once initialization is done,
@@ -440,14 +449,20 @@ GB
     (error "already in the editor"))
   (when (and backend-type (not (validate-backend-type backend-type)))
     (error "Specified backend ~A not loaded" backend-type))
+  (let ((backend-type (or backend-type (choose-backend-type display))))
+    (invoke-with-editor-thread
+     backend-type
+     (lambda ()
+       (%call-with-editor fun load-user-init backend-type display)))))
+
+(defun %call-with-editor (fun load-user-init backend-type display)
   ;; fixme: pass DISPLAY to WITH-EVENT-LOOP, so that Qt can pick it up
   ;; in case the user wants a DISPLAY != $DISPLAY
-  (let* ((backend-type (or backend-type (choose-backend-type display)))
-         (*default-backend* backend-type))
+  (let* ((*default-backend* backend-type))
     (setf *connection-backend*
           (ecase backend-type
             (:qt :qt)
-            ((:tty :clx :mini) :iolib)))
+            ((:tty :clx :mini :cocoa) :iolib)))
     (with-existing-event-loop
         (or *main-event-base*
             (setf *main-event-base*

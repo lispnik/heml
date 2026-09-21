@@ -299,8 +299,33 @@
 ;;;; PIPELIKE-CONNECTION
 ;;;;
 
+;;; The POSIX way, which is the only way on macOS: it has no BSD
+;;; /dev/ptyXY devices to scan.  NIL when posix_openpt is not there or
+;;; fails, so that the scan below can still be tried.
+;;;
+#-(and scl linux)
+(defun open-posix-pty ()
+  (when (cffi:foreign-symbol-pointer "posix_openpt")
+    (let ((master (cffi:foreign-funcall "posix_openpt"
+                                        :int (logior isys:o-rdwr isys:o-noctty)
+                                        :int)))
+      (when (>= master 0)
+        (let ((name (and (zerop (cffi:foreign-funcall "grantpt" :int master :int))
+                         (zerop (cffi:foreign-funcall "unlockpt" :int master :int))
+                         (cffi:foreign-funcall "ptsname" :int master :string))))
+          (if name
+              (values master (isys:open name isys:o-rdwr) name)
+              (progn (isys:close master) nil)))))))
+
 #-(and scl linux)
 (defun find-a-pty ()
+  (multiple-value-bind (master slave name) (open-posix-pty)
+    (if master
+        (values master slave name)
+        (find-a-bsd-pty))))
+
+#-(and scl linux)
+(defun find-a-bsd-pty ()
   (block t
     (dolist (char '(#\p #\q) (error "no pty found"))
       (dotimes (digit 16)

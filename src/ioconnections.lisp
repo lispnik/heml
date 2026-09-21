@@ -196,13 +196,13 @@
      (isys:open slave-pty-name isys:o-rdwr)
      (isys:dup2 0 1)
      (isys:dup2 0 2)
-     (cffi:with-foreign-object (tios '(:pointer (:struct osicat-posix::termios)))
+     (cffi:with-foreign-object (tios '(:struct osicat-posix::termios))
        (osicat-posix::tcgetattr 0 tios)
        (cffi:with-foreign-slots ((osicat-posix::iflag
                                   osicat-posix::oflag
                                   osicat-posix::lflag
                                   osicat-posix::cc)
-                                 tios (:pointer (:struct osicat-posix::termios)))
+                                 tios (:struct osicat-posix::termios))
          (setf osicat-posix::lflag
                (logandc2 osicat-posix::lflag
                          (logior osicat-posix::tty-echo

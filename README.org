@@ -14,7 +14,7 @@
 
 ** Backends
 
-   This version of Hemlock has three backends, of which you need at least
+   This version of Hemlock has four backends, of which you need at least
    one:
 
      * The TTY backend doesn't need much, except for a terminal
@@ -22,7 +22,43 @@
 
      * The X11 backend needs CLX and an X server.
 
+     * The Cocoa backend is a native macOS window, drawn with AppKit
+       through [[https://github.com/lispnik/objc][objc]].  SBCL on macOS only.
+
      * The experimental Qt backends needs CommonQt.
+
+
+** macOS
+
+   Dependencies come from [[https://github.com/ocicl/ocicl][ocicl]], including objc and
+   [[https://github.com/lispnik/asdf-macos-app][asdf-macos-app]], and iolib needs =libfixposix= (=brew install
+   libfixposix=).
+
+   #+BEGIN_SRC shell  :tangle no
+     make deps     # ocicl install
+     make run      # the editor in a window, from a terminal SBCL
+     make app      # build/Xoamax.app
+   #+END_SRC
+
+   From a REPL:
+
+   #+BEGIN_SRC lisp  :tangle no
+     (asdf:load-system :hemlock.cocoa)
+     (hemlock:hemlock nil :backend-type :cocoa)
+   #+END_SRC
+
+   AppKit needs the process's main thread, so call this from the main
+   thread -- a terminal SBCL's REPL -- not from a SLIME or Sly REPL
+   thread.  Without =$DISPLAY= set, Cocoa is chosen when it is loaded,
+   so =:backend-type= can usually be left out.
+
+   Option is Meta (=hemlock.cocoa:*option-is-meta*=).  The font is the
+   system monospaced font unless =hemlock.cocoa:*font-name*= names
+   another, at =hemlock.cocoa:*font-size*= points.  Cmd-Q and the close
+   button do what C-x C-c does.
+
+   Xoamax.app is signed ad hoc unless =MACOS_SIGNING_IDENTITY= names a
+   Developer ID.
 
 
 
