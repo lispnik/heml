@@ -52,10 +52,17 @@
    thread.  Without =$DISPLAY= set, Cocoa is chosen when it is loaded,
    so =:backend-type= can usually be left out.
 
-   Option is Meta (=hemlock.cocoa:*option-is-meta*=).  The font is the
-   system monospaced font unless =hemlock.cocoa:*font-name*= names
-   another, at =hemlock.cocoa:*font-size*= points.  Cmd-Q and the close
-   button do what C-x C-c does.
+   The left Option key is Meta (=hemlock.cocoa:*option-is-meta*=), and
+   the right one types what the keyboard layout puts on it, dead keys
+   included (=hemlock.cocoa:*right-option-is-meta*= makes it Meta too).
+   Input methods work, their text composed at the cursor.  Wide
+   characters -- CJK, fullwidth forms, emoji -- take two columns.
+
+   View > Show Fonts (Cmd-T) picks the font, and Cmd-+, Cmd-- and Cmd-0
+   make it bigger, smaller, or the default size again; the commands
+   "Select Font", "Increase Font Size", "Decrease Font Size" and "Default
+   Font Size" do the same.  The choice is kept for the next session.
+   Cmd-Q and the close button do what C-x C-c does.
 
    The mouse works as elsewhere on the Mac: click to move point (or, on a
    modeline, to select that window), drag to mark a region, shift-click

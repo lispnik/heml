@@ -1173,10 +1173,18 @@
 ;;; DEVICE-WRITE-STRING is used to shove a string at the terminal regardless
 ;;; of cursor position.
 ;;;
+;;; A wide character's filler is not written: the terminal has already
+;;; moved two columns for the character itself.
+;;;
 (defun device-write-string (string &optional (start 0) (end (strlen string)))
   (declare (fixnum start end))
-  (unless (= start end)
-    (tty-write-string string start (the fixnum (- end start)))))
+  (loop while (< start end)
+        do (let ((stop (or (position wide-character-filler string
+                                     :start start :end end)
+                           end)))
+             (unless (= start stop)
+               (tty-write-string string start (the fixnum (- stop start))))
+             (setf start (1+ stop)))))
 
 
 ;;; Clearing lines (TTY-DEVICE-CLEAR-TO-EOL, DEVICE-CLEAR-LINES, and

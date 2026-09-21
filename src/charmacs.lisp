@@ -28,20 +28,28 @@
 
 ;;; Unicode has a large range of characters.  The first 256 are stored in
 ;;; a vector, and the rest are stored in a hash table.  A default for the
-;;; hash table can be supplied.
+;;; hash table can be supplied, or a DEFAULT-FUNCTION, which is given the
+;;; code of a character the table has no entry for and whose answer is
+;;; kept in the table: how a set covers every character without an entry
+;;; for each, when the value depends on the character.
 (defstruct character-set
   page0
   table
-  default)
+  default
+  default-function)
 
 (defun char-set-ref (set code)
   (cond ((< code 256)
          (let ((page0 (character-set-page0 set)))
            (aref page0 code)))
         (t
-         (let ((table (character-set-table set))
-               (default (character-set-default set)))
-           (gethash code table default)))))
+         (let ((table (character-set-table set)))
+           (multiple-value-bind (value found) (gethash code table)
+             (cond (found value)
+                   ((character-set-default-function set)
+                    (setf (gethash code table)
+                          (funcall (character-set-default-function set) code)))
+                   (t (character-set-default set))))))))
 
 (defun (setf char-set-ref) (value set code)
   (cond ((< code 256)

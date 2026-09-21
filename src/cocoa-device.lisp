@@ -490,3 +490,38 @@ The image is rebuilt by the next redisplay."
       (unless (zerop delta)
         (hi::enlarge-device device delta))
       (setf hi::*screen-image-trashed* t))))
+
+
+;;;; Font commands
+
+;;; The View menu's actions, for M-x and key bindings.  They run on the main
+;;; thread, which owns the fonts; the grid follows as a :RESIZE.
+
+(hi::defcommand "Increase Font Size" (p)
+  "Make the font a point larger, or P points."
+  "Make the font larger."
+  (let ((delta (or p 1)))
+    (on-main-thread (change-font-size delta))))
+
+(hi::defcommand "Decrease Font Size" (p)
+  "Make the font a point smaller, or P points."
+  "Make the font smaller."
+  (let ((delta (- (or p 1))))
+    (on-main-thread (change-font-size delta))))
+
+(hi::defcommand "Default Font Size" (p)
+  "Go back to the default font size, or with an argument, make it P points."
+  "Set the font size."
+  (on-main-thread (if p (change-font :size p) (change-font-size nil))))
+
+(hi::defcommand "Select Font" (p)
+  "Open the font panel; the font chosen there is used, and kept for next time."
+  "Open the font panel."
+  (declare (ignore p))
+  (on-main-thread (show-font-panel)))
+
+(hi::defcommand "Use System Font" (p)
+  "Go back to the system monospaced font, keeping the size."
+  "Use the system monospaced font."
+  (declare (ignore p))
+  (on-main-thread (change-font :name nil)))

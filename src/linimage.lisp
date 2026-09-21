@@ -30,12 +30,37 @@
 
 (defconstant winning-char #b01 "Bit for a char that prints normally")
 (defconstant losing-char #b10 "Bit for char with funny representation.")
+
+;;; Wide characters -- CJK, fullwidth forms, most emoji -- take two columns
+;;; on a terminal and in any monospaced font.  Redisplay gives each one a
+;;; print representation of itself followed by WIDE-CHARACTER-FILLER, the
+;;; way it gives ^X to a control character, so that everything that counts
+;;; columns counts two.  A device draws the character across both cells and
+;;; draws nothing for the filler.
+;;;
+(defconstant wide-character-filler (code-char #xFFFF)
+  "Stands in the column a wide character covers after its own.  U+FFFF is
+   a noncharacter, which no text should contain.")
+
+(defun wide-character-p (character)
+  #+sbcl (member (sb-unicode:east-asian-width character) '(:w :f))
+  #-sbcl (let ((code (char-code character)))
+           (or (<= #x1100 code #x115F) (<= #x2E80 code #xA4CF)
+               (<= #xAC00 code #xD7A3) (<= #xF900 code #xFAFF)
+               (<= #xFE30 code #xFE4F) (<= #xFF00 code #xFF60)
+               (<= #xFFE0 code #xFFE6) (<= #x1F300 code #x1F64F)
+               (<= #x1F900 code #x1F9FF) (<= #x20000 code #x3FFFD))))
+
 (defvar *losing-character-mask*
   (make-character-set
    :page0 (make-array 256 :element-type '(mod 256)
                       :initial-element winning-char)
    :table (make-hash-table)
-   :default winning-char)
+   :default winning-char
+   :default-function (lambda (code)
+                       (if (wide-character-p (code-char code))
+                           losing-char
+                           winning-char)))
   "This is a character set used by redisplay to find funny chars.")
 (defvar *print-representation-char-set* nil
   "Redisplay's handle on the :print-representation attribute.")
@@ -68,7 +93,12 @@
         (make-character-set
          :page0 (make-array 256 :initial-element nil)
          :table (make-hash-table)
-         :default nil))
+         :default nil
+         :default-function (lambda (code)
+                             (let ((character (code-char code)))
+                               (when (wide-character-p character)
+                                 (coerce (list character wide-character-filler)
+                                         'simple-string))))))
   (setf (attribute-descriptor-char-set
          (gethash :print-representation *character-attributes*))
         *print-representation-char-set*)

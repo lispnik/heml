@@ -15,8 +15,12 @@
   "The font size in points.")
 
 (defvar *option-is-meta* t
-  "Whether Option is Meta.  NIL leaves Option to AppKit, so that it types the
-characters the keyboard layout puts on it.")
+  "Whether the left Option key is Meta.  NIL leaves it to AppKit, so that it
+types the characters the keyboard layout puts on it, dead keys included.")
+
+(defvar *right-option-is-meta* nil
+  "Whether the right Option key is Meta too.  By default it is left to
+AppKit, so that one Option key is Meta and the other types characters.")
 
 (defvar *initial-columns* 100)
 (defvar *initial-lines* 40)
@@ -172,6 +176,9 @@ thread it is simply called."
    (char-width :initform 8 :accessor display-char-width)
    (char-height :initform 16 :accessor display-char-height)
    (char-advance :initform 8d0 :accessor display-char-advance)
+   (marked-text :initform nil :accessor display-marked-text
+                :documentation "Text an input method is composing, shown at the cursor
+until it is committed or dropped.")
    (colors :initform (make-hash-table :test 'equal) :reader display-colors)
    (attributes :initform (make-hash-table :test 'equal) :reader display-attributes)))
 
@@ -214,13 +221,74 @@ that every character sits exactly in its cell."
             advance)))
 
 (defun install-fonts (display)
-  (setf (display-font display) (objc:retain (make-font *font-name* *font-size* nil))
-        (display-bold-font display) (objc:retain (make-font *font-name* *font-size* t)))
-  (multiple-value-bind (width height advance) (measure-font (display-font display))
-    (setf (display-char-width display) width
-          (display-char-height display) height
-          (display-char-advance display) advance))
+  "Make the fonts from *FONT-NAME* and *FONT-SIZE* and remeasure the cell.
+The text attribute cache goes with the old fonts: its dictionaries name them."
+  (let ((old (list (display-font display) (display-bold-font display))))
+    (setf (display-font display) (objc:retain (make-font *font-name* *font-size* nil))
+          (display-bold-font display) (objc:retain (make-font *font-name* *font-size* t)))
+    (multiple-value-bind (width height advance) (measure-font (display-font display))
+      (setf (display-char-width display) width
+            (display-char-height display) height
+            (display-char-advance display) advance))
+    (loop for dictionary being the hash-values of (display-attributes display)
+          do (objc:release dictionary))
+    (clrhash (display-attributes display))
+    (dolist (font old)
+      (when font (objc:release font))))
   display)
+
+;;; The font chosen last is kept in the user defaults: the application's,
+;;; or the SBCL process's when the editor runs from a REPL.
+
+(defparameter +font-name-key+ "XoamaxFontName")
+(defparameter +font-size-key+ "XoamaxFontSize")
+(defparameter +default-font-size+ 13)
+
+(defun user-defaults ()
+  (objc:invoke "NSUserDefaults" "standardUserDefaults"))
+
+(defun restore-font-choice ()
+  (let* ((defaults (user-defaults))
+         (name (objc:invoke defaults "stringForKey:" +font-name-key+))
+         (size (objc:invoke defaults "doubleForKey:" +font-size-key+)))
+    (unless (null-pointer-p name)
+      (setf *font-name* (objc:ns-string-to-string name)))
+    (when (plusp size)
+      (setf *font-size* size))))
+
+(defun save-font-choice ()
+  (let ((defaults (user-defaults)))
+    (if *font-name*
+        (objc:invoke defaults "setObject:forKey:" *font-name* +font-name-key+)
+        (objc:invoke defaults "removeObjectForKey:" +font-name-key+))
+    (objc:invoke defaults "setDouble:forKey:" (df *font-size*) +font-size-key+)))
+
+(defun fit-window-to-cell (display)
+  "Resizing snaps to whole cells, and the window cannot be made smaller than
+a usable grid."
+  (let ((window (display-window display)))
+    (objc:invoke window "setContentMinSize:"
+                 (vector (df (+ (* 2 *margin*) (* 20 (display-char-width display))))
+                         (df (+ (* 2 *margin*) (* 6 (display-char-height display))))))
+    (objc:invoke window "setContentResizeIncrements:"
+                 (vector (df (display-char-width display))
+                         (df (display-char-height display))))))
+
+(defun change-font (&key (name *font-name*) (size *font-size*))
+  "Use font NAME, or the system monospaced font for NIL, at SIZE points.
+The window keeps its size and the grid is fitted to it again.  Main thread."
+  (setf *font-name* name
+        *font-size* (max 6 (min 96 size)))
+  (let ((display *display*))
+    (install-fonts display)
+    (fit-window-to-cell display)
+    (save-font-choice)
+    (multiple-value-bind (columns lines) (grid-size display)
+      (post-to-editor (list :resize columns lines)))
+    (request-redraw)))
+
+(defun change-font-size (delta)
+  (change-font :size (if delta (+ *font-size* delta) +default-font-size+)))
 
 
 ;;;; Colours
@@ -298,13 +366,39 @@ that makes every character advance exactly one cell."
 (defun cell-y (display line)
   (+ *margin* (* line (display-char-height display))))
 
-(defun draw-text (display string start end column line color-name bold)
-  (when (and (< start end)
-             (find #\Space string :start start :end end :test-not #'char=))
-    (objc:invoke (objc:string-to-ns-string (subseq string start end))
-                 "drawAtPoint:withAttributes:"
-                 (vector (df (cell-x display column)) (df (cell-y display line)))
-                 (text-attributes display color-name bold))))
+;;; Every character of a row is at the column of its index.  A run of
+;;; ASCII is drawn at once, kerned to the cell; anything else alone at its
+;;; column, since a fallback font's advance has nothing to do with the cell,
+;;; and a wide character's filler not at all -- the character before it has
+;;; the room.
+;;;
+(defun draw-text (display string start end line color-name bold)
+  (let ((attributes (text-attributes display color-name bold)))
+    (flet ((draw (from to)
+             (when (find #\Space string :start from :end to :test-not #'char=)
+               (objc:invoke (objc:string-to-ns-string (subseq string from to))
+                            "drawAtPoint:withAttributes:"
+                            (vector (df (cell-x display from)) (df (cell-y display line)))
+                            attributes))))
+      (loop with i = start
+            while (< i end)
+            do (let ((character (char string i)))
+                 (cond ((char= character hi::wide-character-filler)
+                        (incf i))
+                       ((< (char-code character) 128)
+                        (let ((j (or (position-if (lambda (c) (>= (char-code c) 128))
+                                                  string :start i :end end)
+                                     end)))
+                          (draw i j)
+                          (setf i j)))
+                       (t
+                        (draw i (1+ i))
+                        (incf i))))))))
+
+(defun wide-at-p (string index)
+  "Whether the character at INDEX of STRING covers the next cell too."
+  (and (< (1+ index) (length string))
+       (char= (char string (1+ index)) hi::wide-character-filler)))
 
 (defun draw-segment (display text start end line font)
   (multiple-value-bind (fg bg bold) (font-style font)
@@ -313,7 +407,7 @@ that makes every character advance exactly one cell."
                  (cell-x display start) (cell-y display line)
                  (* (- end start) (display-char-width display))
                  (display-char-height display)))
-    (draw-text display text start (min end (length text)) start line
+    (draw-text display text start (min end (length text)) line
                (color-name-for fg) bold)))
 
 (defun draw-row (display row line)
@@ -332,18 +426,40 @@ that makes every character advance exactly one cell."
   (let ((x (screen-cursor-x screen))
         (y (screen-cursor-y screen)))
     (when (and x y (< -1 y (screen-lines screen)))
-      (let* ((left (cell-x display x))
+      (let* ((text (row-text (svref (screen-rows screen) y)))
+             (left (cell-x display x))
              (top (cell-y display y))
-             (width (display-char-width display))
+             (width (* (if (wide-at-p text x) 2 1) (display-char-width display)))
              (height (display-char-height display))
              (color (foreground-color display)))
         (cond (key-window-p
                (fill-rect color left top width height)
-               (let ((text (row-text (svref (screen-rows screen) y))))
-                 (when (< x (length text))
-                   (draw-text display text x (1+ x) x y "textBackgroundColor" nil))))
+               (when (< x (length text))
+                 (draw-text display text x (1+ x) y "textBackgroundColor" nil)))
               (t
                (frame-rect color left top width height)))))))
+
+(defun draw-marked-text (display screen)
+  "An input method's uncommitted text at the cursor, in reverse video and
+underlined, laid out in cells as a row's text is."
+  (let ((marked (display-marked-text display))
+        (x (screen-cursor-x screen))
+        (y (screen-cursor-y screen)))
+    (when (and marked x y)
+      (let* ((cells (with-output-to-string (out)
+                      (loop for c across marked
+                            do (write-char c out)
+                               (when (hi::wide-character-p c)
+                                 (write-char hi::wide-character-filler out)))))
+             ;; Laid out as if the row began at the cursor.
+             (text (concatenate 'string (make-string x :initial-element #\Space) cells))
+             (left (cell-x display x))
+             (top (cell-y display y))
+             (width (* (length cells) (display-char-width display)))
+             (height (display-char-height display)))
+        (fill-rect (foreground-color display) left top width height)
+        (draw-text display text x (length text) y "textBackgroundColor" nil)
+        (fill-rect (background-color display) left (+ top height -1) width 1)))))
 
 (defun draw-screen (display screen)
   (let ((bounds (objc:invoke (display-view display) "bounds")))
@@ -353,7 +469,8 @@ that makes every character advance exactly one cell."
       (dotimes (line (length rows))
         (draw-row display (svref rows line) line)))
     (draw-cursor display screen
-                 (objc:invoke-bool (display-window display) "isKeyWindow"))))
+                 (objc:invoke-bool (display-window display) "isKeyWindow"))
+    (draw-marked-text display screen)))
 
 (defun request-redraw ()
   "Ask the view to repaint, from either thread."
@@ -418,30 +535,52 @@ Backspace here, which is what the key is for.")
     (or (cdr (assoc code *function-keys*))
         (cdr (assoc code *control-keys*)))))
 
+(defconstant +left-option-mask+ #x20
+  "NX_DEVICELALTKEYMASK: the device-dependent bit for the left Option key.")
+(defconstant +right-option-mask+ #x40
+  "NX_DEVICERALTKEYMASK: the same for the right one.")
+
+(defun meta-p (flags)
+  "Whether FLAGS hold an Option key that is Meta.  An event that does not
+say which Option key -- a synthetic one -- counts as the left."
+  (and (logtest flags +option-mask+)
+       (let ((left (logtest flags +left-option-mask+))
+             (right (logtest flags +right-option-mask+)))
+         (or (and *option-is-meta* (or left (not right)))
+             (and *right-option-is-meta* right)))))
+
+(defun character-descriptor (character &optional modifiers)
+  (let ((name (key-name-for character)))
+    (if name
+        (list :named name modifiers)
+        (list :char character modifiers))))
+
+(defun text-descriptors (string)
+  "Typed text, one descriptor a character."
+  (map 'list #'character-descriptor string))
+
 (defun event-descriptors (event)
+  "The descriptors for a key-down EVENT that the view handles itself, and
+true, or NIL and NIL for an event that is text for the input context:
+dead keys, input methods, and Option as AppKit uses it."
   (let* ((flags (objc:invoke event "modifierFlags"))
          (modifiers (append (when (logtest flags +control-mask+) '("Control"))
-                            (when (and *option-is-meta* (logtest flags +option-mask+))
-                              '("Meta"))))
+                            (when (meta-p flags) '("Meta"))))
          (unmodified (objc:ns-string-to-string
-                      (objc:invoke event "charactersIgnoringModifiers") t))
-         (text (objc:ns-string-to-string (objc:invoke event "characters") t)))
+                      (objc:invoke event "charactersIgnoringModifiers") t)))
     (cond
       ;; Command belongs to the menus, which have had their chance already.
-      ((logtest flags +command-mask+) '())
-      ((zerop (length unmodified)) '())
+      ((logtest flags +command-mask+) (values '() t))
+      ((zerop (length unmodified)) (values '() nil))
       (t
        (let* ((character (char unmodified 0))
               (name (key-name-for character)))
          (cond
-           (name (list (list :named name modifiers)))
-           (modifiers (list (list :char character modifiers)))
-           (t
-            (loop for c across (if (plusp (length text)) text unmodified)
-                  collect (let ((name (key-name-for c)))
-                            (if name
-                                (list :named name '())
-                                (list :char c '())))))))))))
+           (name (values (list (list :named name modifiers)) t))
+           ;; With a modifier the key is the unshifted character the event
+           ;; names, C-x as "x", with Shift already applied: M-< as "<".
+           (modifiers (values (list (list :char character modifiers)) t))
+           (t (values '() nil))))))))
 
 
 ;;;; Mouse
@@ -501,7 +640,10 @@ movement in points, a fraction of a line at a time.")
 (objc:define-objc-class xoamax-view ()
   ()
   (:objc-class-name "XoamaxView")
-  (:objc-superclass-name "NSView"))
+  (:objc-superclass-name "NSView")
+  ;; So that AppKit's input context talks to the view: dead keys, input
+  ;; methods, and their marked text.  The methods are below.
+  (:objc-protocols "NSTextInputClient"))
 
 (objc:define-objc-class window-delegate ()
   ()
@@ -538,15 +680,151 @@ movement in points, a fraction of a line at a time.")
         (draw-screen *display* *screen*))
     (error (condition) (log-error "drawRect:" condition))))
 
+;;; Named keys and keys with Control or Meta are Hemlock's directly.
+;;; Plain typing goes through AppKit's input context, which composes dead
+;;; keys and runs input methods, and comes back as -insertText: or
+;;; -setMarkedText:.  While an input method holds marked text, every key is
+;;; its to interpret.
+;;;
 (objc:define-objc-method ("keyDown:" :void)
-    ((self xoamax-view) (event objc:objc-object-pointer))
+    ((self xoamax-view pointer) (event objc:objc-object-pointer))
   (handler-case
-      (let ((descriptors (event-descriptors event)))
-        (when descriptors
-          (objc:invoke "NSCursor" "setHiddenUntilMouseMoves:" t)
-          (dolist (descriptor descriptors)
-            (post-to-editor descriptor))))
+      (multiple-value-bind (descriptors direct) (event-descriptors event)
+        (objc:invoke "NSCursor" "setHiddenUntilMouseMoves:" t)
+        (if (and direct (null (display-marked-text *display*)))
+            (dolist (descriptor descriptors)
+              (post-to-editor descriptor))
+            (unless (and direct (null descriptors))
+              (objc:invoke pointer "interpretKeyEvents:"
+                           (objc:invoke "NSArray" "arrayWithObject:" event)))))
     (error (condition) (log-error "keyDown:" condition))))
+
+;;;; NSTextInputClient
+
+;;; What the input context calls.  The document is Hemlock's, not
+;;; AppKit's, so there is no text to hand back and no selection to report:
+;;; only the marked text, which is shown at the cursor until it is
+;;; committed, and where the cursor is, for the candidate window.
+
+(defun text-of (string)
+  "STRING's characters: the input context may pass an NSAttributedString."
+  (if (objc:invoke-bool string "isKindOfClass:"
+                        (objc:coerce-to-objc-class "NSAttributedString"))
+      (objc:ns-string-to-string (objc:invoke string "string") t)
+      (objc:ns-string-to-string string t)))
+
+(defun set-marked-text (text)
+  (setf (display-marked-text *display*) (and text (plusp (length text)) text))
+  (request-redraw))
+
+(objc:define-objc-method ("insertText:replacementRange:" :void)
+    ((self xoamax-view) (string objc:objc-object-pointer) (range cocoa:ns-range))
+  (declare (ignore range))
+  (handler-case
+      (progn
+        (set-marked-text nil)
+        (dolist (descriptor (text-descriptors (text-of string)))
+          (post-to-editor descriptor)))
+    (error (condition) (log-error "insertText:" condition))))
+
+(objc:define-objc-method ("setMarkedText:selectedRange:replacementRange:" :void)
+    ((self xoamax-view) (string objc:objc-object-pointer)
+     (selected cocoa:ns-range) (replacement cocoa:ns-range))
+  (declare (ignore selected replacement))
+  (handler-case (set-marked-text (text-of string))
+    (error (condition) (log-error "setMarkedText:" condition))))
+
+(objc:define-objc-method ("unmarkText" :void) ((self xoamax-view))
+  (set-marked-text nil))
+
+(objc:define-objc-method ("hasMarkedText" objc:objc-bool) ((self xoamax-view))
+  (not (null (display-marked-text *display*))))
+
+(objc:define-objc-method ("markedRange" cocoa:ns-range) ((self xoamax-view))
+  (let ((marked (display-marked-text *display*)))
+    (if marked
+        (cons 0 (length marked))
+        (cons cocoa:ns-not-found 0))))
+
+(objc:define-objc-method ("selectedRange" cocoa:ns-range) ((self xoamax-view))
+  (let ((marked (display-marked-text *display*)))
+    (cons (if marked (length marked) 0) 0)))
+
+(objc:define-objc-method ("attributedSubstringForProposedRange:actualRange:"
+                          objc:objc-object-pointer)
+    ((self xoamax-view) (range cocoa:ns-range) (actual (:pointer :void)))
+  (declare (ignore range actual))
+  (cffi:null-pointer))
+
+(objc:define-objc-method ("validAttributesForMarkedText" objc:objc-object-pointer)
+    ((self xoamax-view))
+  (objc:invoke "NSArray" "array"))
+
+(objc:define-objc-method ("firstRectForCharacterRange:actualRange:" cocoa:ns-rect)
+    ((self xoamax-view pointer) (range cocoa:ns-range) (actual (:pointer :void)))
+  (declare (ignore range actual))
+  ;; Where the candidate window goes: at the cursor, in screen coordinates.
+  (let* ((display *display*)
+         (screen *screen*)
+         (x (or (screen-cursor-x screen) 0))
+         (y (or (screen-cursor-y screen) 0))
+         (in-window (objc:invoke pointer "convertRect:toView:"
+                                 (vector (df (cell-x display x)) (df (cell-y display y))
+                                         (df (display-char-width display))
+                                         (df (display-char-height display)))
+                                 nil)))
+    (objc:invoke (display-window display) "convertRectToScreen:" in-window)))
+
+(objc:define-objc-method ("characterIndexForPoint:" (:unsigned :long))
+    ((self xoamax-view) (point cocoa:ns-point))
+  (declare (ignore point))
+  0)
+
+(defparameter *command-selector-keys*
+  '(("insertNewline:" . "Return") ("insertLineBreak:" . "Return")
+    ("insertTab:" . "Tab") ("insertBacktab:" . "Tab")
+    ("deleteBackward:" . "Backspace") ("deleteForward:" . "Delete")
+    ("cancelOperation:" . "Escape")
+    ("moveLeft:" . "Leftarrow") ("moveRight:" . "Rightarrow")
+    ("moveUp:" . "Uparrow") ("moveDown:" . "Downarrow")
+    ("scrollPageUp:" . "Pageup") ("scrollPageDown:" . "Pagedown"))
+  "The editing selectors the input context sends for keys it did not
+consume, and the keys they are.")
+
+(objc:define-objc-method ("doCommandBySelector:" :void)
+    ((self xoamax-view) (selector objc:sel))
+  (let ((name (cdr (assoc (objc:selector-name selector) *command-selector-keys*
+                          :test #'string=))))
+    (when name
+      (post-to-editor (list :named name '())))))
+
+;;;; Font actions
+
+;;; The View menu's items target the application delegate, so that they
+;;; work whatever has the keyboard; -changeFont:, which the font panel sends
+;;; to the first responder, is the view's.
+
+(defmacro define-font-action ((class selector) &body body)
+  `(objc:define-objc-method (,selector :void)
+       ((self ,class) (sender objc:objc-object-pointer))
+     (declare (ignorable sender))
+     (handler-case (when *display* ,@body)
+       (error (condition) (log-error ,selector condition)))))
+
+(define-font-action (app-delegate "xoamaxBigger:") (change-font-size 1))
+(define-font-action (app-delegate "xoamaxSmaller:") (change-font-size -1))
+(define-font-action (app-delegate "xoamaxDefaultSize:") (change-font-size nil))
+(define-font-action (app-delegate "xoamaxShowFonts:") (show-font-panel))
+
+(defun show-font-panel ()
+  (let ((manager (objc:invoke "NSFontManager" "sharedFontManager")))
+    (objc:invoke manager "setSelectedFont:isMultiple:" (display-font *display*) nil)
+    (objc:invoke manager "orderFrontFontPanel:" nil)))
+
+(define-font-action (xoamax-view "changeFont:")
+  (let ((font (objc:invoke sender "convertFont:" (display-font *display*))))
+    (change-font :name (objc:ns-string-to-string (objc:invoke font "fontName"))
+                 :size (objc:invoke font "pointSize"))))
 
 (defmacro define-mouse-method (selector &body body)
   `(objc:define-objc-method (,selector :void)
@@ -630,9 +908,10 @@ movement in points, a fraction of a line at a time.")
                "initWithTitle:action:keyEquivalent:"
                title (objc:coerce-to-selector action) key))
 
-(defun install-main-menu (app)
-  "An application menu with Hide and Quit, when there is no menu yet: a
-process started from a REPL, or a bundle without a nib, has none."
+(defun install-main-menu (app target)
+  "An application menu with Hide and Quit, and a View menu whose items are
+TARGET's, when there is no menu yet: a process started from a REPL, or a
+bundle without a nib, has none."
   (when (null-pointer-p (objc:invoke app "mainMenu"))
     (let ((menubar (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" ""))
           (app-item (objc:alloc-init-object "NSMenuItem"))
@@ -642,7 +921,31 @@ process started from a REPL, or a bundle without a nib, has none."
       (objc:invoke app-menu "addItem:" (menu-item "Quit Xoamax" "terminate:" "q"))
       (objc:invoke app-item "setSubmenu:" app-menu)
       (objc:invoke menubar "addItem:" app-item)
+      (objc:invoke menubar "addItem:" (view-menu-item target))
       (objc:invoke app "setMainMenu:" menubar))))
+
+(defun view-menu-item (target)
+  "The View menu: the font, and its size with Cmd-+, Cmd-- and Cmd-0."
+  (let ((item (objc:alloc-init-object "NSMenuItem"))
+        (menu (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" "View")))
+    (flet ((add (title action key &key hidden)
+             (let ((entry (menu-item title action key)))
+               (objc:invoke entry "setTarget:" target)
+               (when hidden
+                 (objc:invoke entry "setHidden:" t)
+                 (objc:invoke entry "setAllowsKeyEquivalentWhenHidden:" t))
+               (objc:invoke menu "addItem:" entry))))
+      (add "Show Fonts" "xoamaxShowFonts:" "t")
+      (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
+      (add "Bigger" "xoamaxBigger:" "+")
+      ;; Cmd-= is Cmd-+ without the Shift nobody presses: an item of its
+      ;; own, hidden, whose key equivalent still works.
+      (add "Bigger" "xoamaxBigger:" "=" :hidden t)
+      (add "Smaller" "xoamaxSmaller:" "-")
+      (add "Default Size" "xoamaxDefaultSize:" "0"))
+    (objc:invoke item "setTitle:" "View")
+    (objc:invoke item "setSubmenu:" menu)
+    item))
 
 (defun make-window (display)
   (let* ((width (+ (* 2 *margin*) (* *initial-columns* (display-char-width display))))
@@ -657,12 +960,6 @@ process started from a REPL, or a bundle without a nib, has none."
     ;; Lisp owns the window: closing it must not free it under us.
     (objc:invoke window "setReleasedWhenClosed:" nil)
     (objc:invoke window "setTitle:" "Xoamax")
-    (objc:invoke window "setContentMinSize:"
-                 (vector (df (+ (* 2 *margin*) (* 20 (display-char-width display))))
-                         (df (+ (* 2 *margin*) (* 6 (display-char-height display))))))
-    (objc:invoke window "setContentResizeIncrements:"
-                 (vector (df (display-char-width display))
-                         (df (display-char-height display))))
     (objc:invoke view "setFrame:" rect)
     (objc:invoke window "setContentView:" view)
     (objc:invoke window "setDelegate:" (objc:objc-object-pointer delegate))
@@ -673,6 +970,7 @@ process started from a REPL, or a bundle without a nib, has none."
           (display-view-object display) view-object
           (display-delegate display) delegate
           *main-thread-target* view)
+    (fit-window-to-cell display)
     display))
 
 (defun ensure-display ()
@@ -683,10 +981,11 @@ window and the screen.  Main thread only."
         (objc:ensure-objc-initialized :modules (list +appkit-path+))
         (let ((app (objc.runloop:shared-application))
               (display (make-instance 'display)))
-          (install-main-menu app)
           (let ((app-delegate (make-instance 'app-delegate)))
             (setf (display-app-delegate display) app-delegate)
-            (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate)))
+            (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate))
+            (install-main-menu app (objc:objc-object-pointer app-delegate)))
+          (restore-font-choice)
           (install-fonts display)
           (make-window display)
           (multiple-value-bind (columns lines) (grid-size display)
