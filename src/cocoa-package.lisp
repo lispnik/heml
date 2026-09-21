@@ -8,6 +8,7 @@
            #:*font-name*
            #:*font-size*
            #:*option-is-meta*
+           #:*right-option-is-meta*
            #:*initial-columns*
            #:*initial-lines*)
   (:documentation "The native macOS backend.

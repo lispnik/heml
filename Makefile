@@ -15,7 +15,13 @@ run:
 app:
 	$(LISP) --eval '(asdf:make "xoamax-app")'
 
+# The Cocoa editor driven end to end, with checks, and a picture of each
+# step in build/smoke/.  It neither takes the keyboard nor touches the
+# clipboard, so it can run while you work.
+smoke:
+	$(LISP) --load test/smoke.lisp
+
 clean:
 	rm -rf build
 
-.PHONY: deps run app clean
+.PHONY: deps run app smoke clean

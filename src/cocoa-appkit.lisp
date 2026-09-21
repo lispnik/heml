@@ -22,6 +22,19 @@ types the characters the keyboard layout puts on it, dead keys included.")
   "Whether the right Option key is Meta too.  By default it is left to
 AppKit, so that one Option key is Meta and the other types characters.")
 
+(defvar *activate* t
+  "Whether showing the window makes Xoamax the active application.  The
+smoke test turns it off, so that a run does not take the keyboard from
+whoever is working while it runs.")
+
+(defvar *pasteboard-name* nil
+  "The pasteboard the kill ring is joined to: NIL for the general one, that
+every application shares, or the name of a private one, as the smoke test
+uses so as not to overwrite the user's clipboard.")
+
+(defvar *remember-font* t
+  "Whether the font chosen is kept in the user defaults for next time.")
+
 (defvar *initial-columns* 100)
 (defvar *initial-lines* 40)
 
@@ -115,6 +128,61 @@ thread it is simply called."
 
 (defmacro on-main-thread (&body body)
   `(call-on-main-thread (lambda () ,@body)))
+
+(defun call-on-main-thread-and-wait (function)
+  "Run FUNCTION on the main thread and return its values, waiting for it.
+Only from a thread the main thread never waits for -- the editor's."
+  (if (objc.runloop:main-thread-p)
+      (funcall function)
+      (let ((values '())
+            (condition nil))
+        (bt:with-lock-held (*main-thread-queue-lock*)
+          (push (lambda ()
+                  (handler-case (setf values (multiple-value-list (funcall function)))
+                    (error (c) (setf condition c))))
+                *main-thread-queue*))
+        (objc:invoke *main-thread-target*
+                     "performSelectorOnMainThread:withObject:waitUntilDone:modes:"
+                     (objc:coerce-to-selector "xoamaxDrain")
+                     nil t +run-loop-modes+)
+        (when condition (error condition))
+        (values-list values))))
+
+
+;;;; The clipboard
+
+;;; Hemlock's kill ring and the general pasteboard, joined as Emacs joins
+;;; them (killcoms.lisp).  The pasteboard's change count says whether
+;;; anyone has written to it since this process last did, or last read it:
+;;; only then is its text news to the kill ring.  Main thread only.
+
+(defparameter +plain-text-type+ "public.utf8-plain-text")
+
+(defvar *pasteboard-change-count* nil
+  "The general pasteboard's change count when this process last wrote or
+read it, or NIL before either.")
+
+(defun general-pasteboard ()
+  (if *pasteboard-name*
+      (objc:invoke "NSPasteboard" "pasteboardWithName:" *pasteboard-name*)
+      (objc:invoke "NSPasteboard" "generalPasteboard")))
+
+(defun write-pasteboard (text)
+  (let ((pasteboard (general-pasteboard)))
+    (objc:invoke pasteboard "clearContents")
+    (objc:invoke pasteboard "setString:forType:" text +plain-text-type+)
+    (setf *pasteboard-change-count* (objc:invoke pasteboard "changeCount"))))
+
+(defun read-pasteboard-if-changed ()
+  "The pasteboard's text, if something other than this process has put it
+there since it last looked; otherwise NIL."
+  (let* ((pasteboard (general-pasteboard))
+         (count (objc:invoke pasteboard "changeCount")))
+    (unless (eql count *pasteboard-change-count*)
+      (setf *pasteboard-change-count* count)
+      (let ((string (objc:invoke pasteboard "stringForType:" +plain-text-type+)))
+        (unless (null-pointer-p string)
+          (objc:ns-string-to-string string t))))))
 
 
 ;;;; The inbox
@@ -248,6 +316,10 @@ The text attribute cache goes with the old fonts: its dictionaries name them."
   (objc:invoke "NSUserDefaults" "standardUserDefaults"))
 
 (defun restore-font-choice ()
+  (when *remember-font*
+    (restore-saved-font)))
+
+(defun restore-saved-font ()
   (let* ((defaults (user-defaults))
          (name (objc:invoke defaults "stringForKey:" +font-name-key+))
          (size (objc:invoke defaults "doubleForKey:" +font-size-key+)))
@@ -257,6 +329,10 @@ The text attribute cache goes with the old fonts: its dictionaries name them."
       (setf *font-size* size))))
 
 (defun save-font-choice ()
+  (when *remember-font*
+    (save-font)))
+
+(defun save-font ()
   (let ((defaults (user-defaults)))
     (if *font-name*
         (objc:invoke defaults "setObject:forKey:" *font-name* +font-name-key+)
@@ -800,9 +876,9 @@ consume, and the keys they are.")
 
 ;;;; Font actions
 
-;;; The View menu's items target the application delegate, so that they
-;;; work whatever has the keyboard; -changeFont:, which the font panel sends
-;;; to the first responder, is the view's.
+;;; The menus' items target the application delegate, so that they work
+;;; whatever has the keyboard; -changeFont:, which the font panel sends to
+;;; the first responder, is the view's.
 
 (defmacro define-font-action ((class selector) &body body)
   `(objc:define-objc-method (,selector :void)
@@ -815,6 +891,17 @@ consume, and the keys they are.")
 (define-font-action (app-delegate "xoamaxSmaller:") (change-font-size -1))
 (define-font-action (app-delegate "xoamaxDefaultSize:") (change-font-size nil))
 (define-font-action (app-delegate "xoamaxShowFonts:") (show-font-panel))
+
+;;; The Edit menu's items are Command keys to Hemlock -- Super, in its
+;;; terms -- so that what Cut or Paste does is a key binding like any other
+;;; (INSTALL-MAC-BINDINGS).
+(macrolet ((edit-actions (&rest pairs)
+             `(progn
+                ,@(loop for (selector character) on pairs by #'cddr
+                        collect `(define-font-action (app-delegate ,selector)
+                                   (post-to-editor (list :char ,character '("Super"))))))))
+  (edit-actions "xoamaxUndo:" #\z "xoamaxCut:" #\x "xoamaxCopy:" #\c
+                "xoamaxPaste:" #\v "xoamaxSelectAll:" #\a))
 
 (defun show-font-panel ()
   (let ((manager (objc:invoke "NSFontManager" "sharedFontManager")))
@@ -883,6 +970,21 @@ consume, and the keys they are.")
   (declare (ignore notification))
   (request-redraw))
 
+;;; Files from Finder -- Open With, a drop on the Dock icon, `open -a`
+;;; -- arrive here, at launch as well as later, and are the editor's to
+;;; visit, as files named on its command line are.
+;;;
+(objc:define-objc-method ("application:openURLs:" :void)
+    ((self app-delegate) (app objc:objc-object-pointer) (urls objc:objc-object-pointer))
+  (declare (ignore app))
+  (handler-case
+      (dotimes (i (objc:invoke urls "count"))
+        (let ((url (objc:invoke urls "objectAtIndex:" i)))
+          (when (objc:invoke-bool url "isFileURL")
+            (post-to-editor
+             (list :open (objc:ns-string-to-string (objc:invoke url "path")))))))
+    (error (condition) (log-error "application:openURLs:" condition))))
+
 (defconstant +terminate-cancel+ 0)
 (defconstant +terminate-now+ 1)
 
@@ -921,8 +1023,27 @@ bundle without a nib, has none."
       (objc:invoke app-menu "addItem:" (menu-item "Quit Xoamax" "terminate:" "q"))
       (objc:invoke app-item "setSubmenu:" app-menu)
       (objc:invoke menubar "addItem:" app-item)
+      (objc:invoke menubar "addItem:" (edit-menu-item target))
       (objc:invoke menubar "addItem:" (view-menu-item target))
       (objc:invoke app "setMainMenu:" menubar))))
+
+(defun edit-menu-item (target)
+  "The Edit menu: Undo, Cut, Copy, Paste and Select All, as Command keys."
+  (let ((item (objc:alloc-init-object "NSMenuItem"))
+        (menu (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" "Edit")))
+    (flet ((add (title action key)
+             (let ((entry (menu-item title action key)))
+               (objc:invoke entry "setTarget:" target)
+               (objc:invoke menu "addItem:" entry))))
+      (add "Undo" "xoamaxUndo:" "z")
+      (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
+      (add "Cut" "xoamaxCut:" "x")
+      (add "Copy" "xoamaxCopy:" "c")
+      (add "Paste" "xoamaxPaste:" "v")
+      (add "Select All" "xoamaxSelectAll:" "a"))
+    (objc:invoke item "setTitle:" "Edit")
+    (objc:invoke item "setSubmenu:" menu)
+    item))
 
 (defun view-menu-item (target)
   "The View menu: the font, and its size with Cmd-+, Cmd-- and Cmd-0."
@@ -973,6 +1094,19 @@ bundle without a nib, has none."
     (fit-window-to-cell display)
     display))
 
+(defun use-icon-if-unbundled (app)
+  "Give a process started from a REPL the application's icon in the Dock.
+A bundle has its own, from its Info.plist."
+  (let ((path (ignore-errors
+               (asdf:system-relative-pathname :hemlock.cocoa "resources/xoamax.png"))))
+    (when (and path (probe-file path)
+               (null-pointer-p (objc:invoke (objc:invoke "NSBundle" "mainBundle")
+                                            "bundleIdentifier")))
+      (let ((image (objc:invoke (objc:invoke "NSImage" "alloc") "initWithContentsOfFile:"
+                                (namestring path))))
+        (unless (null-pointer-p image)
+          (objc:invoke app "setApplicationIconImage:" image))))))
+
 (defun ensure-display ()
   "The display, made the first time: AppKit brought up, the menu, the
 window and the screen.  Main thread only."
@@ -985,6 +1119,7 @@ window and the screen.  Main thread only."
             (setf (display-app-delegate display) app-delegate)
             (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate))
             (install-main-menu app (objc:objc-object-pointer app-delegate)))
+          (use-icon-if-unbundled app)
           (restore-font-choice)
           (install-fonts display)
           (make-window display)
@@ -996,7 +1131,8 @@ window and the screen.  Main thread only."
 (defun show-window ()
   (let ((display *display*))
     (objc:invoke (display-window display) "makeKeyAndOrderFront:" nil)
-    (objc:invoke (objc.runloop:shared-application) "activateIgnoringOtherApps:" t)))
+    (when *activate*
+      (objc:invoke (objc.runloop:shared-application) "activateIgnoringOtherApps:" t))))
 
 (defun hide-window ()
   (let ((display *display*))

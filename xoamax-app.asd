@@ -22,6 +22,7 @@
   :bundle-executable "xoamax"
   :bundle-principal-class "NSApplication"
   :bundle-category "public.app-category.developer-tools"
+  :bundle-icon "resources/xoamax.png"
   :bundle-output-directory #.(merge-pathnames "build/" (uiop:pathname-directory-pathname
                                                         (or *load-truename* *default-pathname-defaults*)))
   :bundle-document-types ((:dict ("CFBundleTypeName" . "Text")

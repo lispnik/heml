@@ -37,6 +37,7 @@
    #+BEGIN_SRC shell  :tangle no
      make deps     # ocicl install
      make run      # the editor in a window, from a terminal SBCL
+     make smoke    # drive it end to end and check it; pictures in build/smoke
      make app      # build/Xoamax.app
    #+END_SRC
 
@@ -57,6 +58,15 @@
    included (=hemlock.cocoa:*right-option-is-meta*= makes it Meta too).
    Input methods work, their text composed at the cursor.  Wide
    characters -- CJK, fullwidth forms, emoji -- take two columns.
+
+   The kill ring and the clipboard are one: what is killed or copied
+   (C-w, M-w, Cmd-X, Cmd-C) can be pasted in other applications, and
+   what they copy is what the next yank (C-y, Cmd-V) inserts.  The Edit
+   menu's Undo, Cut, Copy, Paste and Select All are Command keys bound to
+   Hemlock commands, so they can be rebound like any other key.
+
+   Xoamax.app opens files from Finder -- Open With, a drop on its Dock
+   icon, =open -a Xoamax file= -- in the running editor.
 
    View > Show Fonts (Cmd-T) picks the font, and Cmd-+, Cmd-- and Cmd-0
    make it bigger, smaller, or the default size again; the commands

@@ -8,7 +8,7 @@ Xoamax (also spelled "Xomax" in docs) is an Emacs-style editor written in Common
 
 ## Building and running
 
-There is no test suite. Verify changes by loading the system and running the editor.
+There is no unit test suite. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend.
 
 Dependencies come from ocicl: `make deps` (`ocicl install`) restores what `ocicl.csv` lists into `ocicl/`, which is gitignored. That includes `objc` and `asdf-macos-app`. On macOS, `make run` opens the Cocoa editor from a fresh SBCL, and `make app` builds `build/Xoamax.app` through `xoamax-app.asd`.
 
@@ -28,7 +28,7 @@ Standalone SBCL binary: `./build.sh [tty|clx|qt ...]` builds `./hemlock`, with t
 
 Runtime requirements: iolib needs `libfixposix`. If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The CLX backend needs an X server and `$DISPLAY`. Without `$DISPLAY`, the editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise.
 
-To check a Cocoa change without watching the window, post key descriptors from a helper thread with `hemlock.cocoa::post-to-editor`, for example `(list :char #\x '("Meta"))` or `:quit`. Then have the view write itself to a PNG on the main thread: `-bitmapImageRepForCachingDisplayInRect:` followed by `-cacheDisplayInRect:toBitmapImageRep:`. `screencapture` needs Screen Recording permission, which a terminal usually lacks.
+`test/smoke.lisp` shows how to drive the editor without watching it. It posts descriptors with `hemlock.cocoa::post-to-editor`, such as `(list :char #\x '("Meta"))` or `:quit`. It sends real NSEvents to the window, and has the view render itself to a PNG. `screencapture` needs Screen Recording permission, which a terminal usually lacks. A synthesized key-down cannot enter a dead-key state, so dead keys need a real keyboard.
 
 ## Architecture
 
@@ -65,6 +65,8 @@ The backend keyword is also mapped to a connection backend in two `ecase` forms:
 - Input: `-keyDown:` posts plain descriptors to an inbox and writes a byte to a pipe. The pipe's read end is an ordinary iolib connection, and its filter turns the descriptors into key-events on the editor thread.
 - Output: the device's redisplay methods copy dis-lines into the screen (a locked grid of rows), and `-drawRect:` paints only that.
 - Typing: named keys, and keys with Control or Meta, are posted directly from `-keyDown:`. Everything else goes through `-interpretKeyEvents:` and the view's `NSTextInputClient` methods, so dead keys and input methods work. Only the left Option key is Meta by default.
+- The clipboard: `*interprogram-cut-function*` and `*interprogram-paste-function*` (`killcoms.lisp`) join the kill ring to the pasteboard. Kills and "Save Region" call the first; "Un-Kill" calls the second, and uses the pasteboard only if its change count shows another application wrote to it. The Edit menu posts Super keys, which `install-mac-bindings` binds.
+- Files from Finder arrive at the app delegate's `application:openURLs:` and are visited through `process-command-line-argument`.
 - Fonts: fonts belong to the main thread. `change-font` re-measures the cell and posts a `:resize`, and it saves the choice in `NSUserDefaults`. The View menu's items target the app delegate, not the responder chain, so their shortcuts work whatever has focus.
 - Anything AppKit must do for the editor thread goes through `on-main-thread`.
 

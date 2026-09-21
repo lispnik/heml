@@ -98,6 +98,9 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
              (queue-key-event (hemlock-ext::make-key-event "c" control))))
           ((eq (car item) :resize)
            (resize-screen (current-device) (second item) (third item)))
+          ((eq (car item) :open)
+           ;; As a file named on the command line is visited.
+           (hi::process-command-line-argument (second item)))
           ((eq (car item) :mouse)
            (destructuring-bind (name modifiers column line) (rest item)
              (queue-mouse-event name modifiers column line)))
@@ -130,18 +133,30 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
                  (hemlock-ext:make-key-event name (modifier-bits modifiers))
                  x y hunk)))
 
-;;; A click moves point and a drag marks a region, as elsewhere on the Mac,
-;;; rather than CMU Hemlock's left button, which scrolled the line clicked
-;;; to the top of the window.  The active region looks like a selection.
+;;; What makes the editor behave as a Mac application.  A click moves point
+;;; and a drag marks a region, rather than CMU Hemlock's left button, which
+;;; scrolled the line clicked to the top of the window; the active region
+;;; looks like a selection.  The Edit menu's Command keys -- Super here --
+;;; are the commands a Mac user expects of them, and the kill ring is
+;;; joined to the general pasteboard.
 ;;;
-(defun install-pointer-bindings ()
+(defun install-mac-bindings ()
   (flet ((key (name &rest modifiers)
            (hemlock-ext:make-key-event name (modifier-bits modifiers))))
     (hi::bind-key "Mouse Set Point" (key "Leftdown"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup"))
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
-    (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift")))
-  (setf hemlock::*active-region-highlight-font* '(:bg :selection)))
+    (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift"))
+    (hi::bind-key "Undo" (key "z" "Super"))
+    (hi::bind-key "Kill Region" (key "x" "Super"))
+    (hi::bind-key "Save Region" (key "c" "Super"))
+    (hi::bind-key "Un-Kill" (key "v" "Super"))
+    (hi::bind-key "Mark Whole Buffer" (key "a" "Super")))
+  (setf hemlock::*active-region-highlight-font* '(:bg :selection)
+        hemlock::*interprogram-cut-function*
+        (lambda (text) (on-main-thread (write-pasteboard text)))
+        hemlock::*interprogram-paste-function*
+        (lambda () (call-on-main-thread-and-wait #'read-pasteboard-if-changed))))
 
 (defvar *wakeup-connection* nil)
 
@@ -196,7 +211,7 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
             (hi::device-hunk-next main-hunk) main-hunk)
       (setf (hi::device-hunks device) main-hunk))
     (ensure-wakeup-connection)
-    (install-pointer-bindings)
+    (install-mac-bindings)
     device))
 
 

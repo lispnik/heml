@@ -48,7 +48,10 @@ perform delivered through the run loop is not an event, so one is posted."
     (objc:invoke (objc.runloop:shared-application) "run")
     (bt:join-thread thread)
     (hide-window)
-    (objc.runloop:restore-frontmost)
+    ;; Give the keyboard back to whoever had it -- but only if it was
+    ;; taken, or this would pull the user back from wherever they are now.
+    (when *activate*
+      (objc.runloop:restore-frontmost))
     (values-list outcome)))
 
 ;;; The editor's title follows the current buffer.

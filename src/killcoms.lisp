@@ -16,6 +16,36 @@
 
 (defvar *kill-ring* (make-ring 10) "The Hemlock kill ring.")
 
+;;; The kill ring and a window system's clipboard, as Emacs joins them.  A
+;;; backend with a clipboard sets these; the commands that kill or save a
+;;; region hand their text to the first, and a yank asks the second first.
+;;; Characters deleted one at a time are not handed over, although enough
+;;; of them go on the kill ring: backspacing should not replace what was
+;;; copied.
+;;;
+(defvar *interprogram-cut-function* nil
+  "NIL, or a function of a string: the text newly at the top of the kill
+   ring, for other programs.")
+
+(defvar *interprogram-paste-function* nil
+  "NIL, or a function of no arguments that returns text another program has
+   put on the clipboard since the last cut or paste, or NIL when there is
+   none.")
+
+(defun interprogram-cut ()
+  (when (and *interprogram-cut-function* (plusp (ring-length *kill-ring*)))
+    (funcall *interprogram-cut-function*
+             (region-to-string (ring-ref *kill-ring* 0)))))
+
+(defun interprogram-paste ()
+  "Put text from another program on top of the kill ring, if there is any."
+  (let ((text (and *interprogram-paste-function*
+                   (funcall *interprogram-paste-function*))))
+    (when (and text (plusp (length text)))
+      (let ((region (make-empty-region)))
+        (insert-string (region-end region) text)
+        (ring-push region *kill-ring*)))))
+
 
 
 ;;;; Active Regions.
@@ -220,7 +250,8 @@
            (setf region (delete-and-save-region region))
            (ring-push region *kill-ring*)))
     (make-region-undo :insert "kill" (copy-region region) insert-mark)
-    (setf (last-command-type) current-type)))
+    (setf (last-command-type) current-type)
+    (interprogram-cut)))
 
 (defun kill-region-top-of-ring (region current-type)
   (let ((r (ring-ref *kill-ring* 0)))
@@ -323,7 +354,8 @@
    If the region is not active nor the last command a yank, signal an error."
   "Insert the region into the kill ring."
   (declare (ignore p))
-  (ring-push (copy-region (current-region)) *kill-ring*))
+  (ring-push (copy-region (current-region)) *kill-ring*)
+  (interprogram-cut))
 
 (defcommand "Kill Next Word" (p)
   "Kill a word at the point.
@@ -438,6 +470,7 @@
   argument inserts the prefix'th most recent item."
   "Inserts the item with index p in the kill ring at the point, leaving
   the mark before and the point after."
+  (interprogram-paste)
   (let ((idx (1- (or p 1))))
     (cond ((> (ring-length *kill-ring*) idx -1)
            (let* ((region (ring-ref *kill-ring* idx))
