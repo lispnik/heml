@@ -114,7 +114,7 @@
   (insert-character (buffer-point (current-buffer)) character))
 
 (defun key-vector-to-string (key-vector)
-  (let ((string (make-array (length key-vector) :element-type 'base-char)))
+  (let ((string (make-array (length key-vector) :element-type 'character)))
     (dotimes (i (length key-vector) string)
       (setf (aref string i) (hemlock-ext:key-event-char (aref key-vector i))))))
 

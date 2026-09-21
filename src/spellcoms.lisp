@@ -663,7 +663,7 @@
                                       (name (spell-info-pathname info)))
   (when (spell-info-insertions info)
     (with-open-file (stream name
-                            :direction :output :element-type 'base-char
+                            :direction :output :element-type 'character
                             :if-exists :append :if-does-not-exist :create)
       (dolist (w (spell-info-insertions info))
         (write-line w stream)))

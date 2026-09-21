@@ -552,6 +552,7 @@
    #:*all-modifier-names* #:translate-key-event #:translate-mouse-key-event
    #:make-key-event #:key-event #:key-event-p #:key-event-bits #:key-event-keysym
    #:char-key-event #:key-event-char #:key-event-bit-p #:do-alpha-key-events
+   #:character-key-event
    #:print-pretty-key #:print-pretty-key-event
 
    ;; hemlock-ext.lisp

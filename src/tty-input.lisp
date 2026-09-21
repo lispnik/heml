@@ -176,7 +176,7 @@
   (let ((string (coerce data 'string)))
     (or (gethash string *tty-translations*)
         (when (= 1 (length string))
-          (hemlock-ext:char-key-event (char string 0))))))
+          (hemlock-ext:character-key-event (char string 0))))))
 
 (defun tty-key-event (data)
   (loop with start = 0

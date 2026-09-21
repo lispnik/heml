@@ -229,8 +229,10 @@
                   (setf (cffi:mem-aref argv :pointer i)
                         (cffi:foreign-string-alloc arg)))
        (setf (cffi:mem-aref argv :pointer n) (cffi:null-pointer))
-       (isys:execvp file argv)))
-   (isys::exit 1)))
+       ;; A failed exec signals, and this is a forked copy of a threaded
+       ;; Lisp: nothing may unwind or reach the debugger here.
+       (ignore-errors (isys:execvp file argv))))
+   (cffi:foreign-funcall "_exit" :int 127 :void)))
 
 (defun %fork-and-exec (file args &optional directory slave-pty-name)
   (multiple-value-bind (stdin-read stdin-write)

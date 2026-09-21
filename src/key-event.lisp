@@ -254,7 +254,7 @@
 ;;; modifier identifier.
 ;;;
 (defvar *id-namestring*
-  (make-array 30 :adjustable t :fill-pointer 0 :element-type 'base-char))
+  (make-array 30 :adjustable t :fill-pointer 0 :element-type 'character))
 
 ;;; PARSE-KEY-FUN -- Internal.
 ;;;
@@ -352,7 +352,11 @@
     (cond ((char= char key-event-escape-char)
            (let ((char (read-char stream t nil t)))
              (values char :escaped)))
-          (t (values char (svref *key-character-classes* (char-code char)))))))
+          ;; The table covers Hemlock's CHAR-CODE-LIMIT, 256; every
+          ;; character past it is an ordinary one.
+          (t (values char (if (< (char-code char) char-code-limit)
+                              (svref *key-character-classes* (char-code char))
+                              :other))))))
 
 
 
@@ -468,6 +472,12 @@
 
 (defvar *keysym-high-bytes*)
 
+;;; Keysyms past 16 bits -- X11's Unicode keysyms, which CHARACTER-KEY-EVENT
+;;; uses for characters past Latin-1 -- are too sparse for the two-level
+;;; table, and live here, keyed on (keysym . bits).
+;;;
+(defvar *large-keysym-key-events* (make-hash-table :test #'equal))
+
 (defconstant modifier-bits-limit (ash 1 modifier-count-limit))
 
 ;;; GET-KEY-EVENT -- Internal.
@@ -478,6 +488,14 @@
 ;;; error when the system tries to print it.
 ;;;
 (defun get-key-event* (keysym bits)
+  (if (>= keysym (* 256 (length *keysym-high-bytes*)))
+      (let ((key (cons keysym bits)))
+        (or (gethash key *large-keysym-key-events*)
+            (setf (gethash key *large-keysym-key-events*)
+                  (%make-key-event keysym bits))))
+      (get-small-key-event* keysym bits)))
+
+(defun get-small-key-event* (keysym bits)
   (let* ((high-byte (ash keysym -8))
          (low-byte-vector (svref *keysym-high-bytes* high-byte)))
     (unless low-byte-vector
@@ -553,19 +571,64 @@
   (setf (gethash key-event *key-event-characters*) character))
 
 ;;; This maps characters to key-events.  Users modify this by SETF'ing
-;;; CHAR-KEY-EVENT.
+;;; CHAR-KEY-EVENT.  The vector covers Hemlock's CHAR-CODE-LIMIT, 256, and
+;;; the hash table every character past it.
 ;;;
 (defvar *character-key-events*)
+(defvar *large-character-key-events* (make-hash-table))
 
 (defun char-key-event (char)
   "Returns the key-event associated with char.  This is SETF'able."
   (check-type char character)
-  (svref *character-key-events* (char-code char)))
+  (let ((code (char-code char)))
+    (if (< code (length *character-key-events*))
+        (svref *character-key-events* code)
+        (gethash code *large-character-key-events*))))
 
 (defun (setf char-key-event) (key-event char)
   (check-type char character)
   (check-type key-event key-event)
-  (setf (svref *character-key-events* (char-code char)) key-event))
+  (let ((code (char-code char)))
+    (if (< code (length *character-key-events*))
+        (setf (svref *character-key-events* code) key-event)
+        (setf (gethash code *large-character-key-events*) key-event))))
+
+
+;;;; CHARACTER-KEY-EVENT.
+
+;;; Keysyms-defs.lisp defines keysyms for ASCII.  Any other character gets
+;;; one the first time it is typed: its code for Latin-1, as in X11, and
+;;; X11's Unicode keysym past that, the code plus #x01000000.  The offset is
+;;; what keeps a character from colliding with the special keys, whose
+;;; keysyms are in #xFF00-#xFFFF: U+FF51 would otherwise be Leftarrow.
+;;;
+(defconstant unicode-keysym-offset #x01000000)
+
+(defvar *new-character-key-event-hook* nil
+  "Called with each key-event CHARACTER-KEY-EVENT makes, so that it can be
+   bound; the editor binds it to Self Insert.")
+
+(defun character-key-event (character)
+  "Returns the key-event, with no modifier bits, for typing CHARACTER, making
+   it and its keysym if there are none yet.  NIL for a character that is not
+   graphic and has no key-event."
+  (check-type character character)
+  (or (char-key-event character)
+      (when (graphic-char-p character)
+        (let* ((code (char-code character))
+               (keysym (or (name-keysym (string character))
+                           (let ((keysym (if (< code 256)
+                                             code
+                                             (+ unicode-keysym-offset code))))
+                             (unless (keysym-names keysym)
+                               (define-keysym keysym (string character)))
+                             keysym)))
+               (key-event (get-key-event* keysym 0)))
+          (setf (key-event-char key-event) character
+                (char-key-event character) key-event)
+          (when *new-character-key-event-hook*
+            (funcall *new-character-key-event-hook* key-event))
+          key-event))))
 
 
 ;;;; DO-ALPHA-KEY-EVENTS.
@@ -663,9 +726,11 @@
   (setf *modifier-count* 0)
   (setf *all-modifier-names* ())
   (setf *keysym-high-bytes* (make-array 256 :initial-element nil))
+  (setf *large-keysym-key-events* (make-hash-table :test #'equal))
   (setf *key-event-characters* (make-hash-table))
   (setf *character-key-events*
         (make-array char-code-limit :initial-element nil))
+  (setf *large-character-key-events* (make-hash-table))
 
   (define-key-event-modifier "Hyper" "H")
   (define-key-event-modifier "Super" "S")

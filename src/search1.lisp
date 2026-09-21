@@ -191,7 +191,7 @@
              (setq scan (,-/+ scan 1)  patp (1- patp))))
         (t
          ;; If mismatch consult jump table to find amount to skip.
-         (let ((jump (svref ,jumps (char-code char))))
+         (let ((jump (svref ,jumps (logand (char-code char) #xff))))
            (declare (fixnum jump))
            (if (> jump (- ,patlen patp))
                (setq scan (,+/- scan jump))
@@ -229,7 +229,7 @@
              (setq scan (,-/+ scan 1)  patp (1- patp))))
         (t
          ;; If mismatch consult jump table to find amount to skip.
-         (let ((jump (svref ,jumps hash)))
+         (let ((jump (svref ,jumps (logand hash #xff))))
            (declare (fixnum jump))
            (if (> jump (- ,patlen patp))
                (setq scan (,+/- scan jump))
@@ -348,6 +348,10 @@
 ); eval-when (:compile-toplevel :execute)
 
 ;;; compute-boyer-moore-jumps  --  Internal
+;;;
+;;;    The table is indexed by the low byte of a character's code, here and
+;;; where it is consulted, so that it serves every character: those that
+;;; share a byte share the smallest skip any of them allows, which is safe.
 ;;;
 ;;;    Compute return a jump-vector to do a Boyer-Moore search for
 ;;; the "string" of things in Vector.  Access-fun is a function

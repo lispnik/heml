@@ -184,7 +184,9 @@
 (defun %i-search-char-eval (key-event string point trailer direction failure)
   (declare (simple-string string))
   (cond ((let ((character (key-event-char key-event)))
-           (and character (standard-char-p character)))
+           (and character
+                (or (graphic-char-p character)
+                    (char= character #\Newline))))
          (%i-search-printed-char key-event string point trailer
                                  direction failure))
         ((or (logical-key-event-p key-event :forward-search)

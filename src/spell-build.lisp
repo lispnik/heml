@@ -251,7 +251,7 @@
           (write-byte32 (aref dictionary i) s))
         (dotimes (i descriptors-size)
           (write-byte16 (aref descriptors i) s)))))
-  (with-open-file (s filename :direction :output :element-type 'base-char
+  (with-open-file (s filename :direction :output :element-type 'character
                      #+scl #+scl :external-format :iso-8859-1
                      :if-exists :append)
     (write-string string-table s :end string-table-length)))

@@ -1387,7 +1387,9 @@ to the appropriate home directory."
                                 direction
                                 failure)
   (cond ((let ((character (hemlock-ext:key-event-char key-event)))
-           (and character (standard-char-p character)))
+           (and character
+                (or (graphic-char-p character)
+                    (char= character #\Newline))))
          (%line-isearch-printed-char key-event
                                      string
                                      point

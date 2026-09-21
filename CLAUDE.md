@@ -76,7 +76,9 @@ Window geometry follows the TTY backend (`tty-screen.lisp`): a hunk's position i
 
 Useful globals include `hi::*buffer-list*` and `hi::*window-list*`.
 
-**Text is ASCII.** Buffer lines are base strings, so `insert-character` rejects any character that is not a `base-char`, which on SBCL means anything outside ASCII. Key-event tables also cover only 16-bit keysyms.
+**Characters.** Buffer lines are full `character` strings, and files are read and written as UTF-8. Hemlock shadows `char-code-limit` as 256 in `hemlock-ext` and `hi`, so a table indexed by character code covers only the first 256 codes. Past that, character sets fall back to a hash table (`char-set-ref` in `charmacs.lisp`), and so do `char-key-event` and the Boyer-Moore jump tables, which use the low byte. Don't declare a `base-char`: on SBCL that means ASCII.
+
+A key for a character past ASCII comes from `hemlock-ext:character-key-event`, which makes the key-event on first use. Its keysym is the code point for Latin-1, and `#x01000000` plus the code point past that, as in X11, so it can't collide with the special keys at `#xFF00`–`#xFFFF`. `*new-character-key-event-hook*` then binds it to Self Insert (`bindings.lisp`). Keysyms past 16 bits live in `*large-keysym-key-events*`. Wide (CJK) characters still count as one column.
 
 **Font numbers are colours.** A font number in a font-change is an ANSI colour index, or a property list such as `(:fg 7 :bg 4 :bold t)` (`*modeline-font*` in `window.lisp`). The TTY and Cocoa backends both read them that way.
 

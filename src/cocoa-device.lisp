@@ -64,27 +64,6 @@
   (setf hi::*editor-input* (make-instance 'cocoa-editor-input))
   (setf hi::*real-editor-input* hi::*editor-input*))
 
-;;; Keysyms for characters Hemlock does not name are made the first time
-;;; one is typed, and bound to Self Insert.  Only for a BASE-CHAR: Hemlock's
-;;; lines are base strings, so INSERT-CHARACTER refuses anything else, and
-;;; on SBCL that means ASCII.  Anything past it beeps rather than erring.
-;;;
-(defun define-character-keysym (character)
-  (let ((code (char-code character)))
-    (unless (hemlock-ext::keysym-names code)
-      (hemlock-ext::define-keysym code (string character))
-      (let ((event (hemlock-ext::make-key-event code 0)))
-        (setf (hemlock-ext::key-event-char event) character
-              (hemlock-ext::char-key-event character) event)
-        (hi::bind-key "Self Insert" event))
-      code)))
-
-(defun character-keysym (character)
-  (or (hemlock-ext::name-keysym (string character))
-      (and (graphic-char-p character)
-           (typep character 'base-char)
-           (define-character-keysym character))))
-
 (defun modifier-bits (names)
   (reduce #'logior names
           :key #'hemlock-ext::key-event-modifier-mask
@@ -95,8 +74,13 @@
     (let ((bits (modifier-bits modifiers)))
       (ecase kind
         (:named (hemlock-ext::make-key-event thing bits))
-        (:char (let ((keysym (character-keysym thing)))
-                 (and keysym (hemlock-ext::make-key-event keysym bits))))))))
+        ;; Any character: one Hemlock has no keysym for gets one, bound to
+        ;; Self Insert, the first time it is typed.
+        (:char (let ((key-event (hemlock-ext:character-key-event thing)))
+                 (and key-event
+                      (if (zerop bits)
+                          key-event
+                          (hemlock-ext:make-key-event key-event bits)))))))))
 
 (defun queue-key-event (key-event)
   (hi::q-event hi::*real-editor-input* key-event))

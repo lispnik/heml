@@ -312,7 +312,52 @@
 ;;;
 
 (defvar *clbuild-slave-command* '("clbuild" "run" "hemlock-slave"))
-(defvar *slave-command* *clbuild-slave-command*)
+
+(defvar *slave-command* nil
+  "The command that starts a slave Lisp, to which --editor and --backend
+   are appended.  NIL means DEFAULT-SLAVE-COMMAND.  A delivered binary sets
+   it to itself with --slave.")
+
+;;; The slave's source registry names the directory of every system the
+;;; editor has loaded, so that the slave loads the same systems whatever its
+;;; working directory and init files.
+;;;
+(defun slave-source-registry ()
+  `(:source-registry
+    ,@(remove-duplicates
+       (loop for name in (asdf:already-loaded-systems)
+             for directory = (ignore-errors (asdf:system-source-directory name))
+             when directory
+               collect `(:directory ,(namestring directory)))
+       :test #'equal)
+    :inherit-configuration))
+
+;;; DEFAULT-SLAVE-COMMAND -- Internal.
+;;;
+;;; Run this Lisp again as a slave: the same runtime, loading Hemlock from
+;;; source.  hemlock.tty is enough, since a slave draws nothing; what it
+;;; needs beyond hemlock.base is the iolib event loop.
+;;;
+(defun default-slave-command ()
+  #+sbcl
+  (list (namestring sb-ext:*runtime-pathname*)
+        "--noinform"
+        ;; Not WITH-STANDARD-IO-SYNTAX: printing readably turns a base
+        ;; string, which is what NAMESTRING returns, into #A(...).
+        "--eval" (let ((*package* (find-package :keyword))
+                       (*print-readably* nil)
+                       (*print-pretty* nil))
+                   (format nil "(asdf:initialize-source-registry '~S)"
+                           (slave-source-registry)))
+        ;; Quietly: a first run compiles, and all of it would land in the
+        ;; slave's buffer.
+        "--eval" "(let ((*standard-output* (make-broadcast-stream)) (*error-output* (make-broadcast-stream))) (asdf:load-system :hemlock.tty))"
+        ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
+        "--eval" "(progn (hemlock::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
+        "--end-toplevel-options"
+        "--slave")
+  #-sbcl
+  *clbuild-slave-command*)
 
 (defun create-slave (command &optional name)
   "This creates a slave that tries to connect to the editor.  A preliminary
@@ -522,7 +567,8 @@
 
 ;;;; Server Manipulation commands.
 
-(defun slave-command-with-arguments (&optional (prefix *slave-command*))
+(defun slave-command-with-arguments
+    (&optional (prefix (or *slave-command* (default-slave-command))))
   (append prefix
           (list "--editor" (get-editor-name)
                 "--backend" (symbol-name hi::*default-backend*))))
@@ -853,16 +899,31 @@
            (force-output *original-terminal-io*))
           (prepl:repl))))))
 
+;;; SIMPLE-BACKTRACE -- Internal.
+;;;
+;;; The editor's error handler calls this, so it must not signal: an error
+;;; here unwinds out of the handler and ends the editor.  On SBCL it is
+;;; SBCL's own backtrace, since conium walks frames from
+;;; SB-DEBUG:*STACK-TOP-HINT*, which SBCL now also lets be a function name
+;;; -- the symbol ERROR, when a condition is signalled -- and conium fails
+;;; on that.
+;;;
 (defun simple-backtrace (&optional (stream *standard-output*))
-  (conium:call-with-debugging-environment
-   (lambda ()
-     (let ((i 0))
-       (mapcar (lambda (frame)
-                 (format stream "~D: " i)
-                 (conium:print-frame frame stream)
-                 (terpri stream)
-                 (incf i))
-               (conium:compute-backtrace 0 most-positive-fixnum))))))
+  (handler-case
+      #+sbcl (sb-debug:print-backtrace :stream stream)
+      #-sbcl
+      (conium:call-with-debugging-environment
+       (lambda ()
+         (let ((i 0))
+           (mapcar (lambda (frame)
+                     (format stream "~D: " i)
+                     (conium:print-frame frame stream)
+                     (terpri stream)
+                     (incf i))
+                   (conium:compute-backtrace 0 most-positive-fixnum)))))
+    (error (condition)
+      (ignore-errors
+       (format stream "~&(No backtrace: ~A)~%" condition)))))
 
 (defun start-slave (&rest args)
   (let ((prepl:*entering-prepl-debugger-hook* nil)

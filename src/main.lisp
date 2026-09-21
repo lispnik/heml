@@ -275,14 +275,17 @@ GB
          *after-editor-initializations-funs*))
 
 #-(or cmu scl)
+(defparameter *backend-options* '(:tty :clx :qt :cocoa)
+  "The backends that have a --tty style flag of their own.")
+
+#-(or cmu scl)
 (defparameter *command-line-spec*
-  (flet ((keywordize (sym value)
-           (push (intern (string-upcase value) :keyword)
-                 *command-line-options*)
-           (push sym *command-line-options*))
-         (quick-backend (sym *)
-           (push sym *command-line-options*)
-           (push :backend-type *command-line-options*)))
+  ;; command-line-arguments records what an :ACTION function returns under
+  ;; the option's own name, so these return values and push nothing:
+  ;; --backend cocoa yields :BACKEND :COCOA and --cocoa yields :COCOA T.
+  ;; COMMAND-LINE-KEYS folds both into :BACKEND-TYPE.
+  (flet ((keywordize (value)
+           (intern (string-upcase value) :keyword)))
     `(("help"
        :type boolean
        :documentation "show this help")
@@ -295,14 +298,26 @@ GB
       (("backend" "backend-type")
        :type string
        :documentation "backend to use, one of tty, clx, qt, or cocoa. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
-       :action ,(alexandria:curry #'keywordize :backend-type))
-      ,@(iter:iter (iter:for b in '(:tty :clx :qt :cocoa))
+       :action ,#'keywordize)
+      ,@(iter:iter (iter:for b in *backend-options*)
                    (iter:collect
                     `(,(string-downcase b)
                       :type boolean
-                      :documentation ,(format nil "short for --backend ~A" b)
-                      :action ,(let ((b b))
-                                 (alexandria:curry #'quick-backend b))))))))
+                      :documentation ,(format nil "short for --backend ~A" b)))))))
+
+#-(or cmu scl)
+(defun command-line-keys (keys)
+  "KEYS, from PROCESS-COMMAND-LINE-OPTIONS, with --backend and the
+   --tty et al. flags folded into :BACKEND-TYPE, the keyword HEMLOCK and
+   START-SLAVE take."
+  (let ((backend (or (getf keys :backend)
+                     (find-if (lambda (b) (getf keys b)) *backend-options*)))
+        (others (loop for (key value) on keys by #'cddr
+                      unless (member key (cons :backend *backend-options*))
+                        append (list key value))))
+    (if backend
+        (list* :backend-type backend others)
+        others)))
 
 #-(or cmu scl)
 (defun show-cmd-line-help ()
@@ -356,6 +371,7 @@ GB
                        (process-command-line-options
                         *command-line-spec*
                         arg-list)
+    (setf keys (command-line-keys keys))
     (destructuring-bind (&key slave help &allow-other-keys)
                         keys
       (cond

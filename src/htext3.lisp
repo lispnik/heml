@@ -19,7 +19,7 @@
 
 (defmethod insert-character (mark character)
   "Inserts the Character at the specified Mark."
-  (declare (type base-char character))
+  (declare (type character character))
   (let* ((line (mark-line mark))
          (buffer (line-%buffer line)))
     (modifying-buffer buffer

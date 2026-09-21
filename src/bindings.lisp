@@ -36,6 +36,12 @@
 (hemlock-ext:do-alpha-key-events (key-event :both)
                                  (bind-key "Self Insert" key-event))
 
+;;; ... and every other character, as it gets a key-event of its own the
+;;; first time it is typed (HEMLOCK-EXT:CHARACTER-KEY-EVENT).
+;;;
+(setf hemlock-ext::*new-character-key-event-hook*
+      (lambda (key-event) (bind-key "Self Insert" key-event)))
+
 (bind-key "Beginning of Line" #k"control-a")
 (bind-key "Beginning of Line" #k"home")
 (bind-key "Delete Next Character" #k"control-d")
