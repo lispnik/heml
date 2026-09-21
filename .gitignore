@@ -8,3 +8,4 @@ c/setpty.o
 hemlock.core
 build/
 ocicl/
+.DS_Store

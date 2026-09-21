@@ -240,9 +240,12 @@ that every character sits exactly in its cell."
             (objc:retain (objc:invoke "NSColor" name)))))
 
 (defun color-name-for (index)
-  (if (and (integerp index) (< -1 index (length +palette+)))
-      (svref +palette+ index)
-      "textColor"))
+  (cond ((and (integerp index) (< -1 index (length +palette+)))
+         (svref +palette+ index))
+        ;; What the Cocoa backend makes the active region's font, so that
+        ;; a region looks like a selection anywhere else on the Mac.
+        ((eq index :selection) "selectedTextBackgroundColor")
+        (t "textColor")))
 
 (defun palette-color (display index)
   (ns-color display (color-name-for index)))
@@ -441,6 +444,58 @@ Backspace here, which is what the key is for.")
                                 (list :char c '())))))))))))
 
 
+;;;; Mouse
+
+;;; A mouse descriptor is (:MOUSE keysym-name modifiers column line), in
+;;; cells from the top left of the grid.  The editor thread works out which
+;;; window and which of its lines that is.
+
+(defconstant +shift-mask+ (ash 1 17))
+
+(defun event-modifiers (event)
+  (let ((flags (objc:invoke event "modifierFlags")))
+    (append (when (logtest flags +shift-mask+) '("Shift"))
+            (when (logtest flags +control-mask+) '("Control"))
+            (when (logtest flags +option-mask+) '("Meta"))
+            (when (logtest flags +command-mask+) '("Super")))))
+
+(defun event-cell (event)
+  "The cell under EVENT's pointer, as (VALUES COLUMN LINE)."
+  (let* ((display *display*)
+         (point (objc:invoke (display-view display) "convertPoint:fromView:"
+                             (objc:invoke event "locationInWindow") nil)))
+    (values (max 0 (floor (- (aref point 0) *margin*) (display-char-width display)))
+            (max 0 (floor (- (aref point 1) *margin*) (display-char-height display))))))
+
+(defvar *drag-cell* nil
+  "The cell the last Leftdown or Leftdrag was posted for, so that a drag
+posts only when the pointer reaches another cell.")
+
+(defun post-mouse (name event)
+  (multiple-value-bind (column line) (event-cell event)
+    (post-to-editor (list :mouse name (event-modifiers event) column line))
+    (cons column line)))
+
+(defvar *scroll-remainder* 0d0
+  "The part of a line scrolled but not yet posted: a trackpad reports its
+movement in points, a fraction of a line at a time.")
+
+(defparameter *lines-per-wheel-step* 3
+  "Lines a notch of a mouse wheel scrolls.  A trackpad scrolls by distance.")
+
+(defun post-scroll (event)
+  (let* ((delta (objc:invoke event "scrollingDeltaY"))
+         (lines (+ *scroll-remainder*
+                   (if (objc:invoke-bool event "hasPreciseScrollingDeltas")
+                       (/ delta (display-char-height *display*))
+                       (* delta *lines-per-wheel-step*))))
+         (whole (truncate lines)))
+    (setf *scroll-remainder* (- lines whole))
+    ;; A positive delta moves the content down, showing earlier lines.
+    (loop repeat (min 100 (abs whole))
+          do (post-mouse (if (plusp whole) "Scrollup" "Scrolldown") event))))
+
+
 ;;;; The view and the delegates
 
 (objc:define-objc-class xoamax-view ()
@@ -465,6 +520,13 @@ Backspace here, which is what the key is for.")
 (objc:define-objc-method ("isOpaque" objc:objc-bool) ((self xoamax-view))
   t)
 
+;;; A click on the window while another application is active both brings
+;;; it forward and lands, as in Emacs, instead of only activating it.
+(objc:define-objc-method ("acceptsFirstMouse:" objc:objc-bool)
+    ((self xoamax-view) (event objc:objc-object-pointer))
+  (declare (ignore event))
+  t)
+
 (objc:define-objc-method ("xoamaxDrain" :void) ((self xoamax-view))
   (drain-main-thread-queue))
 
@@ -485,6 +547,37 @@ Backspace here, which is what the key is for.")
           (dolist (descriptor descriptors)
             (post-to-editor descriptor))))
     (error (condition) (log-error "keyDown:" condition))))
+
+(defmacro define-mouse-method (selector &body body)
+  `(objc:define-objc-method (,selector :void)
+       ((self xoamax-view) (event objc:objc-object-pointer))
+     (handler-case (when *display* ,@body)
+       (error (condition) (log-error ,selector condition)))))
+
+(define-mouse-method "mouseDown:"
+  (setf *drag-cell* (post-mouse "Leftdown" event)))
+
+(define-mouse-method "mouseDragged:"
+  (unless (equal (multiple-value-list (event-cell event))
+                 (list (car *drag-cell*) (cdr *drag-cell*)))
+    (setf *drag-cell* (post-mouse "Leftdrag" event))))
+
+(define-mouse-method "mouseUp:"
+  (setf *drag-cell* nil)
+  (post-mouse "Leftup" event))
+
+(define-mouse-method "rightMouseDown:" (post-mouse "Rightdown" event))
+(define-mouse-method "rightMouseUp:" (post-mouse "Rightup" event))
+
+;;; The middle button, and any others, which Hemlock has no names for.
+(define-mouse-method "otherMouseDown:"
+  (when (= 2 (objc:invoke event "buttonNumber"))
+    (post-mouse "Middledown" event)))
+(define-mouse-method "otherMouseUp:"
+  (when (= 2 (objc:invoke event "buttonNumber"))
+    (post-mouse "Middleup" event)))
+
+(define-mouse-method "scrollWheel:" (post-scroll event))
 
 (objc:define-objc-method ("windowDidResize:" :void)
     ((self window-delegate) (notification objc:objc-object-pointer))

@@ -84,6 +84,10 @@
 (bind-key "Generic Pointer Up" #k"super-leftup")
 (bind-key "Do Nothing" #k"super-rightup")
 (bind-key "Insert Kill Buffer" #k"super-rightdown")
+(bind-key "Mouse Drag Region" #k"leftdrag")
+(bind-key "Mouse Drag Region" #k"shift-leftdrag")
+(bind-key "Mouse Scroll Up" #k"scrollup")
+(bind-key "Mouse Scroll Down" #k"scrolldown")
 
 
 (bind-key "Insert File" #k"control-x control-r")

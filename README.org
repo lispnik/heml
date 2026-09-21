@@ -57,6 +57,11 @@
    another, at =hemlock.cocoa:*font-size*= points.  Cmd-Q and the close
    button do what C-x C-c does.
 
+   The mouse works as elsewhere on the Mac: click to move point (or, on a
+   modeline, to select that window), drag to mark a region, shift-click
+   to extend it, and scroll with the wheel or trackpad.  The region shows
+   in the system's selection colour.
+
    Xoamax.app is signed ad hoc unless =MACOS_SIGNING_IDENTITY= names a
    Developer ID.
 

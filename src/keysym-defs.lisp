@@ -192,6 +192,14 @@
 (hemlock-ext::define-mouse-keysym 3 25605 "Rightdown" "Super" :button-press)
 (hemlock-ext::define-mouse-keysym 3 25606 "Rightup" "Super" :button-release)
 
+;;; Pointer motion with the left button down, and the scroll wheel, one
+;;; line to an event.  No X button maps to these; a backend that sees them
+;;; queues them itself (the Cocoa backend does).
+;;;
+(hemlock-ext:define-keysym 25607 "Leftdrag")
+(hemlock-ext:define-keysym 25608 "Scrollup")
+(hemlock-ext:define-keysym 25609 "Scrolldown")
+
 ;;; Sun keyboard.
 ;;;
 (hemlock-ext:define-keysym 65387 "break")                       ;alternate (Sun).

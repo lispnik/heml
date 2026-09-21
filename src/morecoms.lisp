@@ -543,6 +543,81 @@
         (move-mark (current-point) m)))))
 
 
+;;;; Pointer commands as a Mac or Emacs user expects them.
+
+;;; Where the button went down: the other end of a region dragged out
+;;; from it.
+;;;
+(defvar *mouse-drag-start* nil)
+
+(defun pointer-mark ()
+  "A mark at the last key-event's pointer position in the current window,
+   or NIL when it was not over the current window's text."
+  (multiple-value-bind (x y window) (last-key-event-cursorpos)
+    (when (and y (eq window (current-window)))
+      (cursorpos-to-mark (min x (1- (window-width window))) y window))))
+
+(defcommand "Mouse Set Point" (p)
+  "Move point to where the pointer is, in the window it is in, and get ready
+   for \"Mouse Drag Region\" to mark a region from there.  In a modeline,
+   just select that window."
+  "Move point to the pointer, deactivating the region."
+  (declare (ignore p))
+  (multiple-value-bind (x y window) (last-key-event-cursorpos)
+    (unless x (editor-error))
+    (maybe-change-window window)
+    (deactivate-region)
+    (setf *mouse-drag-start* nil)
+    (when y
+      (let ((m (pointer-mark)))
+        (when m
+          (move-mark (current-point) m)
+          (setf *mouse-drag-start* (copy-mark m :temporary)))))))
+
+(defcommand "Mouse Drag Region" (p)
+  "Make the region run from where the button went down to the pointer.
+   Bound to the drag and to the release, so the region follows the pointer."
+  "Extend the region from the button-down position to the pointer."
+  (declare (ignore p))
+  (let ((m (pointer-mark))
+        (start *mouse-drag-start*))
+    (when (and m start
+               (eq (line-buffer (mark-line start)) (current-buffer)))
+      (unless (or (region-active-p) (mark= m start))
+        (push-buffer-mark (copy-mark start) t))
+      (move-mark (current-point) m))))
+
+(defcommand "Mouse Extend Region" (p)
+  "Make the region run from point, or from the mark of an active region, to
+   the pointer."
+  "Extend the region to the pointer."
+  (declare (ignore p))
+  (let ((m (pointer-mark)))
+    (unless m (editor-error))
+    (unless (region-active-p)
+      (push-buffer-mark (copy-mark (current-point)) t))
+    (setf *mouse-drag-start* (copy-mark (current-mark) :temporary))
+    (move-mark (current-point) m)))
+
+(defun scroll-window-under-pointer (lines)
+  (multiple-value-bind (x y window) (last-key-event-cursorpos)
+    (declare (ignore x y))
+    (let ((window (if (and window (not (eq window *echo-area-window*)))
+                      window
+                      (current-window))))
+      (scroll-window window lines))))
+
+(defcommand "Mouse Scroll Down" (p)
+  "Scroll the window under the pointer down a line, or P lines."
+  "Scroll the window under the pointer down."
+  (scroll-window-under-pointer (or p 1)))
+
+(defcommand "Mouse Scroll Up" (p)
+  "Scroll the window under the pointer up a line, or P lines."
+  "Scroll the window under the pointer up."
+  (scroll-window-under-pointer (- (or p 1))))
+
+
 (defcommand "Insert Kill Buffer" (p)
   "Move current point to the mouse location and insert the kill buffer."
   "Move current point to the mouse location and insert the kill buffer."

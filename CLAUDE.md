@@ -68,6 +68,8 @@ The backend keyword is also mapped to a connection backend in two `ecase` forms:
 
 Window geometry follows the TTY backend (`tty-screen.lisp`): a hunk's position is its modeline row, and its text starts at `text-position - text-height + 1`.
 
+**The mouse.** Hemlock represents the mouse as key-events with mouse keysyms: `Leftdown`, `Leftup`, `Leftdrag`, `Scrollup`, `Scrolldown` and the others in `keysym-defs.lisp`. A backend queues each one with `q-event`, passing the X and Y within the window's text (Y is NIL on a modeline) and the hunk. Pointer commands read them back with `last-key-event-cursorpos`. The Cocoa view posts grid cells, and `locate-cell` on the editor thread turns them into those coordinates. On its first entry, Cocoa rebinds the left button to the "Mouse ..." commands in `morecoms.lisp`, and gives the active region the `:selection` background.
+
 **Extending the editor.**
 - Commands are defined with `defcommand "Name" (p) ...`, which produces a function called `name-command`.
 - Editor variables are defined with `defhvar`.

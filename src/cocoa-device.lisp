@@ -98,12 +98,50 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
              (queue-key-event (hemlock-ext::make-key-event "c" control))))
           ((eq (car item) :resize)
            (resize-screen (current-device) (second item) (third item)))
+          ((eq (car item) :mouse)
+           (destructuring-bind (name modifiers column line) (rest item)
+             (queue-mouse-event name modifiers column line)))
           (t
            (let ((key-event (descriptor-key-event item)))
              (if key-event
                  (queue-key-event key-event)
                  (beep)))))
       (error (condition) (log-error "input" condition)))))
+
+;;; Mouse input is a key-event queued with the position it happened at, the
+;;; way Hemlock's pointer commands expect (LAST-KEY-EVENT-CURSORPOS): X and
+;;; Y within the window's text, Y NIL on its modeline, and the hunk.
+;;;
+(defun locate-cell (column line)
+  (dolist (hunk (cons (hi::window-hunk hi::*echo-area-window*)
+                      (hunks-top-to-bottom (current-device)))
+                (values nil nil nil))
+    (let ((top (hunk-top-line hunk))
+          (height (hunk-text-height hunk))
+          (window (hi::device-hunk-window hunk)))
+      (cond ((and (<= top line) (< line (+ top height)))
+             (return (values column (- line top) hunk)))
+            ((and (= line (+ top height)) (hi::window-modeline-buffer window))
+             (return (values column nil hunk)))))))
+
+(defun queue-mouse-event (name modifiers column line)
+  (multiple-value-bind (x y hunk) (locate-cell column line)
+    (hi::q-event hi::*real-editor-input*
+                 (hemlock-ext:make-key-event name (modifier-bits modifiers))
+                 x y hunk)))
+
+;;; A click moves point and a drag marks a region, as elsewhere on the Mac,
+;;; rather than CMU Hemlock's left button, which scrolled the line clicked
+;;; to the top of the window.  The active region looks like a selection.
+;;;
+(defun install-pointer-bindings ()
+  (flet ((key (name &rest modifiers)
+           (hemlock-ext:make-key-event name (modifier-bits modifiers))))
+    (hi::bind-key "Mouse Set Point" (key "Leftdown"))
+    (hi::bind-key "Mouse Drag Region" (key "Leftup"))
+    (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
+    (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift")))
+  (setf hemlock::*active-region-highlight-font* '(:bg :selection)))
 
 (defvar *wakeup-connection* nil)
 
@@ -158,6 +196,7 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
             (hi::device-hunk-next main-hunk) main-hunk)
       (setf (hi::device-hunks device) main-hunk))
     (ensure-wakeup-connection)
+    (install-pointer-bindings)
     device))
 
 
