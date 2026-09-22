@@ -8,7 +8,7 @@ Xoamax (also spelled "Xomax" in docs) is an Emacs-style editor written in Common
 
 ## Building and running
 
-There is no unit test suite. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend.
+There is no unit test suite. `make smoke-tty` (`test/smoke-tty.sh`) runs the TTY backend in a detached tmux session, types into it with `send-keys`, and checks the screen with `capture-pane`. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend.
 
 Dependencies come from ocicl: `make deps` (`ocicl install`) restores what `ocicl.csv` lists into `ocicl/`, which is gitignored. That includes `objc` and `asdf-macos-app`. On macOS, `make run` opens the Cocoa editor from a fresh SBCL, and `make app` builds `build/Xoamax.app` through `xoamax-app.asd`.
 
@@ -66,6 +66,7 @@ The backend keyword is also mapped to a connection backend in two `ecase` forms:
 - Output: the device's redisplay methods copy dis-lines into the screen (a locked grid of rows), and `-drawRect:` paints only that.
 - Typing: named keys, and keys with Control or Meta, are posted directly from `-keyDown:`. Everything else goes through `-interpretKeyEvents:` and the view's `NSTextInputClient` methods, so dead keys and input methods work. Only the left Option key is Meta by default.
 - The clipboard: `*interprogram-cut-function*` and `*interprogram-paste-function*` (`killcoms.lisp`) join the kill ring to the pasteboard. Kills and "Save Region" call the first; "Un-Kill" calls the second, and uses the pasteboard only if its change count shows another application wrote to it. The Edit menu posts Super keys, which `install-mac-bindings` binds.
+- Menus: `*menu-bar*` and `*context-menu*` are tables. Each item's action is a Hemlock command, a function to run on the main thread, or an AppKit selector. The item's tag indexes `*menu-actions*`. A command is posted as `(:command name arg ...)`: the editor queues it in `*menu-commands*` and then the `Menucommand` key, and the "Menu Command" command runs it. So a menu item runs inside the command loop, with prompts, undo and errors behaving as they do for a typed key.
 - Files from Finder arrive at the app delegate's `application:openURLs:` and are visited through `process-command-line-argument`.
 - Fonts: fonts belong to the main thread. `change-font` re-measures the cell and posts a `:resize`, and it saves the choice in `NSUserDefaults`. The View menu's items target the app delegate, not the responder chain, so their shortcuts work whatever has focus.
 - Anything AppKit must do for the editor thread goes through `on-main-thread`.
@@ -89,6 +90,10 @@ A key for a character past ASCII comes from `hemlock-ext:character-key-event`, w
 **Font numbers are colours.** A font number in a font-change is an ANSI colour index, or a property list such as `(:fg 7 :bg 4 :bold t)` (`*modeline-font*` in `window.lisp`). The TTY and Cocoa backends both read them that way.
 
 **Slave Lisps.** The binary re-executes itself with `--slave` to create eval-server slaves, which it talks to over `wire`. See `eval-server.lisp`, `lispeval.lisp` and `slave-list.lisp`.
+
+**Terminals.** `hemlock.terminfo:tparm` evaluates terminfo string expressions, including the `%? %t %e %;` conditionals that every 256-colour terminal's `setaf` uses. Its binary operators pop their second operand first. The terminal's erase character (`*tty-erase-char*`, usually `^?`) is Backspace, whatever terminfo's `kbs` says. Shell buffers turn SGR colour sequences into font marks and drop other escape sequences (`write-shell-output` in `shell.lisp`).
+
+**CI.** `.github/workflows/ci.yml` runs on a macOS runner, which has a window server. It sets up ocicl, runs `make smoke` and `make smoke-tty`, builds the app and its disk image (`scripts/make-dmg.sh`), and starts and quits the app. A tag `v*` signs, notarizes (`scripts/notarize.sh`) and releases, when the repository has the secrets.
 
 ## Other directories
 

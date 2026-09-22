@@ -15,13 +15,24 @@ run:
 app:
 	$(LISP) --eval '(asdf:make "xoamax-app")'
 
+# build/Xoamax-<version>.dmg around the app, with a link to /Applications.
+# With a Developer ID and notarization credentials in the environment (see
+# scripts/notarize.sh), the app and the image are notarized and stapled.
+dmg: app
+	scripts/make-dmg.sh
+
 # The Cocoa editor driven end to end, with checks, and a picture of each
 # step in build/smoke/.  It neither takes the keyboard nor touches the
 # clipboard, so it can run while you work.
 smoke:
 	$(LISP) --load test/smoke.lisp
 
+# The TTY backend in a real terminal: tmux, driven with keys, its screen
+# checked.  Needs tmux.
+smoke-tty:
+	test/smoke-tty.sh
+
 clean:
 	rm -rf build
 
-.PHONY: deps run app smoke clean
+.PHONY: deps run app dmg smoke smoke-tty clean

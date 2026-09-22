@@ -1,0 +1,216 @@
+# Builds Xoamax on GitHub's macOS runner, drives both of its macOS
+# frontends end to end, and builds Xoamax.app and its disk image.  A tag
+# of the form v* makes a release carrying the image.
+#
+# The runner has a window server -- GitHub's macOS images come with a
+# logged-in session -- which is what lets `make smoke` open the Cocoa
+# editor, drive it with real NSEvents and picture every step.  The pictures
+# are kept as an artifact: they are what to look at when a run is green but
+# something is wrong, since a check says what the editor holds and only a
+# picture says what it drew.  `make smoke-tty` runs the TTY backend in tmux.
+#
+# Signing.  A push or pull request is signed ad hoc.  A tag run signs with
+# a Developer ID and notarizes, when the repository has these secrets:
+#
+#   MACOS_CERTIFICATE_P12       the Developer ID Application certificate and
+#                               its key, exported from Keychain Access as a
+#                               .p12 and base64-encoded
+#   MACOS_CERTIFICATE_PASSWORD  the password that export was given
+#   MACOS_SIGNING_IDENTITY      its name, "Developer ID Application: ... (TEAM)"
+#   NOTARY_KEY_P8               an App Store Connect API key (.p8), base64
+#   NOTARY_KEY_ID               that key's id
+#   NOTARY_KEY_ISSUER           the issuer id shown beside it
+#
+# Without them a tag still makes a release, signed ad hoc, and the notes say
+# so.  The certificate goes into a keychain made for the job and deleted
+# after it; nothing about it is written to the tree.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+
+# The release step creates a release and uploads the image, which needs
+# write access; the default token can only read.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: macOS (arm64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install SBCL, libfixposix and tmux
+        run: brew install sbcl libfixposix tmux
+
+      - name: Install and configure ocicl
+        run: |
+          # Each step gets a watchdog and three attempts: a hang here must
+          # fail fast and try again rather than eat the run.  macOS ships no
+          # timeout(1), hence the watchdog.
+          attempt_with_timeout() {
+            local secs=$1; shift
+            ( "$@" ) & local pid=$!
+            ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) & local watchdog=$!
+            local rc=0; wait "$pid" || rc=$?
+            kill -9 "$watchdog" 2>/dev/null || true
+            return $rc
+          }
+          clone_ocicl() {
+            rm -rf "$HOME/ocicl-src"
+            # Outside the repository, so as not to collide with its ocicl/.
+            git clone --depth 1 https://github.com/ocicl/ocicl.git "$HOME/ocicl-src"
+          }
+          setup_ocicl() {
+            ( cd "$HOME/ocicl-src" && sbcl --non-interactive --load setup.lisp )
+          }
+          for attempt in 1 2 3; do
+            if attempt_with_timeout 300 clone_ocicl && attempt_with_timeout 300 setup_ocicl; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::ocicl could not be installed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "::warning::ocicl install attempt $attempt failed or hung; retrying"
+            sleep 15
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # Every sbcl the Makefile starts finds the dependencies through
+          # this, as it does on a developer's machine.
+          "$HOME/.local/bin/ocicl" setup > "$HOME/.sbclrc"
+
+      - name: Restore dependencies
+        run: |
+          # ocicl exits 0 when a download fails, and ghcr.io fails often
+          # enough to matter; so several attempts, and a failure here, on
+          # the line that names the package.
+          for attempt in 1 2 3 4 5; do
+            ocicl install 2>&1 | tee ocicl-install.log
+            if ! grep -q "failed to install" ocicl-install.log; then
+              break
+            fi
+            echo "::warning::ocicl install attempt $attempt did not get every package"
+            sleep 30
+          done
+          if grep -q "failed to install" ocicl-install.log; then
+            echo "::error::ocicl could not install every dependency after 5 attempts" >&2
+            exit 1
+          fi
+
+      - name: Report the environment
+        run: |
+          sbcl --version
+          sw_vers
+          sbcl --noinform --non-interactive \
+            --eval '(asdf:load-system :hemlock.cocoa)' \
+            --eval '(format t "~&window server: ~A~%" (objc.runloop:window-server-p))'
+
+      # Only a tag run, and only when the secrets exist: a secret cannot be
+      # tested in an `if:`, so its presence is carried through an env var.
+      - name: Import the Developer ID and the notary key
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAVE_CERT == 'true'
+        env:
+          HAVE_CERT: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_KEY_ISSUER: ${{ secrets.NOTARY_KEY_ISSUER }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          # codesign runs without a prompt only once the key's partition
+          # list names it.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "MACOS_SIGNING_IDENTITY=$MACOS_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          echo "NOTARY_KEY_FILE=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+          echo "NOTARY_KEY_ID=$NOTARY_KEY_ID" >> "$GITHUB_ENV"
+          echo "NOTARY_KEY_ISSUER=$NOTARY_KEY_ISSUER" >> "$GITHUB_ENV"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Drive the Cocoa editor (make smoke)
+        run: make smoke
+
+      - name: Drive the TTY editor in tmux (make smoke-tty)
+        run: make smoke-tty
+
+      - name: Build Xoamax.app and its disk image
+        run: make dmg
+
+      - name: Start Xoamax.app and quit it
+        run: |
+          open build/Xoamax.app
+          for i in $(seq 1 60); do
+            pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null && break
+            sleep 1
+          done
+          pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null || { echo "::error::Xoamax.app did not start"; exit 1; }
+          sleep 5
+          # Quit asks the editor, which exits as C-x C-c does; AppKit's own
+          # terminate is cancelled, so osascript reports "User canceled".
+          osascript -e 'tell application id "org.lispnik.xoamax" to quit' || true
+          for i in $(seq 1 30); do
+            pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null || exit 0
+            sleep 1
+          done
+          echo "::error::Xoamax.app did not quit"; exit 1
+
+      - name: Verify the bundle
+        run: |
+          codesign --verify --deep --strict build/Xoamax.app
+          codesign -dv build/Xoamax.app 2>&1 | grep -E "^(Authority|Signature|CodeDirectory)" || true
+          plutil -lint build/Xoamax.app/Contents/Info.plist
+          hdiutil verify build/Xoamax-*.dmg
+          # Gatekeeper's own verdict.  Meaningful only for a notarized
+          # build; an ad hoc one is rejected here by design, so the result
+          # is shown and not enforced.
+          spctl --assess --type open --context context:primary-signature -v build/Xoamax-*.dmg || true
+
+      - name: Keep the pictures and the disk image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoamax-${{ github.sha }}
+          path: |
+            build/smoke/*.png
+            build/Xoamax-*.dmg
+          if-no-files-found: warn
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$MACOS_SIGNING_IDENTITY" ]; then
+            NOTES="Xoamax, an Emacs-style editor in Common Lisp, as a macOS application. Signed with a Developer ID and notarized."
+          else
+            NOTES="Xoamax, an Emacs-style editor in Common Lisp, as a macOS application. Signed ad hoc: open it the first time with a right-click and Open, or build it from source."
+          fi
+          gh release create "${GITHUB_REF_NAME}" build/Xoamax-*.dmg \
+            --title "Xoamax ${GITHUB_REF_NAME}" \
+            --notes "$NOTES"
+
+      - name: Remove the signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        run: |
+          security delete-keychain "$SIGNING_KEYCHAIN"
+          rm -f "$NOTARY_KEY_FILE"

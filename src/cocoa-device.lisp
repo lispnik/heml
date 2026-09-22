@@ -82,6 +82,23 @@
                           key-event
                           (hemlock-ext:make-key-event key-event bits)))))))))
 
+(defvar *menu-commands* '()
+  "Menu commands waiting for the command loop, oldest first, each (name
+arg ...).  The editor thread's only.")
+
+(hi::defcommand "Menu Command" (p)
+  "Run the command a menu item chose.  Bound to the key the Cocoa backend
+queues for one, so that it runs as a typed command does, prefix argument
+included."
+  "Run the next command a menu chose."
+  (let ((entry (pop *menu-commands*)))
+    (when entry
+      (destructuring-bind (name &rest arguments) entry
+        (let ((command (hi::getstring name hi::*command-names*)))
+          (unless command
+            (hi::editor-error "No command ~S." name))
+          (apply (hi::command-function command) p arguments))))))
+
 (defun queue-key-event (key-event)
   (hi::q-event hi::*real-editor-input* key-event))
 
@@ -98,6 +115,11 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
              (queue-key-event (hemlock-ext::make-key-event "c" control))))
           ((eq (car item) :resize)
            (resize-screen (current-device) (second item) (third item)))
+          ((eq (car item) :command)
+           ;; A menu's command: kept here, and run by the command loop
+           ;; when it reads the key that says so.
+           (setf *menu-commands* (append *menu-commands* (list (rest item))))
+           (queue-key-event (hemlock-ext:make-key-event "Menucommand" 0)))
           ((eq (car item) :open)
            ;; As a file named on the command line is visited.
            (hi::process-command-line-argument (second item)))
@@ -136,9 +158,10 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
 ;;; What makes the editor behave as a Mac application.  A click moves point
 ;;; and a drag marks a region, rather than CMU Hemlock's left button, which
 ;;; scrolled the line clicked to the top of the window; the active region
-;;; looks like a selection.  The Edit menu's Command keys -- Super here --
-;;; are the commands a Mac user expects of them, and the kill ring is
-;;; joined to the general pasteboard.
+;;; looks like a selection; a double click selects a word and a triple
+;;; click a line; a right click moves point unless it is in the selection,
+;;; and opens a menu.  The menus' commands arrive as the Menucommand key,
+;;; and the kill ring is joined to the general pasteboard.
 ;;;
 (defun install-mac-bindings ()
   (flet ((key (name &rest modifiers)
@@ -147,11 +170,11 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
     (hi::bind-key "Mouse Drag Region" (key "Leftup"))
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift"))
-    (hi::bind-key "Undo" (key "z" "Super"))
-    (hi::bind-key "Kill Region" (key "x" "Super"))
-    (hi::bind-key "Save Region" (key "c" "Super"))
-    (hi::bind-key "Un-Kill" (key "v" "Super"))
-    (hi::bind-key "Mark Whole Buffer" (key "a" "Super")))
+    (hi::bind-key "Mouse Select Word" (key "Doubleleftdown"))
+    (hi::bind-key "Mouse Select Line" (key "Tripleleftdown"))
+    (hi::bind-key "Mouse Point Unless In Region" (key "Rightdown"))
+    (hi::bind-key "Do Nothing" (key "Rightup"))
+    (hi::bind-key "Menu Command" (key "Menucommand")))
   (setf hemlock::*active-region-highlight-font* '(:bg :selection)
         hemlock::*interprogram-cut-function*
         (lambda (text) (on-main-thread (write-pasteboard text)))

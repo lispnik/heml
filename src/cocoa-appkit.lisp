@@ -874,44 +874,93 @@ consume, and the keys they are.")
     (when name
       (post-to-editor (list :named name '())))))
 
-;;;; Font actions
+;;;; Menu actions
 
-;;; The menus' items target the application delegate, so that they work
-;;; whatever has the keyboard; -changeFont:, which the font panel sends to
-;;; the first responder, is the view's.
+;;; Every item of the menus, and of the context menu, is the application
+;;; delegate's -xoamaxMenuItem:, and its tag says which action it is:
+;;;
+;;;   (:command name arg ...)  a Hemlock command, run by the command loop
+;;;   (:call function)         a function called on the main thread
+;;;   (:font-size delta)       bigger, smaller, or with NIL the default size
+;;;
+;;; Items for AppKit's own selectors -- hide:, terminate:, toggleFullScreen:
+;;; -- keep them, with no target, so that the responder chain finds them.
 
-(defmacro define-font-action ((class selector) &body body)
-  `(objc:define-objc-method (,selector :void)
-       ((self ,class) (sender objc:objc-object-pointer))
-     (declare (ignorable sender))
-     (handler-case (when *display* ,@body)
-       (error (condition) (log-error ,selector condition)))))
+(defvar *menu-actions* (make-array 0 :adjustable t :fill-pointer t))
 
-(define-font-action (app-delegate "xoamaxBigger:") (change-font-size 1))
-(define-font-action (app-delegate "xoamaxSmaller:") (change-font-size -1))
-(define-font-action (app-delegate "xoamaxDefaultSize:") (change-font-size nil))
-(define-font-action (app-delegate "xoamaxShowFonts:") (show-font-panel))
+(defun menu-action-tag (action)
+  (or (position action *menu-actions* :test #'equal)
+      (vector-push-extend action *menu-actions*)))
 
-;;; The Edit menu's items are Command keys to Hemlock -- Super, in its
-;;; terms -- so that what Cut or Paste does is a key binding like any other
-;;; (INSTALL-MAC-BINDINGS).
-(macrolet ((edit-actions (&rest pairs)
-             `(progn
-                ,@(loop for (selector character) on pairs by #'cddr
-                        collect `(define-font-action (app-delegate ,selector)
-                                   (post-to-editor (list :char ,character '("Super"))))))))
-  (edit-actions "xoamaxUndo:" #\z "xoamaxCut:" #\x "xoamaxCopy:" #\c
-                "xoamaxPaste:" #\v "xoamaxSelectAll:" #\a))
+(defun perform-menu-action (action)
+  (ecase (first action)
+    (:command (post-to-editor (cons :command (rest action))))
+    (:call (funcall (second action)))
+    (:font-size (change-font-size (second action)))))
+
+(objc:define-objc-method ("xoamaxMenuItem:" :void)
+    ((self app-delegate) (sender objc:objc-object-pointer))
+  (handler-case
+      (when *display*
+        (perform-menu-action (aref *menu-actions* (objc:invoke sender "tag"))))
+    (error (condition) (log-error "xoamaxMenuItem:" condition))))
 
 (defun show-font-panel ()
   (let ((manager (objc:invoke "NSFontManager" "sharedFontManager")))
     (objc:invoke manager "setSelectedFont:isMultiple:" (display-font *display*) nil)
     (objc:invoke manager "orderFrontFontPanel:" nil)))
 
-(define-font-action (xoamax-view "changeFont:")
-  (let ((font (objc:invoke sender "convertFont:" (display-font *display*))))
-    (change-font :name (objc:ns-string-to-string (objc:invoke font "fontName"))
-                 :size (objc:invoke font "pointSize"))))
+(objc:define-objc-method ("changeFont:" :void)
+    ((self xoamax-view) (sender objc:objc-object-pointer))
+  (handler-case
+      (let ((font (objc:invoke sender "convertFont:" (display-font *display*))))
+        (change-font :name (objc:ns-string-to-string (objc:invoke font "fontName"))
+                     :size (objc:invoke font "pointSize")))
+    (error (condition) (log-error "changeFont:" condition))))
+
+(defconstant +modal-response-ok+ 1)
+
+(defun choose-files-to-open ()
+  "The Open panel; the files chosen are visited as files from Finder are."
+  (let ((panel (objc:invoke "NSOpenPanel" "openPanel")))
+    (objc:invoke panel "setAllowsMultipleSelection:" t)
+    (objc:invoke panel "setCanChooseDirectories:" t)
+    (when (= (objc:invoke panel "runModal") +modal-response-ok+)
+      (let ((urls (objc:invoke panel "URLs")))
+        (dotimes (i (objc:invoke urls "count"))
+          (post-to-editor
+           (list :open (objc:ns-string-to-string
+                        (objc:invoke (objc:invoke urls "objectAtIndex:" i) "path")))))))))
+
+(defun choose-file-to-save-as ()
+  "The Save panel; the current buffer is written to the file chosen."
+  (let ((panel (objc:invoke "NSSavePanel" "savePanel")))
+    (when (= (objc:invoke panel "runModal") +modal-response-ok+)
+      (post-to-editor
+       (list :command "Write File"
+             (objc:ns-string-to-string (objc:invoke (objc:invoke panel "URL") "path")))))))
+
+(defun open-settings ()
+  "The init file, which is where Hemlock's settings are: the first that
+exists of those Hemlock loads, or the first of them to create."
+  (let* ((home (user-homedir-pathname))
+         (names (mapcar (lambda (name) (merge-pathnames name home))
+                        '(".hemlock.lisp" ".hemlock/hemlock.lisp" ".hemlock-init.lisp"))))
+    (post-to-editor
+     (list :open (namestring (or (find-if #'probe-file names) (first names)))))))
+
+(defun show-about ()
+  (let ((options (objc:alloc-init-object "NSMutableDictionary")))
+    (objc:invoke options "setObject:forKey:" "Xoamax" "ApplicationName")
+    (objc:invoke options "setObject:forKey:"
+                 (princ-to-string hi::*hemlock-version*) "ApplicationVersion")
+    (objc:invoke options "setObject:forKey:"
+                 (format nil "Hemlock on ~A ~A" (lisp-implementation-type)
+                         (lisp-implementation-version))
+                 "Version")
+    (objc:invoke (objc.runloop:shared-application)
+                 "orderFrontStandardAboutPanelWithOptions:" options)
+    (objc:release options)))
 
 (defmacro define-mouse-method (selector &body body)
   `(objc:define-objc-method (,selector :void)
@@ -920,7 +969,13 @@ consume, and the keys they are.")
        (error (condition) (log-error ,selector condition)))))
 
 (define-mouse-method "mouseDown:"
-  (setf *drag-cell* (post-mouse "Leftdown" event)))
+  ;; A second and a third click in a row are keys of their own: they
+  ;; select a word and a line.
+  (setf *drag-cell* (post-mouse (case (objc:invoke event "clickCount")
+                                  (1 "Leftdown")
+                                  (2 "Doubleleftdown")
+                                  (t "Tripleleftdown"))
+                                event)))
 
 (define-mouse-method "mouseDragged:"
   (unless (equal (multiple-value-list (event-cell event))
@@ -931,8 +986,19 @@ consume, and the keys they are.")
   (setf *drag-cell* nil)
   (post-mouse "Leftup" event))
 
-(define-mouse-method "rightMouseDown:" (post-mouse "Rightdown" event))
-(define-mouse-method "rightMouseUp:" (post-mouse "Rightup" event))
+;;; A right click, or a Control-click, is AppKit's: -rightMouseDown: asks
+;;; for this menu and shows it.  The click goes to the editor too, so that
+;;; point moves to it unless it is in the selection.
+;;;
+(objc:define-objc-method ("menuForEvent:" objc:objc-object-pointer)
+    ((self xoamax-view) (event objc:objc-object-pointer))
+  (handler-case
+      (progn
+        (when *display* (post-mouse "Rightdown" event))
+        (context-menu))
+    (error (condition)
+      (log-error "menuForEvent:" condition)
+      (cffi:null-pointer))))
 
 ;;; The middle button, and any others, which Hemlock has no names for.
 (define-mouse-method "otherMouseDown:"
@@ -1005,68 +1071,175 @@ consume, and the keys they are.")
   "Titled, closable, miniaturizable, resizable.")
 (defconstant +backing-store-buffered+ 2)
 
-(defun menu-item (title action key)
-  (objc:invoke (objc:invoke "NSMenuItem" "alloc")
-               "initWithTitle:action:keyEquivalent:"
-               title (objc:coerce-to-selector action) key))
+;;;; The menus
+
+(defparameter *menu-bar*
+  '(("Xoamax"
+     ("About Xoamax" (:call show-about))
+     :separator
+     ("Settings…" (:call open-settings) :key ",")
+     :separator
+     ("Services" :services)
+     :separator
+     ("Hide Xoamax" (:selector "hide:") :key "h")
+     ("Hide Others" (:selector "hideOtherApplications:") :key "h" :modifiers (:option))
+     ("Show All" (:selector "unhideAllApplications:"))
+     :separator
+     ("Quit Xoamax" (:selector "terminate:") :key "q"))
+    ("File"
+     ("New Buffer…" (:command "Select Buffer") :key "n")
+     ("Open…" (:call choose-files-to-open) :key "o")
+     :separator
+     ("Close Buffer…" (:command "Kill Buffer") :key "w")
+     ("Save" (:command "Save File") :key "s")
+     ("Save As…" (:call choose-file-to-save-as) :key "s" :modifiers (:shift))
+     ("Save All" (:command "Save All Files") :key "s" :modifiers (:option))
+     ("Revert to Saved" (:command "Revert File")))
+    ("Edit"
+     ("Undo" (:command "Undo") :key "z")
+     :separator
+     ("Cut" (:command "Kill Region") :key "x")
+     ("Copy" (:command "Save Region") :key "c")
+     ("Paste" (:command "Un-Kill") :key "v")
+     ("Select All" (:command "Mark Whole Buffer") :key "a")
+     :separator
+     ("Find…" (:command "Incremental Search") :key "f")
+     ("Find Backward…" (:command "Reverse Incremental Search") :key "f" :modifiers (:shift))
+     ("Replace…" (:command "Query Replace") :key "f" :modifiers (:option))
+     :separator
+     ("Emoji & Symbols" (:selector "orderFrontCharacterPalette:")
+      :key " " :modifiers (:control)))
+    ("View"
+     ("Show Fonts" (:call show-font-panel) :key "t")
+     ("Bigger" (:font-size 1) :key "+")
+     ;; Cmd-= is Cmd-+ without the Shift nobody presses.
+     ("Bigger" (:font-size 1) :key "=" :hidden t)
+     ("Smaller" (:font-size -1) :key "-")
+     ("Default Size" (:font-size nil) :key "0")
+     :separator
+     ("Split Window" (:command "Split Window"))
+     ("Next Window" (:command "Next Window"))
+     ("Delete Window" (:command "Delete Window"))
+     ("Delete Next Window" (:command "Delete Next Window"))
+     :separator
+     ("Enter Full Screen" (:selector "toggleFullScreen:") :key "f" :modifiers (:control)))
+    ("Buffer"
+     ("Switch to Buffer…" (:command "Select Buffer") :key "b")
+     ("List Buffers" (:command "Bufed"))
+     ("Kill Buffer…" (:command "Kill Buffer"))
+     :separator
+     ("Lisp Mode" (:command "Lisp Mode"))
+     ("Fundamental Mode" (:command "Fundamental Mode")))
+    ("Lisp"
+     ("Evaluate Defun" (:command "Evaluate Defun"))
+     ("Evaluate Region" (:command "Evaluate Region"))
+     ("Evaluate Expression…" (:command "Evaluate Expression"))
+     ("Compile File" (:command "Compile File"))
+     ("Load File…" (:command "Load File"))
+     :separator
+     ("Edit Definition…" (:command "Edit Definition"))
+     ("Describe Symbol" (:command "Describe Symbol"))
+     :separator
+     ("Start Slave Thread" (:command "Start Slave Thread"))
+     ("Start Slave Process" (:command "Start Slave Process"))
+     ("Select Slave" (:command "Select Slave"))
+     :separator
+     ("Shell" (:command "Shell")))
+    ("Window" :windows
+     ("Minimize" (:selector "performMiniaturize:") :key "m")
+     ("Zoom" (:selector "performZoom:"))
+     :separator
+     ("Bring All to Front" (:selector "arrangeInFront:")))
+    ("Help" :help
+     ("Xoamax Help" (:command "Help") :key "?")
+     ("Describe Key…" (:command "Describe Key"))
+     ("Describe Command…" (:command "Describe Command"))
+     ("Apropos…" (:command "Apropos"))))
+  "The menu bar.  A menu is (title [role] entry ...), with ROLE :WINDOWS or
+:HELP for the menus AppKit keeps up itself; an entry is :SEPARATOR, or
+(title action &key key modifiers hidden) -- KEY the Command-key equivalent,
+MODIFIERS any of :SHIFT, :OPTION and :CONTROL besides -- or (title
+:SERVICES).")
+
+(defparameter *context-menu*
+  '(("Cut" (:command "Kill Region"))
+    ("Copy" (:command "Save Region"))
+    ("Paste" (:command "Un-Kill"))
+    :separator
+    ("Edit Definition" (:command "Edit Definition"))
+    ("Describe Symbol" (:command "Describe Symbol"))
+    ("Evaluate Region" (:command "Evaluate Region")))
+  "The right click's menu: entries as in *MENU-BAR*.")
+
+(defconstant +shift-key-mask+ (ash 1 17))
+(defconstant +control-key-mask+ (ash 1 18))
+(defconstant +option-key-mask+ (ash 1 19))
+(defconstant +command-key-mask+ (ash 1 20))
+
+(defun make-menu (title)
+  (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" title))
+
+(defun menu-entry (entry target)
+  "The NSMenuItem for ENTRY of a menu, its actions TARGET's."
+  (if (eq entry :separator)
+      (objc:invoke "NSMenuItem" "separatorItem")
+      (destructuring-bind (title action &key key modifiers hidden) entry
+        (let ((item (objc:alloc-init-object "NSMenuItem")))
+          (objc:invoke item "setTitle:" title)
+          (cond ((eq action :services)
+                 (let ((services (make-menu title)))
+                   (objc:invoke item "setSubmenu:" services)
+                   (objc:invoke (objc.runloop:shared-application)
+                                "setServicesMenu:" services)))
+                ((eq (first action) :selector)
+                 (objc:invoke item "setAction:" (objc:coerce-to-selector (second action))))
+                (t
+                 (objc:invoke item "setAction:" (objc:coerce-to-selector "xoamaxMenuItem:"))
+                 (objc:invoke item "setTarget:" target)
+                 (objc:invoke item "setTag:" (menu-action-tag action))))
+          (when key
+            (objc:invoke item "setKeyEquivalent:" key)
+            (objc:invoke item "setKeyEquivalentModifierMask:"
+                         (logior +command-key-mask+
+                                 (if (member :shift modifiers) +shift-key-mask+ 0)
+                                 (if (member :option modifiers) +option-key-mask+ 0)
+                                 (if (member :control modifiers) +control-key-mask+ 0))))
+          (when hidden
+            (objc:invoke item "setHidden:" t)
+            (objc:invoke item "setAllowsKeyEquivalentWhenHidden:" t))
+          item))))
+
+(defun build-menu (title entries target)
+  (let ((menu (make-menu title)))
+    (dolist (entry entries menu)
+      (objc:invoke menu "addItem:" (menu-entry entry target)))))
 
 (defun install-main-menu (app target)
-  "An application menu with Hide and Quit, and a View menu whose items are
-TARGET's, when there is no menu yet: a process started from a REPL, or a
-bundle without a nib, has none."
+  "The menu bar of *MENU-BAR*, when there is no menu yet: a process started
+from a REPL, or a bundle without a nib, has none."
   (when (null-pointer-p (objc:invoke app "mainMenu"))
-    (let ((menubar (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" ""))
-          (app-item (objc:alloc-init-object "NSMenuItem"))
-          (app-menu (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" "Xoamax")))
-      (objc:invoke app-menu "addItem:" (menu-item "Hide Xoamax" "hide:" "h"))
-      (objc:invoke app-menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
-      (objc:invoke app-menu "addItem:" (menu-item "Quit Xoamax" "terminate:" "q"))
-      (objc:invoke app-item "setSubmenu:" app-menu)
-      (objc:invoke menubar "addItem:" app-item)
-      (objc:invoke menubar "addItem:" (edit-menu-item target))
-      (objc:invoke menubar "addItem:" (view-menu-item target))
+    (let ((menubar (make-menu "")))
+      (dolist (spec *menu-bar*)
+        (destructuring-bind (title . entries) spec
+          (let* ((role (when (keywordp (first entries)) (pop entries)))
+                 (menu (build-menu title entries target))
+                 (item (objc:alloc-init-object "NSMenuItem")))
+            (objc:invoke item "setTitle:" title)
+            (objc:invoke item "setSubmenu:" menu)
+            (objc:invoke menubar "addItem:" item)
+            (case role
+              (:windows (objc:invoke app "setWindowsMenu:" menu))
+              (:help (objc:invoke app "setHelpMenu:" menu))))))
       (objc:invoke app "setMainMenu:" menubar))))
 
-(defun edit-menu-item (target)
-  "The Edit menu: Undo, Cut, Copy, Paste and Select All, as Command keys."
-  (let ((item (objc:alloc-init-object "NSMenuItem"))
-        (menu (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" "Edit")))
-    (flet ((add (title action key)
-             (let ((entry (menu-item title action key)))
-               (objc:invoke entry "setTarget:" target)
-               (objc:invoke menu "addItem:" entry))))
-      (add "Undo" "xoamaxUndo:" "z")
-      (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
-      (add "Cut" "xoamaxCut:" "x")
-      (add "Copy" "xoamaxCopy:" "c")
-      (add "Paste" "xoamaxPaste:" "v")
-      (add "Select All" "xoamaxSelectAll:" "a"))
-    (objc:invoke item "setTitle:" "Edit")
-    (objc:invoke item "setSubmenu:" menu)
-    item))
+(defvar *context-menu-object* nil)
 
-(defun view-menu-item (target)
-  "The View menu: the font, and its size with Cmd-+, Cmd-- and Cmd-0."
-  (let ((item (objc:alloc-init-object "NSMenuItem"))
-        (menu (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" "View")))
-    (flet ((add (title action key &key hidden)
-             (let ((entry (menu-item title action key)))
-               (objc:invoke entry "setTarget:" target)
-               (when hidden
-                 (objc:invoke entry "setHidden:" t)
-                 (objc:invoke entry "setAllowsKeyEquivalentWhenHidden:" t))
-               (objc:invoke menu "addItem:" entry))))
-      (add "Show Fonts" "xoamaxShowFonts:" "t")
-      (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
-      (add "Bigger" "xoamaxBigger:" "+")
-      ;; Cmd-= is Cmd-+ without the Shift nobody presses: an item of its
-      ;; own, hidden, whose key equivalent still works.
-      (add "Bigger" "xoamaxBigger:" "=" :hidden t)
-      (add "Smaller" "xoamaxSmaller:" "-")
-      (add "Default Size" "xoamaxDefaultSize:" "0"))
-    (objc:invoke item "setTitle:" "View")
-    (objc:invoke item "setSubmenu:" menu)
-    item))
+(defun context-menu ()
+  (or *context-menu-object*
+      (setf *context-menu-object*
+            (objc:retain
+             (build-menu "" *context-menu*
+                         (objc:objc-object-pointer (display-app-delegate *display*)))))))
 
 (defun make-window (display)
   (let* ((width (+ (* 2 *margin*) (* *initial-columns* (display-char-width display))))

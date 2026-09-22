@@ -200,6 +200,17 @@
 (hemlock-ext:define-keysym 25608 "Scrollup")
 (hemlock-ext:define-keysym 25609 "Scrolldown")
 
+;;; A double and a triple click of the left button, as a backend that knows
+;;; the click count reports them in place of a second or third Leftdown.
+;;;
+(hemlock-ext:define-keysym 25611 "Doubleleftdown")
+(hemlock-ext:define-keysym 25612 "Tripleleftdown")
+
+;;; What a backend queues to have a command from its menus run by the
+;;; command loop; it keeps the command to run itself.
+;;;
+(hemlock-ext:define-keysym 25610 "Menucommand")
+
 ;;; Sun keyboard.
 ;;;
 (hemlock-ext:define-keysym 65387 "break")                       ;alternate (Sun).

@@ -676,6 +676,28 @@
                 (return (make-terminfo :names names :booleans booleans
                                        :numbers numbers :strings strings))))))))))
 
+(defun skip-conditional-part (in stop-at-else)
+  "Read IN past the rest of a %? conditional's current part: to the %e that
+begins the next part when STOP-AT-ELSE, else to the %; that ends it, and
+either way over any conditional nested inside."
+  (let ((depth 0))
+    (loop
+      (let ((c (read-char in nil)))
+        (unless c (return))
+        (when (char= c #\%)
+          (case (read-char in nil)
+            (#\? (incf depth))
+            (#\; (if (zerop depth) (return) (decf depth)))
+            (#\e (when (and stop-at-else (zerop depth)) (return)))))))))
+
+;;; The binary operators pop their second operand first: %p1%{8}%< is
+;;; p1 < 8.
+;;;
+(defmacro binary-operation (stack function)
+  `(let ((b (pop ,stack))
+         (a (pop ,stack)))
+     (push (,function a b) ,stack)))
+
 (defun tparm (string &rest args)
   (when (null string) (return-from tparm ""))
   (with-output-to-string (out)
@@ -713,9 +735,9 @@
                     (#\l (push (length (pop stack)) stack) (go terminal))
                     (#\* (push (* (pop stack) (pop stack)) stack)
                          (go terminal))
-                    (#\/ (push (/ (pop stack) (pop stack)) stack)
+                    (#\/ (binary-operation stack truncate)
                          (go terminal))
-                    (#\m (push (mod (pop stack) (pop stack)) stack)
+                    (#\m (binary-operation stack rem)
                          (go terminal))
                     (#\& (push (logand (pop stack) (pop stack)) stack)
                          (go terminal))
@@ -725,13 +747,17 @@
                          (go terminal))
                     (#\= (push (if (= (pop stack) (pop stack)) 1 0) stack)
                          (go terminal))
-                    (#\> (push (if (> (pop stack) (pop stack)) 1 0) stack)
+                    (#\> (binary-operation stack (lambda (a b) (if (> a b) 1 0)))
                          (go terminal))
-                    (#\< (push (if (< (pop stack) (pop stack)) 1 0) stack)
+                    (#\< (binary-operation stack (lambda (a b) (if (< a b) 1 0)))
                          (go terminal))
-                    (#\A (push (if (and (pop stack) (pop stack)) 1 0) stack)
+                    (#\A (binary-operation stack
+                                           (lambda (a b)
+                                             (if (and (/= a 0) (/= b 0)) 1 0)))
                          (go terminal))
-                    (#\O (push (if (or (pop stack) (pop stack)) 1 0) stack)
+                    (#\O (binary-operation stack
+                                           (lambda (a b)
+                                             (if (or (/= a 0) (/= b 0)) 1 0)))
                          (go terminal))
                     (#\! (push (if (zerop (pop stack)) 1 0) stack)
                          (go terminal))
@@ -742,15 +768,23 @@
                            (when (cdr args)
                              (incf (second args))))
                          (go terminal))
-                    (#\? (go state14))
+                    ;; %? cond %t then %e else %; -- the condition is
+                    ;; just evaluated; %t decides, and a part that is not
+                    ;; taken is skipped.
+                    (#\? (go terminal))
+                    (#\t (when (zerop (pop stack))
+                           (skip-conditional-part in t))
+                         (go terminal))
+                    (#\e (skip-conditional-part in nil) (go terminal))
+                    (#\; (go terminal))
                     (otherwise (error "Unknown %-control character: ~C" c)))
                 state1
                   (let ((next (peek-char nil in nil)))
                     (when (position next "0123456789# +-doXxs")
                       (go state2)))
                   (if (char= c #\+)
-                      (push (+ (pop stack) (pop stack)) stack)
-                      (push (- (pop stack) (pop stack)) stack))
+                      (binary-operation stack +)
+                      (binary-operation stack -))
                   (go terminal)
                 state2
                   (case c
@@ -870,8 +904,6 @@
                            (push number stack)
                            (go terminal))))
                   (error "Invalid integer constant")
-                state14
-                  (error "Conditional expression parser not yet written.")
 
                 terminal
                   #| that's all, folks |#))

@@ -107,22 +107,34 @@
                      "performKeyEquivalent:"
                      (key-event (string character) (string character) +command+))))
 
-(defun mouse (type column line &optional (flags 0))
-  "A mouse NSEvent at the middle of cell COLUMN, LINE, sent to the window."
-  (main
-    (let* ((display (display))
+(defun mouse-event (type column line flags clicks)
+  (let* ((display (display))
            (point (vector (float (+ hemlock.cocoa::*margin*
                                     (* (+ column 1/2) (hemlock.cocoa::display-char-width display)))
                                  1d0)
                           (float (+ hemlock.cocoa::*margin*
                                     (* (+ line 1/2) (hemlock.cocoa::display-char-height display)))
                                  1d0)))
-           (event (objc:invoke "NSEvent"
-                               "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"
-                               (ecase type (:down 1) (:up 2) (:drag 6))
-                               (objc:invoke (view) "convertPoint:toView:" point nil)
-                               flags 0d0 (objc:invoke (window) "windowNumber") nil 0 1 1.0)))
-      (objc:invoke (window) "sendEvent:" event))))
+           )
+    (objc:invoke "NSEvent"
+                 "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"
+                 (ecase type (:down 1) (:up 2) (:drag 6) (:right-down 3))
+                 (objc:invoke (view) "convertPoint:toView:" point nil)
+                 flags 0d0 (objc:invoke (window) "windowNumber") nil 0 clicks 1.0)))
+
+(defun mouse (type column line &key (flags 0) (clicks 1))
+  "A mouse NSEvent at the middle of cell COLUMN, LINE, sent to the window."
+  (main (objc:invoke (window) "sendEvent:" (mouse-event type column line flags clicks))))
+
+(defun choose-menu-item (menu title)
+  "Choose the item TITLE of the menu bar's menu MENU, as a click on it would."
+  (main (let* ((submenu (objc:invoke (objc:invoke (objc:invoke (objc.runloop:shared-application)
+                                                                "mainMenu")
+                                                   "itemWithTitle:" menu)
+                                      "submenu"))
+               (index (objc:invoke submenu "indexOfItemWithTitle:" title)))
+          (assert (>= index 0) () "No item ~S in the ~A menu." title menu)
+          (objc:invoke submenu "performActionForItemAtIndex:" index))))
 
 (defvar *shot* 0)
 
@@ -225,6 +237,30 @@ café λ 日本語 end")
   (check "a drag marks a region" (hemlock::region-active-p))
   (check "the region is what was dragged over" (equal (region-text) "hello"))
   (shot "drag")
+  (mouse :down 3 1)
+  (mouse :up 3 1)
+  (mouse :down 3 1 :clicks 2)
+  (mouse :up 3 1 :clicks 2)
+  (settle)
+  (check "a double click selects a word" (equal (region-text) "format"))
+  (mouse :down 3 1 :clicks 3)
+  (mouse :up 3 1 :clicks 3)
+  (settle)
+  (check "a triple click selects a line"
+         (equal (region-text) (format nil "  (format t \"Hello, ~~A!~~%\" name))~%")))
+  (shot "triple-click")
+  (let ((menu (main (objc:invoke (view) "menuForEvent:" (mouse-event :right-down 5 1 0 1)))))
+    (settle)
+    (check "a right click has a menu"
+           (and (not (cffi:null-pointer-p menu))
+                (main (plusp (objc:invoke menu "numberOfItems"))))))
+  (check "a right click in the selection keeps it"
+         (and (hemlock::region-active-p) (search "format" (region-text))))
+  (main (objc:invoke (view) "menuForEvent:" (mouse-event :right-down 2 0 0 1)))
+  (settle)
+  (check "a right click elsewhere moves point" (= (point-column) 2))
+  (mouse :down 7 0) (mouse :drag 12 0) (mouse :up 12 0)
+  (settle)
 
   (note "clipboard")
   (press-menu #\c)
@@ -257,6 +293,22 @@ café λ 日本語 end")
                 (search "Opened from Finder, λ." (buffer-text)))))
   (shot "opened")
 
+  (note "menus")
+  (choose-menu-item "View" "Split Window")
+  (settle)
+  (check "View > Split Window splits it"
+         (= 2 (length (hi::buffer-windows (hi::current-buffer)))))
+  (choose-menu-item "View" "Delete Window")
+  (settle)
+  (check "View > Delete Window deletes one"
+         (= 1 (length (hi::buffer-windows (hi::current-buffer)))))
+  (press-menu #\b)
+  (settle)
+  (check "Cmd-B prompts for a buffer" (eq hi::*current-window* hi::*echo-area-window*))
+  (shot "switch-buffer")
+  (post-key #\g "Control")
+  (settle)
+
   (note "fonts")
   (press-menu #\=) (settle)
   (check "Cmd-= makes the font bigger" (= hemlock.cocoa:*font-size* 14))
@@ -269,10 +321,20 @@ café λ 日本語 end")
   (note "shell")
   (extended-command "Shell")
   (settle)
-  (post-text "echo smoke-$((6*7))
+  (post-text "echo smoke-$((6*7)); printf '\\033[31mred\\033[0m plain\\n'
 ")
   (check "a shell runs in a buffer"
          (wait-until (lambda () (search "smoke-42" (buffer-text)))))
+  (check "colour codes from a shell are not text"
+         (wait-until (lambda () (search (format nil "~%red plain") (buffer-text)))))
+  (check "a colour code becomes a font"
+         (let ((line (hi::mark-line (hi::buffer-start-mark (hi::current-buffer)))))
+           (loop while line
+                 thereis (and (search "red plain" (hi::line-string line))
+                              (some (lambda (m) (and (hi::fast-font-mark-p m)
+                                                     (eql (hi::font-mark-font m) 1)))
+                                    (hi::line-marks line)))
+                 do (setf line (hi::line-next line)))))
   (shot "shell")
 
   (note "slave")

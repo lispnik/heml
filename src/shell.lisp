@@ -72,7 +72,12 @@
     :initform nil
     :initarg :hemlock-stream
     :accessor shell-filter-stream-hemlock-stream
-    :documentation "The Hemlock stream to which output will be directed")))
+    :documentation "The Hemlock stream to which output will be directed")
+   (pending-escape
+    :initform nil
+    :accessor shell-filter-stream-pending-escape
+    :documentation "The start of an escape sequence the last write ended in
+     the middle of.")))
 
 (defun make-shell-filter-stream (buffer hemlock-stream)
   (make-instance 'shell-filter-stream
@@ -81,6 +86,11 @@
                  :hemlock-stream hemlock-stream))
 
 (defmethod hi::stream-write-char ((stream shell-filter-stream) char)
+  (if (or (eql char #\Esc) (shell-filter-stream-pending-escape stream))
+      (write-shell-output stream (string char) 0 1)
+      (write-shell-char stream char)))
+
+(defun write-shell-char (stream char)
   (if (eql char #\return)
       (with-mark ((m (current-point)))
         (line-start m)
@@ -90,10 +100,94 @@
 (defmethod hi::stream-write-sequence
     ((stream shell-filter-stream) seq start end &key)
   (check-type seq string)
-  (if (position #\return seq)
-      (iter:iter (iter:for i from start below end)
-                 (hi::stream-write-char stream (elt seq i)))
-      (shell-filter-string-out stream seq start end)))
+  (write-shell-output stream seq start (or end (length seq))))
+
+(defun write-shell-text (stream seq start end)
+  (when (< start end)
+    (if (position #\return seq :start start :end end)
+        (iter:iter (iter:for i from start below end)
+                   (write-shell-char stream (elt seq i)))
+        (shell-filter-string-out stream seq start end))))
+
+
+;;;; Terminal escape sequences in shell output.
+
+;;; A shell and the programs it runs write escape sequences for a terminal.
+;;; Colours (SGR, ESC [ ... m) become font marks, the ANSI colour indexes
+;;; that Hemlock's fonts are; every other sequence -- cursor motion, window
+;;; titles, bracketed paste -- is dropped, since a buffer is not a screen.
+;;; A sequence cut in two by the end of a write waits for the rest.
+
+(defun escape-sequence-end (string start end)
+  "The index after the escape sequence at START of STRING, or NIL when it
+   does not end before END."
+  (when (< (1+ start) end)
+    (case (char string (1+ start))
+      (#\[                               ; CSI: parameters, then a final byte
+       (loop for i from (+ start 2) below end
+             when (char<= #\@ (char string i) #\~) return (1+ i)))
+      (#\]                               ; OSC: ended by BEL or ESC \
+       (loop for i from (+ start 2) below end
+             when (char= (char string i) (code-char 7)) return (1+ i)
+             when (and (char= (char string i) #\Esc) (< (1+ i) end)
+                       (char= (char string (1+ i)) #\\))
+               return (+ i 2)))
+      (t (+ start 2)))))                  ; ESC and one more character
+
+(defun sgr-font (parameters)
+  "The font an SGR sequence's PARAMETERS leave in effect: an ANSI colour
+   index, or 0 for the default; NIL when they say nothing about colour."
+  (let ((codes (mapcar (lambda (p) (or (parse-integer p :junk-allowed t) 0))
+                       (cl-ppcre:split ";" parameters)))
+        (font nil))
+    (when (null codes) (setf codes '(0)))
+    (loop while codes
+          do (let ((code (pop codes)))
+               (cond ((or (= code 0) (= code 39)) (setf font 0))
+                     ((<= 31 code 37) (setf font (- code 30)))
+                     ((<= 91 code 97) (setf font (- code 90)))
+                     ;; Black would vanish on a dark background; the
+                     ;; default colour is what it means.
+                     ((or (= code 30) (= code 90)) (setf font 0))
+                     ;; 256-colour and true-colour forms: their operands
+                     ;; are skipped, and the text is shown in the default.
+                     ((= code 38)
+                      (case (pop codes)
+                        (5 (pop codes))
+                        (2 (pop codes) (pop codes) (pop codes)))
+                      (setf font 0)))))
+    font))
+
+(defun apply-escape-sequence (stream sequence)
+  (let ((length (length sequence)))
+    (when (and (> length 2)
+               (char= (char sequence 1) #\[)
+               (char= (char sequence (1- length)) #\m))
+      (let ((font (sgr-font (subseq sequence 2 (1- length)))))
+        (when font
+          (let ((mark (hi::hemlock-output-stream-mark
+                       (shell-filter-stream-hemlock-stream stream))))
+            (font-mark (mark-line mark) (mark-charpos mark) font)))))))
+
+(defun write-shell-output (stream seq start end)
+  (let ((pending (shell-filter-stream-pending-escape stream)))
+    (when pending
+      (setf (shell-filter-stream-pending-escape stream) nil
+            seq (concatenate 'string pending (subseq seq start end))
+            start 0
+            end (length seq))))
+  (loop
+    (let ((escape (position #\Esc seq :start start :end end)))
+      (unless escape
+        (write-shell-text stream seq start end)
+        (return))
+      (write-shell-text stream seq start escape)
+      (let ((after (escape-sequence-end seq escape end)))
+        (unless after
+          (setf (shell-filter-stream-pending-escape stream) (subseq seq escape end))
+          (return))
+        (apply-escape-sequence stream (subseq seq escape after))
+        (setf start after)))))
 
 #+scl
 (defmethod ext:stream-write-chars

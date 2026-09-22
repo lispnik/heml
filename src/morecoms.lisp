@@ -599,6 +599,58 @@
     (setf *mouse-drag-start* (copy-mark (current-mark) :temporary))
     (move-mark (current-point) m)))
 
+(defun select-from-pointer (extend)
+  "Make the region the text around the pointer that EXTEND, a function of
+   two marks at the pointer, moves out to: activated, with point at its
+   end.  A later drag or release leaves it alone."
+  (let ((m (pointer-mark)))
+    (unless m (editor-error))
+    (let ((start (copy-mark m :temporary))
+          (end (copy-mark m :temporary)))
+      (funcall extend start end)
+      (deactivate-region)
+      (push-buffer-mark (copy-mark start) t)
+      (move-mark (current-point) end)
+      (setf *mouse-drag-start* nil))))
+
+(defcommand "Mouse Select Word" (p)
+  "Make the word under the pointer the region: what a double click does."
+  "Select the word under the pointer."
+  (declare (ignore p))
+  (select-from-pointer
+   (lambda (start end)
+     ;; At the edge of the buffer there is no delimiter to find.
+     (unless (reverse-find-attribute start :word-delimiter)
+       (buffer-start start))
+     (unless (find-attribute end :word-delimiter)
+       (buffer-end end))
+     ;; Between words, the character clicked on.
+     (when (mark= start end)
+       (character-offset end 1)))))
+
+(defcommand "Mouse Select Line" (p)
+  "Make the line under the pointer the region: what a triple click does."
+  "Select the line under the pointer."
+  (declare (ignore p))
+  (select-from-pointer
+   (lambda (start end)
+     (line-start start)
+     (unless (line-offset end 1 0)
+       (line-end end)))))
+
+(defcommand "Mouse Point Unless In Region" (p)
+  "Move point to the pointer, as \"Mouse Set Point\" does, unless the
+   pointer is in the active region: what a right click does before its menu
+   opens, so that the menu acts on the selection or on what was clicked."
+  "Move point to the pointer unless it is in the active region."
+  (declare (ignore p))
+  (let ((m (pointer-mark)))
+    (unless (and m (region-active-p)
+                 (let ((region (current-region nil nil)))
+                   (and (mark<= (region-start region) m)
+                        (mark<= m (region-end region)))))
+      (mouse-set-point-command nil))))
+
 (defun scroll-window-under-pointer (lines)
   (multiple-value-bind (x y window) (last-key-event-cursorpos)
     (declare (ignore x y))

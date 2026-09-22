@@ -172,9 +172,17 @@
     ;; Kludge: This shouldn't be needed, but otherwise C-c M-i doesn't work.
     (reg '(#\Esc #\i) #k"meta-i")))
 
+;;; The terminal's erase character is Backspace, whatever terminfo says:
+;;; kbs is ^H in most entries, but a Mac's terminals, and tmux, send the
+;;; ^? that stty calls erase, which Hemlock would otherwise take for Delete.
+;;;
 (defun translate-tty-event (data)
   (let ((string (coerce data 'string)))
-    (or (gethash string *tty-translations*)
+    (or (and *tty-erase-char*
+             (= 1 (length string))
+             (= (char-code (char string 0)) *tty-erase-char*)
+             #k"Backspace")
+        (gethash string *tty-translations*)
         (when (= 1 (length string))
           (hemlock-ext:character-key-event (char string 0))))))
 

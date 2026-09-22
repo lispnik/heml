@@ -35,10 +35,12 @@
    libfixposix=).
 
    #+BEGIN_SRC shell  :tangle no
-     make deps     # ocicl install
-     make run      # the editor in a window, from a terminal SBCL
-     make smoke    # drive it end to end and check it; pictures in build/smoke
-     make app      # build/Xoamax.app
+     make deps       # ocicl install
+     make run        # the editor in a window, from a terminal SBCL
+     make smoke      # drive it end to end and check it; pictures in build/smoke
+     make smoke-tty  # the same for the TTY backend, in tmux
+     make app        # build/Xoamax.app
+     make dmg        # build/Xoamax-<version>.dmg
    #+END_SRC
 
    From a REPL:
@@ -76,11 +78,28 @@
 
    The mouse works as elsewhere on the Mac: click to move point (or, on a
    modeline, to select that window), drag to mark a region, shift-click
-   to extend it, and scroll with the wheel or trackpad.  The region shows
-   in the system's selection colour.
+   to extend it, double-click for a word, triple-click for a line, and
+   scroll with the wheel or trackpad.  The region shows in the system's
+   selection colour.  A right click opens a menu -- Cut, Copy, Paste,
+   Edit Definition, Describe Symbol, Evaluate Region -- acting on the
+   selection, or on where it was clicked.
+
+   The menu bar has the File, Edit, View, Buffer, Lisp, Window and Help
+   menus a Mac user looks for: Open and Save As use the standard panels,
+   Settings opens the init file, and every other item is a Hemlock
+   command (=*menu-bar*= in =src/cocoa-appkit.lisp=).
+
+   Shells show their colours, and the escape sequences that are not
+   colours are left out of the buffer.
 
    Xoamax.app is signed ad hoc unless =MACOS_SIGNING_IDENTITY= names a
-   Developer ID.
+   Developer ID; =scripts/notarize.sh= says which credentials notarize it.
+
+   CI (=.github/workflows/ci.yml=) runs both smoke tests, builds the app
+   and its disk image on every push, and keeps the smoke test's pictures.
+   A tag =v*= makes a release carrying the image, signed with a Developer
+   ID and notarized when the repository has the secrets the workflow
+   names.
 
 
 
