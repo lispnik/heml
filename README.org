@@ -37,8 +37,10 @@
      make smoke      # drive it end to end and check it; pictures in build/smoke
      make smoke-tty  # the same for the TTY backend, in tmux
      make smoke-tty-ecl  # the TTY checks under ECL
-     make app        # build/Xoamax.app
-     make dmg        # build/Xoamax-<version>.dmg
+     make app        # build/Xoamax.app, signed ad hoc or with SIGN_IDENTITY
+     make check-app  # its signature, Info.plist, and what it links
+     make dmg        # dist/Xoamax-<version>-<arch>.dmg
+     make release SIGN_IDENTITY=...  # notarise and staple the app and the dmg
    #+END_SRC
 
    From a REPL:
@@ -90,14 +92,15 @@
    Shells show their colours, and the escape sequences that are not
    colours are left out of the buffer.
 
-   Xoamax.app is signed ad hoc unless =MACOS_SIGNING_IDENTITY= names a
-   Developer ID; =scripts/notarize.sh= says which credentials notarize it.
+   Xoamax.app is built by [[https://github.com/lispnik/asdf-macos-app][asdf-macos-app]], and signed ad hoc unless
+   =SIGN_IDENTITY= names a Developer ID.  =RELEASING.md= says how to
+   notarise it and make a release.
 
    CI (=.github/workflows/ci.yml=) runs the smoke tests, builds the app
    and its disk image on every push, and keeps the smoke test's pictures.
-   A tag =v*= makes a release carrying the image, signed with a Developer
-   ID and notarized when the repository has the secrets the workflow
-   names.
+   A tag =v*= runs =.github/workflows/release.yml=, which builds, signs,
+   notarises and staples a disk image for Apple silicon and one for Intel,
+   and publishes them as a release.
 
 
 

@@ -1,0 +1,294 @@
+# A signed, notarised, stapled disk image of Xoamax.app, on a tag.
+#
+# Two release blockers, both of which fail slowly and neither obviously:
+#
+#   SBCL must be built --without-sb-core-compression.  Homebrew's enables zstd
+#   core compression and so links /opt/homebrew/lib/libzstd.dylib.  Such a
+#   bundle notarises perfectly well and then dies with a dyld error on a Mac
+#   that has never had Homebrew: Apple checks the signature, not whether your
+#   dylibs exist on someone else's disk.  So this builds SBCL from source and
+#   caches it, and `make notarize` refuses a bundle that links outside itself.
+#
+#   `security set-key-partition-list` is not optional.  Without it codesign
+#   waits on an authorisation prompt no runner can answer, and the job hangs
+#   until the timeout rather than failing.
+#
+# No universal binary: there is no universal SBCL core, so this ships one disk
+# image per architecture.
+#
+# Secrets (RELEASING.md says how to make them):
+#
+#   MACOS_CERTIFICATE           the Developer ID Application .p12, base64
+#   MACOS_CERTIFICATE_PASSWORD  the password the .p12 was exported with
+#   APPLE_ID                    your Apple ID email
+#   APPLE_APP_PASSWORD          an app-specific password for it
+#
+# The identity and the team id are read from the certificate.  A manual run
+# is a dry run by default: it builds and signs ad hoc, and notarises nothing.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and sign ad hoc, but do not notarise or publish"
+        type: boolean
+        default: true
+
+env:
+  # Pinned so the cache key is stable.  What matters is the build below,
+  # --without-sb-core-compression, not the version.
+  SBCL_VERSION: "2.6.8"
+
+jobs:
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86-64
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      # --- a distributable SBCL ------------------------------------------------
+
+      - name: Cache SBCL
+        id: sbcl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/sbcl
+          key: sbcl-${{ env.SBCL_VERSION }}-${{ runner.os }}-${{ runner.arch }}-nocompression
+
+      - name: Build SBCL without core compression
+        if: steps.sbcl-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # A host Lisp to build with; the result does not depend on it.
+          brew install sbcl
+          curl -fsSL -o "$RUNNER_TEMP/sbcl.tar.bz2" \
+            "https://downloads.sourceforge.net/project/sbcl/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-source.tar.bz2"
+          mkdir -p "$RUNNER_TEMP/sbcl-src"
+          tar xjf "$RUNNER_TEMP/sbcl.tar.bz2" -C "$RUNNER_TEMP/sbcl-src" --strip-components=1
+          cd "$RUNNER_TEMP/sbcl-src"
+          sh make.sh --fancy --without-sb-core-compression --prefix="$HOME/.local/sbcl"
+          sh install.sh
+          brew uninstall --ignore-dependencies sbcl || true
+
+      - name: Put SBCL on the path and prove it is clean
+        run: |
+          echo "$HOME/.local/sbcl/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/sbcl/bin:$PATH"
+          export SBCL_HOME="$HOME/.local/sbcl/lib/sbcl"
+          echo "SBCL_HOME=$SBCL_HOME" >> "$GITHUB_ENV"
+          sbcl --version
+          echo "the runtime links:"
+          otool -L "$HOME/.local/sbcl/bin/sbcl" | tail -n +2
+          if otool -L "$HOME/.local/sbcl/bin/sbcl" | tail -n +2 \
+               | grep -v '/usr/lib/' | grep -v '/System/' | grep -q .; then
+            echo "::error::this SBCL links something outside /usr/lib and /System" >&2
+            exit 1
+          fi
+
+      # --- dependencies --------------------------------------------------------
+
+      - name: Install libfixposix and tmux
+        run: brew install libfixposix tmux
+
+      - name: Install and configure ocicl
+        run: |
+          # Each step gets a watchdog and three attempts: a hang here must
+          # fail fast and try again rather than eat the run.  macOS ships no
+          # timeout(1), hence the watchdog.
+          attempt_with_timeout() {
+            local secs=$1; shift
+            ( "$@" ) & local pid=$!
+            ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) & local watchdog=$!
+            local rc=0; wait "$pid" || rc=$?
+            kill -9 "$watchdog" 2>/dev/null || true
+            return $rc
+          }
+          clone_ocicl() {
+            rm -rf "$HOME/ocicl-src"
+            # Outside the repository, so as not to collide with its ocicl/.
+            git clone --depth 1 https://github.com/ocicl/ocicl.git "$HOME/ocicl-src"
+          }
+          setup_ocicl() {
+            ( cd "$HOME/ocicl-src" && sbcl --non-interactive --load setup.lisp )
+          }
+          for attempt in 1 2 3; do
+            if attempt_with_timeout 300 clone_ocicl && attempt_with_timeout 300 setup_ocicl; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::ocicl could not be installed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "::warning::ocicl install attempt $attempt failed or hung; retrying"
+            sleep 15
+          done
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # Every sbcl the Makefile starts finds the dependencies through
+          # this, as it does on a developer's machine.
+          "$HOME/.local/bin/ocicl" setup > "$HOME/.sbclrc"
+
+      - name: Restore dependencies
+        run: |
+          # ocicl exits 0 when a download fails, and ghcr.io fails often
+          # enough to matter; so several attempts, and a failure here, on
+          # the line that names the package.
+          for attempt in 1 2 3 4 5; do
+            ocicl install 2>&1 | tee ocicl-install.log
+            if ! grep -q "failed to install" ocicl-install.log; then
+              break
+            fi
+            echo "::warning::ocicl install attempt $attempt did not get every package"
+            sleep 30
+          done
+          if grep -q "failed to install" ocicl-install.log; then
+            echo "::error::ocicl could not install every dependency after 5 attempts" >&2
+            exit 1
+          fi
+
+      - name: Drive the TTY editor in tmux (make smoke-tty)
+        run: make smoke-tty
+
+      # --- signing -------------------------------------------------------------
+
+      # One decision, made once, so that a dry run with the secrets set builds
+      # ad hoc rather than asking codesign for an identity it never imported.
+      - name: Decide whether this run signs
+        id: signing
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] \
+             || [ "${{ inputs.dry_run }}" = "false" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "this run signs and notarises"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "dry run: building ad hoc, not notarising"
+          fi
+
+      - name: Import the Developer ID
+        id: identity
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # A keychain for this job only, deleted in an always() step below.
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          echo "$MACOS_CERTIFICATE" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          # Without this codesign waits on a prompt no runner can answer.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+          security find-identity -v -p codesigning
+          # Ask the certificate who it is rather than being told.
+          line=$(security find-identity -v -p codesigning \
+                 | grep "Developer ID Application" | head -1)
+          [ -n "$line" ] || { echo "::error::no Developer ID in the .p12" >&2; exit 1; }
+          identity=$(echo "$line" | sed -E 's/.*"(.*)"/\1/')
+          team=$(echo "$identity" | sed -E 's/.*\(([A-Z0-9]+)\)$/\1/')
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "team=$team" >> "$GITHUB_OUTPUT"
+          echo "signing as $identity (team $team)"
+
+      - name: Store the notary credentials
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # The profile name is the Makefile's NOTARY_PROFILE.
+          xcrun notarytool store-credentials xoamax \
+            --apple-id "$APPLE_ID" \
+            --team-id "${{ steps.identity.outputs.team }}" \
+            --password "$APPLE_APP_PASSWORD" --keychain build.keychain
+
+      # --- the artefact --------------------------------------------------------
+
+      - name: Build the bundle
+        env:
+          SIGN_IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: make app SIGN_IDENTITY="$SIGN_IDENTITY"
+
+      - name: Check the bundle
+        env:
+          SIGN_IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: make check-app SIGN_IDENTITY="$SIGN_IDENTITY"
+
+      - name: Notarise and staple the bundle
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          SIGN_IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: make notarize SIGN_IDENTITY="$SIGN_IDENTITY"
+
+      - name: Build the disk image
+        env:
+          SIGN_IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: make dmg SIGN_IDENTITY="$SIGN_IDENTITY"
+
+      # The disk image is notarised and stapled in its own right: stapling only
+      # the app leaves the download unrecognised.
+      - name: Notarise and staple the disk image
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          SIGN_IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: make notarize-dmg SIGN_IDENTITY="$SIGN_IDENTITY"
+
+      - name: Upload the disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoamax-${{ matrix.arch }}
+          path: dist/*.dmg
+          retention-days: 14
+
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain build.keychain || true
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          generate_release_notes: true
+          body: |
+            Xoamax, an Emacs-style editor in Common Lisp, as a macOS application.
+
+            **One disk image per architecture.** There is no universal SBCL
+            core, so `arm64` is for Apple silicon and `x86_64` for Intel Macs.
+
+            Both are signed with a Developer ID, notarised by Apple, and
+            stapled -- the disk image as well as the application inside it.

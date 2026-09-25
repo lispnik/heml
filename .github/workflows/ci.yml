@@ -1,6 +1,6 @@
 # Builds Xoamax on GitHub's macOS runner, drives both of its macOS
-# frontends end to end, and builds Xoamax.app and its disk image.  A tag
-# of the form v* makes a release carrying the image.
+# frontends end to end, and builds Xoamax.app and its disk image, signed ad
+# hoc.  Signed, notarised releases are release.yml's job.
 #
 # The runner has a window server -- GitHub's macOS images come with a
 # logged-in session -- which is what lets `make smoke` open the Cocoa
@@ -10,34 +10,16 @@
 # picture says what it drew.  `make smoke-tty` runs the TTY backend in tmux,
 # and `make smoke-tty-ecl` does the same under ECL.
 #
-# Signing.  A push or pull request is signed ad hoc.  A tag run signs with
-# a Developer ID and notarizes, when the repository has these secrets:
-#
-#   MACOS_CERTIFICATE_P12       the Developer ID Application certificate and
-#                               its key, exported from Keychain Access as a
-#                               .p12 and base64-encoded
-#   MACOS_CERTIFICATE_PASSWORD  the password that export was given
-#   MACOS_SIGNING_IDENTITY      its name, "Developer ID Application: ... (TEAM)"
-#   NOTARY_KEY_P8               an App Store Connect API key (.p8), base64
-#   NOTARY_KEY_ID               that key's id
-#   NOTARY_KEY_ISSUER           the issuer id shown beside it
-#
-# Without them a tag still makes a release, signed ad hoc, and the notes say
-# so.  The certificate goes into a keychain made for the job and deleted
-# after it; nothing about it is written to the tree.
+# This uses Homebrew's SBCL, whose runtime links libzstd, so the bundle
+# built here is fine to test and not distributable; `make check-app` says so
+# without failing.
 
 name: CI
 
 on:
   push:
     branches: [master]
-    tags: ['v*']
   pull_request:
-
-# The release step creates a release and uploads the image, which needs
-# write access; the default token can only read.
-permissions:
-  contents: write
 
 jobs:
   build:
@@ -117,40 +99,6 @@ jobs:
             --eval '(asdf:load-system :hemlock.cocoa)' \
             --eval '(format t "~&window server: ~A~%" (objc.runloop:window-server-p))'
 
-      # Only a tag run, and only when the secrets exist: a secret cannot be
-      # tested in an `if:`, so its presence is carried through an env var.
-      - name: Import the Developer ID and the notary key
-        if: startsWith(github.ref, 'refs/tags/v') && env.HAVE_CERT == 'true'
-        env:
-          HAVE_CERT: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_KEY_ISSUER: ${{ secrets.NOTARY_KEY_ISSUER }}
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD=$(uuidgen)
-          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN"
-          # codesign runs without a prompt only once the key's partition
-          # list names it.
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
-          rm -f "$RUNNER_TEMP/certificate.p12"
-          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
-          echo "MACOS_SIGNING_IDENTITY=$MACOS_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          echo "NOTARY_KEY_FILE=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
-          echo "NOTARY_KEY_ID=$NOTARY_KEY_ID" >> "$GITHUB_ENV"
-          echo "NOTARY_KEY_ISSUER=$NOTARY_KEY_ISSUER" >> "$GITHUB_ENV"
-          security find-identity -v -p codesigning "$KEYCHAIN"
-
       - name: Drive the Cocoa editor (make smoke)
         run: make smoke
 
@@ -160,7 +108,10 @@ jobs:
       - name: Drive the TTY editor under ECL (make smoke-tty-ecl)
         run: make smoke-tty-ecl
 
-      - name: Build Xoamax.app and its disk image
+      - name: Build Xoamax.app and check it
+        run: make check-app
+
+      - name: Build the disk image
         run: make dmg
 
       - name: Start Xoamax.app and quit it
@@ -181,16 +132,8 @@ jobs:
           done
           echo "::error::Xoamax.app did not quit"; exit 1
 
-      - name: Verify the bundle
-        run: |
-          codesign --verify --deep --strict build/Xoamax.app
-          codesign -dv build/Xoamax.app 2>&1 | grep -E "^(Authority|Signature|CodeDirectory)" || true
-          plutil -lint build/Xoamax.app/Contents/Info.plist
-          hdiutil verify build/Xoamax-*.dmg
-          # Gatekeeper's own verdict.  Meaningful only for a notarized
-          # build; an ad hoc one is rejected here by design, so the result
-          # is shown and not enforced.
-          spctl --assess --type open --context context:primary-signature -v build/Xoamax-*.dmg || true
+      - name: Verify the disk image
+        run: hdiutil verify dist/Xoamax-*.dmg
 
       - name: Keep the pictures and the disk image
         if: always()
@@ -199,25 +142,5 @@ jobs:
           name: xoamax-${{ github.sha }}
           path: |
             build/smoke/*.png
-            build/Xoamax-*.dmg
+            dist/Xoamax-*.dmg
           if-no-files-found: warn
-
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -n "$MACOS_SIGNING_IDENTITY" ]; then
-            NOTES="Xoamax, an Emacs-style editor in Common Lisp, as a macOS application. Signed with a Developer ID and notarized."
-          else
-            NOTES="Xoamax, an Emacs-style editor in Common Lisp, as a macOS application. Signed ad hoc: open it the first time with a right-click and Open, or build it from source."
-          fi
-          gh release create "${GITHUB_REF_NAME}" build/Xoamax-*.dmg \
-            --title "Xoamax ${GITHUB_REF_NAME}" \
-            --notes "$NOTES"
-
-      - name: Remove the signing keychain
-        if: always() && env.SIGNING_KEYCHAIN != ''
-        run: |
-          security delete-keychain "$SIGNING_KEYCHAIN"
-          rm -f "$NOTARY_KEY_FILE"

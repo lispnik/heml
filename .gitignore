@@ -9,3 +9,4 @@ hemlock.core
 build/
 ocicl/
 .DS_Store
+dist/
