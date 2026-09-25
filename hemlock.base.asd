@@ -235,4 +235,15 @@
                            *hemlock-base-directory*)
               :depends-on (core-1)
               :components
-              ((:file "clbuild")))))
+              ((:file "clbuild")))
+     ;; The iolib event loop and connections, which every backend uses.
+     ;; Loaded last: it declaims (speed 2), which stays in effect for
+     ;; whatever is compiled after it.
+     (:module io
+              :pathname #.(merge-pathnames
+                           (make-pathname
+                            :directory '(:relative "src"))
+                           *hemlock-base-directory*)
+              :depends-on (core-2 root-2 user-1 misc-1)
+              :components
+              ((:file "ioconnections")))))

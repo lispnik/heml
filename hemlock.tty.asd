@@ -17,8 +17,7 @@
                             :directory '(:relative "src"))
                            *hemlock-base-directory*)
               :components
-              ((:file "ioconnections")
-               (:file "terminfo")
+              ((:file "terminfo")
                (:file "termcap" :depends-on ("terminfo"))
                (:file "tty-disp-rt")
                (:file "tty-display" :depends-on ("terminfo" "tty-disp-rt"))

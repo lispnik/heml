@@ -38,7 +38,7 @@ Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on m
 - `hemlock.tty`: terminfo/termcap terminal display (`tty-*.lisp`, `terminfo.lisp`, `linedit.lisp`)
 - `hemlock.cocoa`: native macOS backend through the `objc` bridge (`cocoa-*.lisp`), SBCL only
 
-`ioconnections.lisp` (the iolib event loop and connections) is not in `hemlock.base`. Each backend lists it among its own components.
+`ioconnections.lisp` (the iolib event loop and connections) is the last module of `hemlock.base`. It declaims `(speed 2)`, which stays in effect for every file compiled after it, so keep it last.
 
 All sources live flat in `src/`. Module membership and load order are defined only in the `.asd` files. When you add a file, register it in the right module. `core-2` is `:serial t`, so position matters there. `hemlock.base.asd` also proclaims `(optimize (safety 3) (speed 0) (debug 3))` globally.
 

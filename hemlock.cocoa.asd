@@ -21,9 +21,7 @@
                            *hemlock-base-directory*)
               :serial t
               :components
-              (;; The iolib event loop, as tty uses it.
-               (:file "ioconnections")
-               (:file "cocoa-package")
+              ((:file "cocoa-package")
                (:file "cocoa-appkit")
                (:file "cocoa-device")
                (:file "cocoa-main")))))
