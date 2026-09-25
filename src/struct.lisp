@@ -371,8 +371,7 @@
 ;;; These streams write to random typeout buffers for WITH-POP-UP-DISPLAY.
 ;;;
 
-(defclass random-typeout-stream (#-scl fundamental-character-output-stream
-                                 #+scl ext:character-output-stream)
+(defclass random-typeout-stream (fundamental-character-output-stream)
   ((mark         :initarg :mark
                  :initform nil
                  :accessor random-typeout-stream-mark
@@ -397,8 +396,6 @@
 
 (defun make-random-typeout-stream (mark)
   (make-instance 'random-typeout-stream
-                 #+scl #+scl :in-buffer lisp::*empty-string*
-                 #+scl #+scl :out-buffer lisp::*empty-string*
                  :mark mark))
 
 (defmethod print-object ((object random-typeout-stream) stream)

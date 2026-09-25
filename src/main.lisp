@@ -260,11 +260,9 @@ GB
   `(push #'(lambda () ,@forms)
          *after-editor-initializations-funs*))
 
-#-(or cmu scl)
 (defparameter *backend-options* '(:tty :cocoa)
   "The backends that have a --tty style flag of their own.")
 
-#-(or cmu scl)
 (defparameter *command-line-spec*
   ;; command-line-arguments records what an :ACTION function returns under
   ;; the option's own name, so these return values and push nothing:
@@ -291,7 +289,6 @@ GB
                       :type boolean
                       :documentation ,(format nil "short for --backend ~A" b)))))))
 
-#-(or cmu scl)
 (defun command-line-keys (keys)
   "KEYS, from PROCESS-COMMAND-LINE-OPTIONS, with --backend and the
    --tty et al. flags folded into :BACKEND-TYPE, the keyword HEMLOCK and
@@ -305,12 +302,10 @@ GB
         (list* :backend-type backend others)
         others)))
 
-#-(or cmu scl)
 (defun show-cmd-line-help ()
   (format t "This is hemlock ~A.~%Usage:~%~%" *hemlock-version*)
   (format t "   ~A [OPTIONS] file...~%~%"
-          (or #+sbcl (car sb-ext:*posix-argv*)
-              "hemlock"))
+          (or (uiop:argv0) "hemlock"))
   (format t "Options are:~%~%")
   (show-option-help *command-line-spec*)  )
 
@@ -323,7 +318,6 @@ GB
 ;; Free Software available under an MIT-style license. See LICENSE
 ;; Copyright (c) 2003-2009 ITA Software, Inc.  All rights reserved.
 ;; Original author: Francois-Rene Rideau
-#-(or cmu scl)
 (defun show-option-help
        (specification &key (stream *standard-output*) sort-names)
   ;; TODO: be clever when trying to align stuff horizontally
@@ -351,7 +345,6 @@ GB
                       (cl-ppcre:split " " negation-documentation)))))))
 
 
-#-(or cmu scl)
 (defun main (&optional (arg-list (get-command-line-arguments)))
   (multiple-value-bind (keys rest)
                        (process-command-line-options
@@ -516,20 +509,8 @@ GB
   (hemlock x)
   t)
 
-#+sbcl
-(pushnew 'hemlock-ed-function sb-ext:*ed-functions*)
+(pushnew 'hemlock-ed-function #+sbcl sb-ext:*ed-functions* #+ecl ext:*ed-functions*)
 
-#+ccl
-(unless (eq ccl:*resident-editor-hook* 'hemlock-ed-function)
-  (if ccl:*resident-editor-hook*
-      (warn "*resident-editor-hook* already bound, not installing hemlock")
-      (setf ccl:*resident-editor-hook* 'hemlock-ed-function)))
-
-#+allegro
-(unless (eq scm::*ed-hook* 'hemlock-ed-function)
-  (if scm::*ed-hook*
-      (warn "*ed-hook* already bound, not installing hemlock")
-      (setf scm::*ed-hook* 'hemlock-ed-function)))
 
 (defun maybe-load-hemlock-init (init)
   (when init

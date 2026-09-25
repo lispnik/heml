@@ -16,20 +16,7 @@
 ;;; Code:lispinit.lisp uses this for a couple interrupt handlers, and
 ;;; eval-server.lisp.
 ;;;
-#+CMU
-(defmacro without-hemlock (&body body)
-  "When in the editor and not in the debugger, call the exit method of Hemlock's
-   device, so we can type.  Do the same thing on exit but call the init method."
-  `(progn
-     (when (and *in-the-editor* (not debug::*in-the-debugger*))
-       (let ((device (device-hunk-device (window-hunk (current-window)))))
-         (device-exit device)))
-     ,@body
-     (when (and *in-the-editor* (not debug::*in-the-debugger*))
-       (let ((device (device-hunk-device (window-hunk (current-window)))))
-         (device-init device)))))
 
-#-CMU
 (defmacro without-hemlock (&body body)
   "When in the editor and not in the debugger, call the exit method of Hemlock's
    device, so we can type.  Do the same thing on exit but call the init method."
@@ -226,8 +213,7 @@
          stream))
 
 (defvar *illegal-read-stream*
-  #+CMU (lisp::make-lisp-stream :in #'in-hemlock-standard-input-read)
-  #-CMU (make-broadcast-stream))
+  (make-broadcast-stream))
 
 (declaim (special *gc-notify-before*
                   *gc-notify-after*))
@@ -382,7 +368,6 @@
 ;;; returns a pathname for the file the function was defined in.  If it was
 ;;; not defined in some file, then nil is returned.
 ;;;
-#-(or cmu scl)
 (defun fun-defined-from-pathname (function)
   "Takes a symbol or function and returns the pathname for the file the
    function was defined in.  If it was not defined in some file, nil is
@@ -395,32 +380,10 @@
       (let ((file (second location)))
         (when (alexandria:starts-with :file file)
           (pathname (second file)))))))
-#+(or cmu scl)
-(defun fun-defined-from-pathname (function)
-  "Takes a symbol or function and returns the pathname for the file the
-   function was defined in.  If it was not defined in some file, nil is
-   returned."
-  (flet ((frob (code)
-              (let ((info (kernel:%code-debug-info code)))
-                     (when info
-                              (let ((sources (c::debug-info-source info)))
-                                 (when sources
-                                      (let ((source (car sources)))
-                                             (when (eq (c::debug-source-from source) :file)
-                                                      (c::debug-source-name source)))))))))
-    (typecase function
-      (symbol (fun-defined-from-pathname (fdefinition function)))
-      (kernel:byte-closure
-       (fun-defined-from-pathname (kernel:byte-closure-function function)))
-      (kernel:byte-function
-       (frob (c::byte-function-component function)))
-      (function
-       (frob (kernel:function-code-header (kernel:%function-self function))))
-      (t nil))))
 
 
 (defvar *editor-describe-stream*
-  (#+CMU system:make-indenting-stream #-CMU progn *standard-output*))
+  *standard-output*)
 
 ;;; EDITOR-DESCRIBE-FUNCTION has to mess around to get indenting streams to
 ;;; work.  These apparently work fine for DESCRIBE, for which they were defined,

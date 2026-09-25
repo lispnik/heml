@@ -295,7 +295,6 @@
 ;;; /dev/ptyXY devices to scan.  NIL when posix_openpt is not there or
 ;;; fails, so that the scan below can still be tried.
 ;;;
-#-(and scl linux)
 (defun open-posix-pty ()
   (when (cffi:foreign-symbol-pointer "posix_openpt")
     (let ((master (cffi:foreign-funcall "posix_openpt"
@@ -309,14 +308,12 @@
               (values master (isys:open name isys:o-rdwr) name)
               (progn (isys:close master) nil)))))))
 
-#-(and scl linux)
 (defun find-a-pty ()
   (multiple-value-bind (master slave name) (open-posix-pty)
     (if master
         (values master slave name)
         (find-a-bsd-pty))))
 
-#-(and scl linux)
 (defun find-a-bsd-pty ()
   (block t
     (dolist (char '(#\p #\q) (error "no pty found"))
@@ -343,33 +340,6 @@
                             slave-fd
                             slave-name)))))))))))
 
-#+(and scl linux)
-(defun find-a-pty ()
-  (multiple-value-bind (master errno)
-      (unix:unix-getpt)
-    (unless master
-      (error "~@<Getpt failed: ~A~@:>" (unix:get-unix-error-msg errno)))
-    (multiple-value-bind (winp errno)
-        (unix:unix-grantpt master)
-      (unless winp
-        (unix:unix-close master)
-        (error "~@<Grantpt failed: ~A~@:>" (unix:get-unix-error-msg errno))))
-    (multiple-value-bind (winp errno)
-        (unix:unix-unlockpt master)
-      (unless winp
-        (unix:unix-close master)
-        (error "~@<unlockpt failed: ~A~@:>" (unix:get-unix-error-msg errno))))
-    (multiple-value-bind (name errno)
-        (unix:unix-ptsname master)
-      (unless name
-        (unix:unix-close master)
-        (error "~@<ptsname failed: ~A~@:>" (unix:get-unix-error-msg errno)))
-      (multiple-value-bind (slave errno)
-          (unix:unix-open name unix:o_rdwr 0)
-        (unless slave
-          (unix:unix-close master)
-          (error "~@<Error opening slave pty: ~A~@:>" (unix:get-unix-error-msg errno)))
-        (values master slave name)))))
 
 (defun make-process-with-pty-connection
     (command &key name (buffer nil bufferp) stream)
@@ -440,29 +410,10 @@
 (defmethod stream-fd ((stream sb-sys:fd-stream))
   (sb-sys:fd-stream-fd stream))
 
-#+cmu
-(defmethod stream-fd ((stream system:fd-stream))
-  (system:fd-stream-fd stream))
+#+ecl
+(defmethod stream-fd ((stream file-stream))
+  (ext:file-stream-fd stream))
 
-#+scl
-(defmethod stream-fd ((stream stream))
-  (system:fd-stream-fd stream))
-
-#+openmcl
-(defmethod stream-fd ((stream ccl::basic-stream))
-  (ccl::ioblock-device (ccl::stream-ioblock stream t)))
-#+openmcl
-(defmethod stream-fd ((stream ccl::fd-stream))
-  (ccl::ioblock-device (ccl::stream-ioblock stream t)))
-
-#+clisp
-(defmethod stream-fd ((stream stream))
-  ;; sockets appear to be direct instances of STREAM
-  (ignore-errors (socket:stream-handles stream)))
-
-#+allegro
-(defmethod stream-fd ((stream stream))
-  (slot-value stream 'excl::input-handle))
 
 (defmethod stream-fd ((stream integer))
   stream)

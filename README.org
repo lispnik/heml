@@ -18,7 +18,7 @@
    one:
 
      * The TTY backend doesn't need much, except for a terminal
-       and an installed terminfo database.
+       and an installed terminfo database.  SBCL or ECL.
 
      * The Cocoa backend is a native macOS window, drawn with AppKit
        through [[https://github.com/lispnik/objc][objc]].  SBCL on macOS only.
@@ -28,13 +28,15 @@
 
    Dependencies come from [[https://github.com/ocicl/ocicl][ocicl]], including objc and
    [[https://github.com/lispnik/asdf-macos-app][asdf-macos-app]], and iolib needs =libfixposix= (=brew install
-   libfixposix=).
+   libfixposix=).  =conium= is a git submodule in =vendor/conium=, so
+   clone with =--recursive= or run =make deps=.
 
    #+BEGIN_SRC shell  :tangle no
-     make deps       # ocicl install
+     make deps       # git submodule update --init; ocicl install
      make run        # the editor in a window, from a terminal SBCL
      make smoke      # drive it end to end and check it; pictures in build/smoke
      make smoke-tty  # the same for the TTY backend, in tmux
+     make smoke-tty-ecl  # the TTY checks under ECL
      make app        # build/Xoamax.app
      make dmg        # build/Xoamax-<version>.dmg
    #+END_SRC
@@ -91,7 +93,7 @@
    Xoamax.app is signed ad hoc unless =MACOS_SIGNING_IDENTITY= names a
    Developer ID; =scripts/notarize.sh= says which credentials notarize it.
 
-   CI (=.github/workflows/ci.yml=) runs both smoke tests, builds the app
+   CI (=.github/workflows/ci.yml=) runs the smoke tests, builds the app
    and its disk image on every push, and keeps the smoke test's pictures.
    A tag =v*= makes a release carrying the image, signed with a Developer
    ID and notarized when the repository has the secrets the workflow
@@ -117,7 +119,7 @@
  or just
 
    #+BEGIN_SRC lisp  :tangle no
-     (ed)    ;SBCL and CCL only
+     (ed)
    #+END_SRC
    
 

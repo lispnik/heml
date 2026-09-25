@@ -1,7 +1,8 @@
 LISP ?= sbcl --noinform --non-interactive
 
-# Restore the dependencies ocicl.csv names into ocicl/.
+# Restore the dependencies ocicl.csv names into ocicl/, and vendor/conium.
 deps:
+	git submodule update --init
 	ocicl install
 
 # The editor in a window, from a fresh SBCL.  AppKit needs the main thread,
@@ -32,7 +33,13 @@ smoke:
 smoke-tty:
 	test/smoke-tty.sh
 
+# The same under ECL.  Built first: ECL compiles through C, and a first
+# build takes longer than the checks wait for the editor to start.
+smoke-tty-ecl:
+	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
+	LISP=ecl test/smoke-tty.sh
+
 clean:
 	rm -rf build
 
-.PHONY: deps run app dmg smoke smoke-tty clean
+.PHONY: deps run app dmg smoke smoke-tty smoke-tty-ecl clean

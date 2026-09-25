@@ -1,0 +1,4 @@
+[submodule "vendor/conium"]
+	path = vendor/conium
+	url = https://github.com/lispnik/conium.git
+	branch = ecl

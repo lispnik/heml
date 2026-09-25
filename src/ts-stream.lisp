@@ -22,11 +22,9 @@
 
 (defconstant ts-stream-output-buffer-size 512)
 
-(defclass ts-stream (#-scl hi::trivial-gray-stream-mixin
-                     #-scl hi::fundamental-character-output-stream
-                     #-scl hi::fundamental-character-input-stream
-                     #+scl ext:character-input-stream
-                     #+scl ext:character-output-stream)
+(defclass ts-stream (hi::trivial-gray-stream-mixin
+                     hi::fundamental-character-output-stream
+                     hi::fundamental-character-input-stream)
   ((wire
     :initarg  :wire
     :initform nil
@@ -343,7 +341,6 @@
 ;;;
 ;;; Can't do much, 'cause the wire is shared.
 ;;;
-#-scl ; SCL has a default method that is more suitable.
 (defmethod close ((stream ts-stream) &key abort)
   (unless abort
     (force-output stream))

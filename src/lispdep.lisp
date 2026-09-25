@@ -8,36 +8,16 @@
 
 (in-package :hemlock-ext)
 
-#+CLISP
-(progn
-  (setf custom:*FLOATING-POINT-CONTAGION-ANSI* t)
-  (setf custom:*WARN-ON-FLOATING-POINT-CONTAGION* nil))
-
 (defun getenv (name)
-  #.(or
-     #+EXCL  '(sys:getenv name)
-     #+CLISP '(ext:getenv name)
-     #+CMU   '(cdr (assoc name ext:*environment-list* :test #'string=))
-     #+scl   '(cdr (assoc name ext:*environment-list* :test #'string-equal))
-     #+sbcl  '(sb-ext:posix-getenv name)
-     #+openmcl '(ccl::getenv name)
-     (error "Find an implementation of getenv for your Lisp.")))
+  (uiop:getenv name))
 
 (defmacro without-interrupts (&body body)
-  `(#+EXCL   excl:without-interrupts
-    #+CMU    sys:without-interrupts
-    #+sbcl   sb-sys:without-interrupts
-    #+openmcl ccl:without-interrupts
-    #-(or EXCL CMU sbcl openmcl) progn
+  `(#+sbcl sb-sys:without-interrupts #+ecl mp:without-interrupts
     ,@body))
 
-#-(or CMU scl)
 (defmacro fixnump (object)
-  #+EXCL  `(excl:fixnump ,object)
-  #+CLISP `(sys::fixnump ,object)
-  #-(or EXCL CLISP) `(typep ,object 'fixnum))
+  `(typep ,object 'fixnum))
 
-#-(or cmu scl)
 (defun file-writable (pathname)
   "File-writable accepts a pathname and returns T if the current
   process can write it, and NIL otherwise. Also if the file does

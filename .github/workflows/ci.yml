@@ -7,7 +7,8 @@
 # editor, drive it with real NSEvents and picture every step.  The pictures
 # are kept as an artifact: they are what to look at when a run is green but
 # something is wrong, since a check says what the editor holds and only a
-# picture says what it drew.  `make smoke-tty` runs the TTY backend in tmux.
+# picture says what it drew.  `make smoke-tty` runs the TTY backend in tmux,
+# and `make smoke-tty-ecl` does the same under ECL.
 #
 # Signing.  A push or pull request is signed ad hoc.  A tag run signs with
 # a Developer ID and notarizes, when the repository has these secrets:
@@ -46,9 +47,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: true
 
-      - name: Install SBCL, libfixposix and tmux
-        run: brew install sbcl libfixposix tmux
+      - name: Install SBCL, ECL, libfixposix and tmux
+        run: brew install sbcl ecl libfixposix tmux
 
       - name: Install and configure ocicl
         run: |
@@ -86,6 +89,7 @@ jobs:
           # Every sbcl the Makefile starts finds the dependencies through
           # this, as it does on a developer's machine.
           "$HOME/.local/bin/ocicl" setup > "$HOME/.sbclrc"
+          "$HOME/.local/bin/ocicl" setup > "$HOME/.eclrc"
 
       - name: Restore dependencies
         run: |
@@ -152,6 +156,9 @@ jobs:
 
       - name: Drive the TTY editor in tmux (make smoke-tty)
         run: make smoke-tty
+
+      - name: Drive the TTY editor under ECL (make smoke-tty-ecl)
+        run: make smoke-tty-ecl
 
       - name: Build Xoamax.app and its disk image
         run: make dmg

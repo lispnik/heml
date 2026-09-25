@@ -48,8 +48,6 @@
     (numbers (required-argument) :type (simple-array (signed-byte 16) (*)))
     (strings (required-argument) :type (simple-array t (*)))))
 
-#+(or CMU scl)
-(declaim (ext:start-block capability %capability))
 
 (defun %capability (name terminfo)
   (let ((whatsit (gethash name *capabilities*)))
@@ -67,8 +65,6 @@
 (defun capability (name &optional (terminfo *terminfo*))
   (%capability name terminfo))
 
-#+(or CMU scl)
-(declaim (ext:end-block))
 
 (define-compiler-macro capability (&whole form
                                    name &optional (terminfo '*terminfo*))
@@ -611,10 +607,7 @@
            #+darwin (format nil "~X" (char-code (char name 0)))
            #-darwin (string (char name 0))))
     (let ((name (concatenate 'string (stringify-first-char name) "/" name)))
-      (dolist (path (list* #+CMU "home:.terminfo/"
-                           #+Allegro "~/.terminfo/"
-                           #-(or CMU Allegro)
-                           (merge-pathnames ".terminfo/" (user-homedir-pathname))
+      (dolist (path (list* (merge-pathnames ".terminfo/" (user-homedir-pathname))
                            *terminfo-directories*))
         (with-open-file (stream (merge-pathnames name path)
                                 :direction :input

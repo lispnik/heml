@@ -4,7 +4,6 @@
 
 (defun unix-gethostid ()
   #.(or
-     #+CMU '(unix:unix-gethostid)
      398792))
 
 (defun unix-getpid ()

@@ -60,9 +60,7 @@
 (setf (character-attribute :word-delimiter #\~) 1)
 (setf (character-attribute :word-delimiter #\space) 1)
 (setf (character-attribute :word-delimiter #\linefeed) 1)
-(setf (character-attribute :word-delimiter
-                           #+CMU #\formfeed
-                           #+(or EXCL sbcl CLISP OpenMCL scl) #\page) 1)
+(setf (character-attribute :word-delimiter #\page) 1)
 (setf (character-attribute :word-delimiter #\tab) 1)
 (setf (character-attribute :word-delimiter #\newline) 1)
 

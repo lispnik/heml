@@ -589,12 +589,7 @@
 
 (defun casify-char (char)
   "Convert CHAR accoring to readtable-case."
-  #-scl
   (char-upcase char)
-  #+scl
-  (if (eq ext:*case-mode* :upper)
-      (char-upcase char)
-      (char-downcase char))
   ;; fixme: need to do this on the slave side
   #+nil
   (ecase (readtable-case *readtable*)

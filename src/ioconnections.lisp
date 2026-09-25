@@ -160,12 +160,6 @@
 (defmethod delete-connection :before ((connection process-connection/iolib))
   (isys:kill (connection-pid connection) 15))
 
-;; ccl gives an exception in foreign code without this:
-#+ccl
-(defun invoke-without-interrupts (fun)
-  (ccl::without-interrupts (funcall fun)))
-
-#-ccl
 (defun invoke-without-interrupts (fun)
   (funcall fun))
 

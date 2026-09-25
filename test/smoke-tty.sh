@@ -8,7 +8,12 @@
 
 set -u
 
+# LISP=ecl runs the same checks under ECL.
 LISP=${LISP:-sbcl}
+case $(basename "$LISP") in
+    ecl*) quiet= ;;
+    *) quiet=--noinform ;;
+esac
 session=xoamax-smoke-tty-$$
 failures=0
 checks=0
@@ -43,9 +48,9 @@ cleanup() { tmux kill-session -t "$session" 2>/dev/null; }
 trap cleanup EXIT
 
 tmux new-session -d -s "$session" -x 100 -y 30 \
-     "$LISP --noinform \
+     "$LISP $quiet \
         --eval '(asdf:load-system :hemlock.tty)' \
-        --eval '(hemlock:hemlock nil :backend-type :tty :load-user-init nil)' \
+        --eval '(uiop:symbol-call :hemlock :hemlock nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
 expect "Hemlock CL-USER:" "the editor starts, with a modeline" 180

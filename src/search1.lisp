@@ -58,7 +58,7 @@
 ;;; keyword.
 ;;;
 (defmacro define-search-kind (kind lambda-list documentation &body forms)
-  (let ((dummy #-CLISP (gensym) #+CLISP (gentemp (format nil ".search-kind.~A" kind))))
+  (let ((dummy (gensym)))
     `(progn
       (push ,documentation *search-pattern-documentation*)
       (defun ,dummy ()

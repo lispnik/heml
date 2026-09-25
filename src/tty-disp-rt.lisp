@@ -29,28 +29,37 @@
 ;;; where I need it.  Currently, there really can only be one TTY anyway, since
 ;;; the buffer is in a global.
 ;;;
+#+ecl (ffi:clines "#include <sys/ioctl.h>")
+
+;;; The rows and columns of the terminal on FD.  ioctl is variadic, and
+;;; CFFI on ECL passes variadic arguments as fixed ones, which on arm64
+;;; macOS puts the pointer where ioctl does not look; so ECL calls it from C.
+;;;
+(defun terminal-size (fd)
+  #+sbcl
+  (cffi:with-foreign-object (ws 'osicat-posix::winsize)
+    (osicat-posix:ioctl fd osicat-posix:tiocgwinsz ws)
+    (cffi:with-foreign-slots ((osicat-posix::row osicat-posix::col)
+                              ws osicat-posix::winsize)
+      (values osicat-posix::row osicat-posix::col)))
+  #+ecl
+  (multiple-value-bind (rows cols)
+      (ffi:c-inline (fd) (:int) (values :int :int)
+        "{ struct winsize ws;
+           if (ioctl(#0, TIOCGWINSZ, &ws) == -1) {
+             @(return 0) = -1; @(return 1) = -1;
+           } else {
+             @(return 0) = ws.ws_row; @(return 1) = ws.ws_col;
+           } }")
+    (when (minusp rows)
+      (error "Could not get the size of the terminal on fd ~D." fd))
+    (values rows cols)))
+
 (defun get-terminal-attributes (&optional (fd 1))
-  (let ((baud-rate #+(or CMU scl)
-                   (alien:with-alien ((termios (alien:struct unix:termios)))
-                     (declare (optimize (ext:inhibit-warnings 3)))
-                     (when (unix:unix-tcgetattr fd termios)
-                       (let ((baud (logand unix:tty-cbaud
-                                           (alien:slot termios 'unix:c-cflag))))
-                         (if (< baud unix::tty-cbaudex)
-                             (aref #(0 50 75 110 134 150 200 300 600 1200
-                                     1800 2400 4800 9600 19200 38400)
-                                   baud)
-                             (aref #(57600 115200 230400 460800 500000 576000
-                                     921600 1000000 1152000 1500000 2000000
-                                     2500000 3000000 3500000 4000000)
-                                   (logxor baud unix::tty-cbaudex))))))
-                   #-(or CMU scl) 4800))
+  (let ((baud-rate 4800))
     (setf *terminal-baud-rate* baud-rate)
-    (cffi:with-foreign-object (ws 'osicat-posix::winsize)
-      (osicat-posix:ioctl fd osicat-posix:tiocgwinsz ws)
-      (cffi:with-foreign-slots ((osicat-posix::row osicat-posix::col)
-                                ws osicat-posix::winsize)
-        (values osicat-posix::row osicat-posix::col baud-rate)))))
+    (multiple-value-bind (rows cols) (terminal-size fd)
+      (values rows cols baud-rate))))
 
 
 ;;;; Output routines and buffering.

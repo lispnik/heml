@@ -9,32 +9,40 @@
 (in-package #:hemlock-system)
 
 (defvar *modern-hemlock* nil)
-#+cmu (let ((packages (remove-if-not #'find-package
-                                     '(:hemlock :hemlock-internals :wire))))
-        (when (and packages (not *modern-hemlock*))
-          (cerror "Continue and delete the old packages"
-                  "It looks like you're trying to load a modern version of ~
-                 Hemlock into a CMUCL image that already has an old Hemlock ~
-                 present.  Hit the restart to replace all old packages.")
-          (mapc #'delete-package packages)))
 (setf *modern-hemlock* t)
 
 (pushnew :command-bits *features*)
+
+;;; SBCL on macOS has :BSD in *FEATURES*, and osicat and the TTY backend
+;;; take it to mean macOS (TIOCGWINSZ, for one, exists only under it).  ECL
+;;; on macOS has only :DARWIN, so give it :BSD too.  This must happen before
+;;; osicat is compiled, and ASDF does not recompile when features change.
+#+(and ecl darwin)
+(pushnew :bsd *features*)
+
+;;; ECL 26.5.5's compiler writes calls to ecl_to_cl_index, which its headers
+;;; do not declare; ecl_to_index is the function.  A CFFI write at a computed
+;;; offset, as in ioconnections and tty-disp-rt, produces one.
+#+ecl (require :cmp)
+#+ecl
+(unless (search "ecl_to_cl_index" c:*user-cc-flags*)
+  (setf c:*user-cc-flags*
+        (concatenate 'string c:*user-cc-flags* " -Decl_to_cl_index=ecl_to_index")))
 
 (defparameter *hemlock-base-directory*
   (make-pathname :name nil :type nil :version nil
                  :defaults (parse-namestring *load-truename*)))
 
+;;; vendor/conium is a submodule: lispnik/conium, branch ecl, whose ECL
+;;; backend is brought up to date from SLIME's.  The central registry is
+;;; searched before ocicl, so this copy is the one loaded.
+(pushnew (merge-pathnames "vendor/conium/" *hemlock-base-directory*)
+         asdf:*central-registry* :test #'equal)
+
 (defparameter *binary-pathname*
   (make-pathname :directory
                  (append (pathname-directory *hemlock-base-directory*)
                          (list "bin"
-                               #+CLISP "clisp"
-                               #+CMU   "cmu"
-                               #+EXCL  "acl"
-                               #+SBCL  "sbcl"
-                               #+scl   "scl"
-                               #-(or CLISP CMU EXCL SBCL scl)
                                (string-downcase (lisp-implementation-type))))
                  :defaults *hemlock-base-directory*))
 
@@ -43,7 +51,7 @@
                         :directory
                         (pathname-directory *hemlock-base-directory*)
                         :defaults *hemlock-base-directory*)
-     :depends-on (#-scl :alexandria
+     :depends-on (:alexandria
                   :bordeaux-threads
                   :conium
                   :trivial-gray-streams
@@ -53,7 +61,7 @@
                   :iolib
                   :iolib/os
                   :cl-ppcre
-                  #-scl :command-line-arguments)
+                  :command-line-arguments)
     :components
     ((:module core-1
               :pathname #.(merge-pathnames

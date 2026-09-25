@@ -19,11 +19,9 @@
 
 ;;; Note: although this stream is intended for output only it also supports
 ;;; input to help if the debugger is called.
-(defclass hemlock-output-stream (#-scl hi::trivial-gray-stream-mixin
-                                 #-scl hi::fundamental-character-output-stream
-                                 #-scl hi::fundamental-character-input-stream
-                                 #+scl ext:character-output-stream
-                                 #+scl ext:character-input-stream)
+(defclass hemlock-output-stream (hi::trivial-gray-stream-mixin
+                                 hi::fundamental-character-output-stream
+                                 hi::fundamental-character-input-stream)
   ((mark
     :initform nil
     :accessor hemlock-output-stream-mark
@@ -48,13 +46,6 @@
   (check-type seq string)
   (hemlock-output-buffered-sout stream seq start end))
 
-#+scl
-(defmethod ext:stream-write-chars
-    ((stream hemlock-output-stream) seq start end waitp)
-  (declare (ignore waitp))
-  (check-type seq string)
-  (hemlock-output-buffered-sout stream seq start end)
-  (- end start))
 
 (defmethod hi::stream-line-column ((stream hemlock-output-stream))
   (mark-charpos (hemlock-output-stream-mark stream)))
@@ -93,22 +84,15 @@
   (setf (hemlock-output-stream-mark stream) mark)
   ;;
   ;; Free the current stream buffers, resetting the buffer pointers.
-  #+scl (lisp::free-stream-buffers stream)
   ;;
   (case buffered
     (:none
-     #+scl
-     (setf (ext:stream-out-buffer stream) (lisp::make-stream-buffer 'base-char 0))
      (setf (old-lisp-stream-out stream) #'hemlock-output-unbuffered-out
            (old-lisp-stream-sout stream) #'hemlock-output-unbuffered-sout))
     (:line
-     #+scl
-     (setf (ext:stream-out-buffer stream) (lisp::make-stream-buffer 'base-char 0))
      (setf (old-lisp-stream-out stream) #'hemlock-output-line-buffered-out
            (old-lisp-stream-sout stream) #'hemlock-output-line-buffered-sout))
     (:full
-     #+scl
-     (setf (ext:stream-out-buffer stream) (lisp::make-stream-buffer 'base-char))
      (setf (old-lisp-stream-out stream) #'hemlock-output-buffered-out
            (old-lisp-stream-sout stream) #'hemlock-output-buffered-sout))
     (t
@@ -166,12 +150,6 @@
 
 (defmethod close ((stream hemlock-output-stream) &key abort)
   (declare (ignore abort))
-  #+scl
-  (when (ext:stream-open-p stream)
-    (call-next-method)
-    (setf (hemlock-output-stream-mark stream) nil)
-    t)
-  #-scl
   (setf (hemlock-output-stream-mark stream) nil))
 
 (defmethod stream-line-column ((stream hemlock-output-stream))
@@ -234,8 +212,7 @@
 ;;; end of input methods, back in sane code
 
 
-(defclass hemlock-region-stream (#-scl fundamental-character-input-stream
-                                 #+scl ext:character-input-stream)
+(defclass hemlock-region-stream (fundamental-character-input-stream)
   ;;
   ;; The region we read from.
   ((region :initarg :region
@@ -269,8 +246,6 @@
     (push mark (line-marks start-line)))
   ;;
   ;; Reset the buffer pointers.
-  #+scl (setf (ext:stream-in-head stream) 0)
-  #+scl (setf (ext:stream-in-tail stream) 0)
   ;;
   stream)
 
@@ -303,30 +278,9 @@
 
 (defmethod close ((stream hemlock-region-stream) &key abort)
   (declare (ignorable abort))
-  #+scl
-  (when (ext:stream-open-p stream)
-    (call-next-method)
-    (delete-mark (hemlock-region-stream-mark stream))
-    (setf (hemlock-region-stream-region stream) nil)
-    t)
-  #-scl
   (delete-mark (hemlock-region-stream-mark stream))
-  #-scl
   (setf (hemlock-region-stream-region stream) nil))
 
-#+excl
-(defmethod excl:stream-read-char-no-hang ((stream hemlock-region-stream))
-  (stream-read-char stream))
-
-#+scl
-(defmethod stream-file-position ((stream hemlock-region-stream) &optional pos)
-  (let ((start (region-start (hemlock-region-stream-region stream)))
-        (mark (hemlock-region-stream-mark stream)))
-    (cond (pos
-           (move-mark mark start)
-           (character-offset mark pos))
-          (t
-           (count-characters (region start mark))))))
 
 #||
 (defmethod excl::stream-file-position ((stream hemlock-output-stream) &optional pos)

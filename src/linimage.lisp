@@ -44,7 +44,7 @@
 
 (defun wide-character-p (character)
   #+sbcl (member (sb-unicode:east-asian-width character) '(:w :f))
-  #-sbcl (let ((code (char-code character)))
+  #+ecl (let ((code (char-code character)))
            (or (<= #x1100 code #x115F) (<= #x2E80 code #xA4CF)
                (<= #xAC00 code #xD7A3) (<= #xF900 code #xFAFF)
                (<= #xFE30 code #xFE4F) (<= #xFF00 code #xFF60)

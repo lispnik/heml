@@ -77,12 +77,7 @@
 ;;; Convert the symbol name 'string to the standard character case for the
 ;;; lisp implementation which is uppercase for standard CL.
 (defun canonical-case (string)
-  #-scl
-  (nstring-upcase string)
-  #+scl
-  (if (eq ext:*case-mode* :upper)
-      (nstring-upcase string)
-      (nstring-downcase string)))
+  (nstring-upcase string))
 
 (defun bash-string-to-symbol (name suffix)
   (intern (nsubstitute #\- #\space (canonical-case

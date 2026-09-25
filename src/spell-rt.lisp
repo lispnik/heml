@@ -51,9 +51,6 @@
 ;;; doing a SUBSEQ of entry.
 ;;;
 (defmacro string-hash (string length)
-  #+(or cmu scl)
-  `(lisp::%sxhash-simple-substring ,string ,length)
-  #-(or cmu scl)
   `(if (= ,length (length ,string))
        (sxhash ,string)
        (sxhash (subseq ,string 0 ,length))))

@@ -6,11 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Xoamax (also spelled "Xomax" in docs) is an Emacs-style editor written in Common Lisp. It is a 2020 fork of Hemlock (originally part of CMUCL). Nearly all code, package names, and ASDF systems still use the `hemlock` name.
 
+It supports SBCL and ECL. Reader conditionals name only `sbcl` and `ecl`; code for other Lisps was removed. The Cocoa backend is SBCL only.
+
 ## Building and running
 
-There is no unit test suite. `make smoke-tty` (`test/smoke-tty.sh`) runs the TTY backend in a detached tmux session, types into it with `send-keys`, and checks the screen with `capture-pane`. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend. Neither script can run a single check. Each always runs its whole sequence.
+There is no unit test suite. `make smoke-tty` (`test/smoke-tty.sh`) runs the TTY backend in a detached tmux session, types into it with `send-keys`, and checks the screen with `capture-pane`. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend. Neither script can run a single check. Each always runs its whole sequence. `make smoke-tty-ecl` builds under ECL and runs the TTY checks there (`LISP=ecl test/smoke-tty.sh`).
 
-Dependencies come from ocicl: `make deps` (`ocicl install`) restores what `ocicl.csv` lists into `ocicl/`, which is gitignored. That includes `objc` and `asdf-macos-app`. On macOS, `make run` opens the Cocoa editor from a fresh SBCL. `make app` builds `build/Xoamax.app` through `xoamax-app.asd`: it is signed with `MACOS_SIGNING_IDENTITY` if that is set, and ad hoc otherwise. `make dmg` wraps the app in a disk image, and `make clean` removes `build/`.
+Dependencies come from ocicl: `make deps` runs `git submodule update --init` and `ocicl install`, which restores what `ocicl.csv` lists into `ocicl/` (gitignored). That includes `objc` and `asdf-macos-app`. `conium` is the exception: `vendor/conium` is a submodule of lispnik/conium, branch `ecl`, whose ECL backend works on current ECL. `hemlock.base.asd` pushes it onto `asdf:*central-registry*`, which ASDF searches before ocicl. On macOS, `make run` opens the Cocoa editor from a fresh SBCL. `make app` builds `build/Xoamax.app` through `xoamax-app.asd`: it is signed with `MACOS_SIGNING_IDENTITY` if that is set, and ad hoc otherwise. `make dmg` wraps the app in a disk image, and `make clean` removes `build/`.
 
 AppKit needs the process's main thread. To run Cocoa from a REPL, use `(asdf:load-system :hemlock.cocoa)` and then `(hemlock:hemlock nil :backend-type :cocoa)`, in a terminal SBCL's REPL. A SLIME or Sly REPL thread won't work.
 
@@ -19,7 +21,7 @@ From a REPL (the usual development loop):
 ```lisp
 (push #p"/path/to/xoamax/" asdf:*central-registry*)
 (asdf:load-system :hemlock.tty)
-(hemlock:hemlock)                 ; or (ed) on SBCL/CCL
+(hemlock:hemlock)                 ; or (ed)
 ```
 
 Quicklisp also works: `(ql:quickload :hemlock.tty :verbose t)`.
@@ -29,6 +31,12 @@ Standalone SBCL binary: `./build.sh` builds `./hemlock` with the TTY backend. It
 `c/Makefile` builds `setpty`, a small helper for pty-backed subprocesses.
 
 Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on macOS). If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise (`choose-backend-type` in `rompsite.lisp`).
+
+ECL notes:
+- ECL reads every `--eval` on its command line before it evaluates any, so a later `--eval` can't name a Hemlock symbol. Use `uiop:symbol-call`, as `test/smoke-tty.sh` and the ECL slave command in `eval-server.lisp` do.
+- ECL compiles through C, so a first build takes a minute or two.
+- `hemlock.base.asd` works around two ECL problems. It gives ECL on macOS the `:bsd` feature that SBCL has, which osicat and the TTY backend expect; ASDF doesn't recompile when features change, so clear ECL's fasl cache if osicat was built without it. It also defines `ecl_to_cl_index` as `ecl_to_index` for the C compiler, working around an ECL 26.5.5 code-generation bug.
+- CFFI on ECL passes variadic arguments as fixed ones, which breaks on arm64 macOS. `terminal-size` (`tty-disp-rt.lisp`) therefore calls `ioctl` from C through `ffi:c-inline`. Do the same for any new variadic C call on ECL.
 
 `test/smoke.lisp` shows how to drive the editor without watching it. It posts descriptors with `hemlock.cocoa::post-to-editor`, such as `(list :char #\x '("Meta"))` or `:quit`. It sends real NSEvents to the window, and has the view render itself to a PNG. `screencapture` needs Screen Recording permission, which a terminal usually lacks. A synthesized key-down cannot enter a dead-key state, so dead keys need a real keyboard.
 
@@ -93,7 +101,7 @@ A key for a character past ASCII comes from `hemlock-ext:character-key-event`, w
 
 **Terminals.** `hemlock.terminfo:tparm` evaluates terminfo string expressions, including the `%? %t %e %;` conditionals that every 256-colour terminal's `setaf` uses. Its binary operators pop their second operand first. The terminal's erase character (`*tty-erase-char*`, usually `^?`) is Backspace, whatever terminfo's `kbs` says. Shell buffers turn SGR colour sequences into font marks and drop other escape sequences (`write-shell-output` in `shell.lisp`).
 
-**CI.** `.github/workflows/ci.yml` runs on a macOS runner, which has a window server. It sets up ocicl, runs `make smoke` and `make smoke-tty`, builds the app and its disk image (`scripts/make-dmg.sh`), and starts and quits the app. A tag `v*` signs, notarizes (`scripts/notarize.sh`) and releases, when the repository has the secrets.
+**CI.** `.github/workflows/ci.yml` runs on a macOS runner, which has a window server. It checks out the submodule, sets up ocicl for SBCL and ECL, runs `make smoke`, `make smoke-tty` and `make smoke-tty-ecl`, builds the app and its disk image (`scripts/make-dmg.sh`), and starts and quits the app. A tag `v*` signs, notarizes (`scripts/notarize.sh`) and releases, when the repository has the secrets.
 
 ## Other directories
 

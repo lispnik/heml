@@ -5,14 +5,6 @@
 ;; Note: I want real relative package names like the Symbolics has
 ;; them. In the mean time:
 
-#+CMU
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (progn
-    ;; Just in case the original Hemlock is loaded.
-    (dolist (p '("HEMLOCK" "HEMLOCK-INTERNALS"))
-      (when (find-package p)
-        (delete-package p)))))
-
 
 (defpackage :hemlock-interface
     (:use)
@@ -471,14 +463,6 @@
   (:use :common-lisp
         :hemlock-interface)
   (:shadow #:char-code-limit)
-  #+(or scl cmu)
-  (:import-from :ext #:complete-file ; #:default-directory
-                #:ambiguous-files
-                #:delq #:memq #:assq
-                #:fixnump
-                #:file-writable
-                #:print-directory
-                )
   ;;
   (:export
    #:without-interrupts
@@ -513,20 +497,11 @@
 
 (defpackage :hemlock-internals
   (:use :common-lisp :hemlock-interface
-        #-(or cmu scl) :command-line-arguments
+        :command-line-arguments
         :iterate)
   (:nicknames :hi)
   (:shadow #:char-code-limit #:show-option-help)
-  #-scl
   (:use :trivial-gray-streams)
-  #+scl
-  (:import-from :ext
-                #:stream-write-char #:stream-write-chars #:stream-line-column
-                #:stream-line-length #:stream-clear-output #:stream-pathname
-                #:stream-force-output #:stream-finish-output
-                #:stream-read-char #:stream-unread-char
-                #:stream-read-char-no-hang #:stream-listen
-                #:stream-clear-input #:stream-file-position)
   (:import-from :hemlock-ext
                 #:delq #:memq #:assq #:concat)
   ;;

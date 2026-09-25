@@ -335,29 +335,39 @@
 ;;; DEFAULT-SLAVE-COMMAND -- Internal.
 ;;;
 ;;; Run this Lisp again as a slave: the same runtime, loading Hemlock from
-;;; source.  hemlock.tty is enough, since a slave draws nothing; what it
-;;; needs beyond hemlock.base is the iolib event loop.
+;;; source.  hemlock.tty is enough, since a slave draws nothing.
 ;;;
 (defun default-slave-command ()
-  #+sbcl
-  (list (namestring sb-ext:*runtime-pathname*)
-        "--noinform"
-        ;; Not WITH-STANDARD-IO-SYNTAX: printing readably turns a base
-        ;; string, which is what NAMESTRING returns, into #A(...).
-        "--eval" (let ((*package* (find-package :keyword))
-                       (*print-readably* nil)
-                       (*print-pretty* nil))
-                   (format nil "(asdf:initialize-source-registry '~S)"
-                           (slave-source-registry)))
+  (let ((registry
+          ;; Not WITH-STANDARD-IO-SYNTAX: printing readably turns a base
+          ;; string, which is what NAMESTRING returns, into #A(...).
+          (let ((*package* (find-package :keyword))
+                (*print-readably* nil)
+                (*print-pretty* nil))
+            (format nil "(asdf:initialize-source-registry '~S)"
+                    (slave-source-registry))))
         ;; Quietly: a first run compiles, and all of it would land in the
         ;; slave's buffer.
-        "--eval" "(let ((*standard-output* (make-broadcast-stream)) (*error-output* (make-broadcast-stream))) (asdf:load-system :hemlock.tty))"
-        ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
-        "--eval" "(progn (hemlock::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
-        "--end-toplevel-options"
-        "--slave")
-  #-sbcl
-  *clbuild-slave-command*)
+        (load-hemlock "(let ((*standard-output* (make-broadcast-stream)) (*error-output* (make-broadcast-stream))) (asdf:load-system :hemlock.tty))"))
+    #+sbcl
+    (list (namestring sb-ext:*runtime-pathname*)
+          "--noinform"
+          "--eval" registry
+          "--eval" load-hemlock
+          ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
+          "--eval" "(progn (hemlock::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
+          "--end-toplevel-options"
+          "--slave")
+    ;; ECL reads every --eval before it evaluates any, so nothing here may
+    ;; name a Hemlock symbol.  Its own options end at "--".
+    #+ecl
+    (list (si:argv 0)
+          "--norc"
+          "--eval" registry
+          "--eval" load-hemlock
+          "--eval" "(progn (uiop:symbol-call :hemlock :main (rest (member \"--\" (ext:command-args) :test #'string=))) (uiop:quit))"
+          "--"
+          "--slave")))
 
 (defun create-slave (command &optional name)
   "This creates a slave that tries to connect to the editor.  A preliminary
@@ -385,46 +395,6 @@
         (editor-error "Buffer ~A is already in use." background)))
     (message "Spawning slave ... ")
     (let ((server-info (make-buffers-for-typescript slave background)))
-      #+scl
-      (let ((lisp (ext:unix-namestring (merge-pathnames (value slave-utility)
-                                                        "file://path/")
-                                       t t)))
-
-        (unless lisp
-          (editor-error "Can't find ``~S'' in your path to run."
-                        (value slave-utility)))
-        (let* ((args `(,@(value slave-utility-switches)
-                         "-eval" ,(format nil "(hemlock::start-slave :slave t :editor ~S :backend-type \~S :slave-buffer ~S :background-buffer ~S)"
-                                          (get-editor-name)
-                                          hi::*default-backend*
-                                          slave
-                                          background)))
-
-               (proc
-                (ext:run-program lisp args
-                                 :wait nil
-                                 :output "/dev/null"
-                                 :if-output-exists :append)))
-          (message "> ~S" args)
-          (unless proc
-            (editor-error "Could not start slave."))
-          #+nil
-          (dotimes (i *slave-connect-wait*
-                    (editor-error
-                     "Client Lisp is still unconnected.  ~
-                              You must use \"Accept Slave Connections\" to ~
-                              allow the slave to connect at this point."))
-            (system:serve-event 1)
-            (case (ext:process-status proc)
-              (:exited
-               (editor-error "The slave lisp exited before connecting."))
-              (:signaled
-               (editor-error "The slave lisp was kill before connecting.")))
-            (when *newly-created-slave*
-              (message "DONE")
-              (return *newly-created-slave*)))
-          ))
-      #-scl
       (make-process-connection
        command
        :filter (let ((ts (server-info-slave-info server-info)))
@@ -910,7 +880,7 @@
 (defun simple-backtrace (&optional (stream *standard-output*))
   (handler-case
       #+sbcl (sb-debug:print-backtrace :stream stream)
-      #-sbcl
+      #+ecl
       (conium:call-with-debugging-environment
        (lambda ()
          (let ((i 0))
@@ -1190,11 +1160,9 @@
 ;;;
 ;;;    Similar to server-eval-text, except that the stuff is compiled.
 ;;;
-#-scl
 (defmacro with-temporary-file-name ((var) &body body)
   `(invoke-with-temporary-file-name (lambda (,var) ,@body)))
 
-#-scl
 (defun invoke-with-temporary-file-name (fun)
   (multiple-value-bind (fd pathname)
                        (isys:mkstemp "/tmp/hemlock")
@@ -1205,11 +1173,10 @@
 
 (defun server-compile-text (note package text defined-from
                             terminal-io error-output)
-  #-scl (declare (ignore defined-from))
+  (declare (ignore defined-from))
   (let ((error-output (if error-output
                         (hemlock.wire:remote-object-value error-output))))
     (do-compiler-operation (note package terminal-io error-output)
-      #-scl
       (with-temporary-file-name (tmp)
         (with-open-file (s tmp :direction :output :if-exists :supersede)
           (write-string text s))
@@ -1217,13 +1184,7 @@
         (load (compile-file tmp
                             ;; :error-stream error-output
                             ;; :source-info defined-from
-                            )))
-      #+scl
-      (with-input-from-string (input-stream text)
-        (terpri error-output)
-        (c::compile-from-stream input-stream
-                                :error-stream error-output
-                                :source-info defined-from)))))
+                            ))))))
 
 
 ;;; SERVER-COMPILE-FILE -- Public.
@@ -1232,28 +1193,18 @@
 ;;;
 (defun server-compile-file (note package input output error trace
                             load terminal background)
-  #-scl (declare (ignore error load))
-  #-(and cmu scl) (declare (ignore output trace))
+  (declare (ignore error load output trace))
   (macrolet ((frob (x)
                `(if (hemlock.wire:remote-object-p ,x)
                   (hemlock.wire:remote-object-value ,x)
                   ,x)))
     (let ((error-stream (frob background)))
       (do-compiler-operation (note package terminal error-stream)
-        #-(or cmu scl)
         (multiple-value-bind (fasl warning-free-p)
             (compile-file (frob input))
           (when fasl
             (load fasl))
-          (format nil "~A ~A" fasl warning-free-p))
-        #+(or cmu scl)
-        (compile-file (frob input)
-                      :output-file (frob output)
-                      :error-file (frob error)
-                      :trace-file (frob trace)
-                      :load load
-                      :error-output error-stream)
-        ))))
+          (format nil "~A ~A" fasl warning-free-p))))))
 
 
 ;;;; Other random eval server stuff.
@@ -1292,45 +1243,10 @@
 
 ;;;; Command line switches.
 
-#+(or cmu scl)
-(defun slave-switch-demon (switch)
-  (let ((editor-name (ext:cmd-switch-arg switch))
-        (backend-type (ext:get-command-line-switch "backend"))
-        (slave-buffer (ext:get-command-line-switch "slave-buffer"))
-        (background-buffer (ext:get-command-line-switch "background-buffer")))
-    (unless editor-name
-      (error "Editor to connect to unspecified."))
-    (start-slave :slave t
-                 :editor editor-name
-                 :backend-type backend-type
-                 :slave-buffer slave-buffer
-                 :background-buffer background-buffer)
-    (setf debug:*help-line-scroll-count* most-positive-fixnum)))
 ;;;
-#+(or cmu scl)
-(ext:defswitch "slave" 'slave-switch-demon)
-#+(or cmu scl)
-(ext:defswitch "slave-buffer")
-#+(or cmu scl)
-(ext:defswitch "background-buffer")
-#+(or cmu scl)
-(ext:defswitch "background-type")
 
 
-#+(or cmu scl)
-(defun edit-switch-demon (switch)
-  (declare (ignore switch))
-  (let ((arg (or (ext:cmd-switch-value switch)
-                 (car (ext:cmd-switch-words switch)))))
-    (when (stringp arg) (setq *editor-name* arg)))
-  (let ((initp (not (ext:get-command-line-switch "noinit")))
-        (backend-type (ext:get-command-line-switch "backend"))
-        (x (car ext:*command-line-words*)))
-     (hemlock (and (stringp x) x) :load-user-init initp
-              :backend-type backend-type)))
 ;;;
-#+(or cmu scl)
-(ext:defswitch "edit" 'edit-switch-demon)
 
 
 ;;;;

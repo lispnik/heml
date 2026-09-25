@@ -12,7 +12,6 @@
                            :default "grep -nH -e "))
                  (directory (default-directory)))
   "" ""
-  #+scl (setf directory (ext:unix-namestring directory nil))
   (setf (buffer-major-mode (shell-command-command p command directory))
         "Grep"))
 

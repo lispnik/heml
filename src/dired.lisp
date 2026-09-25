@@ -294,8 +294,6 @@
           (unless byte
             (return))
           (write-byte byte output)))))
-  #+(or cmu scl)
-  (set-write-date ses-name2 secs1)
   (funcall *report-function* "~&~S  ==>~%  ~S~%" ses-name1 ses-name2))
 
 
@@ -574,31 +572,7 @@
 
 ;;;; Mach Operations
 
-#+(or cmu scl)
-(defun set-write-date (ses-name secs)
-  (multiple-value-bind (winp dev-or-err ino mode nlink uid gid rdev size atime)
-                       (unix:unix-stat ses-name)
-    (declare (ignore ino mode nlink uid gid rdev size))
-    (unless winp
-      (funcall *error-function* "Couldn't stat file ~S failed: ~A."
-                      ses-name dev-or-err))
-    (multiple-value-bind (winp err)
-                         (unix:unix-utimes ses-name atime 0 secs 0)
-      (unless winp
-        (funcall *error-function* "Couldn't set write date of file ~S: ~A"
-                  ses-name (unix:get-unix-error-msg err))))))
 
-#+(or cmu scl)
-(defun get-write-date (ses-name)
-  (multiple-value-bind (winp dev-or-err ino mode nlink uid gid rdev size
-                             atime mtime)
-                       (unix:unix-stat ses-name)
-    (declare (ignore ino mode nlink uid gid rdev size atime))
-    (unless winp
-      (funcall *error-function* "Couldn't stat file ~S failed: ~A."
-               ses-name dev-or-err))
-    mtime))
-#-(or cmu scl)
 (defun get-write-date (ses-name)
   (isys:stat-mtime
    (or (isys:stat ses-name)
@@ -611,37 +585,12 @@
 ;;; "foo.bar" to ".baz" causes a result of "foo.baz"!  This routine doesn't
 ;;; have this problem.
 ;;;
-#+(or cmu scl)
-(defun sub-rename-file (ses-name1 ses-name2)
-  (multiple-value-bind (res err) (unix:unix-rename ses-name1 ses-name2)
-    (unless res
-      (funcall *error-function* "Failed to rename ~A to ~A: ~A."
-               ses-name1 ses-name2 (unix:get-unix-error-msg err)))))
-#-(or cmu scl)
 (defun sub-rename-file (ses-name1 ses-name2)
   (isys:rename ses-name1 ses-name2))
 
-#+(or cmu scl)
-(defun directory-existsp (ses-name)
-  (eq (unix:unix-file-kind ses-name) :directory))
-#-(or cmu scl)
 (defun directory-existsp (ses-name)
   (iolib.os:directory-exists-p ses-name))
 
-#+(or cmu scl)
-(defun enter-directory (ses-name)
-  (declare (simple-string ses-name))
-  (let* ((length-1 (1- (length ses-name)))
-         (name (if (= (position #\/ ses-name :test #'char= :from-end t)
-                      length-1)
-                   (subseq ses-name 0 (1- (length ses-name)))
-                   ses-name)))
-    (multiple-value-bind (winp err) (unix:unix-mkdir name #o755)
-      (unless winp
-        (funcall *error-function* "Couldn't make directory ~S: ~A"
-                 name
-                 (unix:get-unix-error-msg err))))))
-#-(or cmu scl)
 (defun enter-directory (ses-name)
   (declare (simple-string ses-name))
   (let* ((length-1 (1- (length ses-name)))
@@ -651,17 +600,6 @@
                    ses-name)))
     (isys:mkdir name #o755)))
 
-#+(or cmu scl)
-(defun delete-directory (ses-name)
-  (declare (simple-string ses-name))
-  (multiple-value-bind (winp err)
-                       (unix:unix-rmdir (subseq ses-name 0
-                                                (1- (length ses-name))))
-    (unless winp
-      (funcall *error-function* "Couldn't delete directory ~S: ~A"
-               ses-name
-               (unix:get-unix-error-msg err)))))
-#-(or cmu scl)
 (defun delete-directory (ses-name)
   (declare (simple-string ses-name))
   (isys:rmdir (subseq ses-name 0 (1- (length ses-name)))))

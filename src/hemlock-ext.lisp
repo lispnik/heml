@@ -11,7 +11,6 @@
 
 ;;; These are just stubs for now:
 
-#-scl
 (defun quit ()
   )
 
@@ -20,7 +19,6 @@
 (defun hi::get-terminal-name ()
   "vt100")
 
-#-(or cmu scl)
 (defun default-directory ()
   (let* ((p (hemlock::buffer-default-directory (current-buffer)))
          (p (and p (namestring p))))
@@ -30,10 +28,6 @@
                (iolib.pathnames:invalid-file-path () nil)))
         p
         (isys:getcwd))))
-#+(or cmu scl)
-(defun default-directory ()
-  (let ((p (hemlock::buffer-default-directory (current-buffer))))
-    (or p (ext:default-directory))))
 
 
 (defun find-buffer (name)
@@ -59,15 +53,12 @@
         (setf (aref dest d) (aref src s))))
 
 
-#-scl
 (defun delq (item list)
   (delete item list))
 
-#-scl
 (defun memq (item list)
   (member item list))
 
-#-scl
 (defun assq (item alist)
   (assoc item alist))
 
@@ -77,7 +68,6 @@
 
 ;;;; complete-file
 
-#-(or cmu scl)
 (defun complete-file (pathname &key (defaults *default-pathname-defaults*)
                       ignore-types)
   (let ((files (complete-file-directory pathname defaults)))
@@ -116,7 +106,6 @@
 
 ;;; COMPLETE-FILE-DIRECTORY-ARG -- Internal.
 ;;;
-#-(or cmu scl)
 (defun complete-file-directory (pathname defaults)
   (let* ((namestring
           (namestring
@@ -138,7 +127,6 @@
 
 ;;; Ambiguous-Files  --  Public
 ;;;
-#-(or cmu scl)
 (defun ambiguous-files (pathname
                         &optional (defaults *default-pathname-defaults*))
   "Return a list of all files which are possible completions of Pathname.
@@ -152,12 +140,5 @@
 ;;;;;;
 
 (defun set-file-permissions (pathname access)
-  (declare (ignorable pathname access))
-  (when access
-    #+(or cmu scl)
-    (multiple-value-bind (winp code)
-        (unix:unix-chmod (ext:unix-namestring pathname) access)
-      (unless winp
-        (error "Could not set access code: ~S"
-               (unix:get-unix-error-msg code)))))
+  (declare (ignore pathname access))
   nil)
