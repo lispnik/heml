@@ -8,9 +8,11 @@ Xoamax (also spelled "Xomax" in docs) is an Emacs-style editor written in Common
 
 ## Building and running
 
-There is no unit test suite. `make smoke-tty` (`test/smoke-tty.sh`) runs the TTY backend in a detached tmux session, types into it with `send-keys`, and checks the screen with `capture-pane`. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend.
+There is no unit test suite. `make smoke-tty` (`test/smoke-tty.sh`) runs the TTY backend in a detached tmux session, types into it with `send-keys`, and checks the screen with `capture-pane`. `make smoke` (`test/smoke.lisp`) drives the Cocoa editor end to end and checks what it holds after each step: typing, input methods, split windows, resizing, the mouse, the clipboard, opening files, fonts, a shell, and a slave. It exits non-zero on a failure and leaves a picture of each step in `build/smoke/`. It neither activates the application nor uses the real clipboard, so it can run while someone is working. Add a check there when you add behaviour to the Cocoa backend. Neither script can run a single check. Each always runs its whole sequence.
 
-Dependencies come from ocicl: `make deps` (`ocicl install`) restores what `ocicl.csv` lists into `ocicl/`, which is gitignored. That includes `objc` and `asdf-macos-app`. On macOS, `make run` opens the Cocoa editor from a fresh SBCL, and `make app` builds `build/Xoamax.app` through `xoamax-app.asd`.
+Dependencies come from ocicl: `make deps` (`ocicl install`) restores what `ocicl.csv` lists into `ocicl/`, which is gitignored. That includes `objc` and `asdf-macos-app`. On macOS, `make run` opens the Cocoa editor from a fresh SBCL. `make app` builds `build/Xoamax.app` through `xoamax-app.asd`: it is signed with `MACOS_SIGNING_IDENTITY` if that is set, and ad hoc otherwise. `make dmg` wraps the app in a disk image, and `make clean` removes `build/`.
+
+AppKit needs the process's main thread. To run Cocoa from a REPL, use `(asdf:load-system :hemlock.cocoa)` and then `(hemlock:hemlock nil :backend-type :cocoa)`, in a terminal SBCL's REPL. A SLIME or Sly REPL thread won't work.
 
 From a REPL (the usual development loop):
 
@@ -26,7 +28,7 @@ Standalone SBCL binary: `./build.sh [tty|clx|qt ...]` builds `./hemlock`, with t
 
 `c/Makefile` builds `setpty`, a small helper for pty-backed subprocesses.
 
-Runtime requirements: iolib needs `libfixposix`. If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The CLX backend needs an X server and `$DISPLAY`. Without `$DISPLAY`, the editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise.
+Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on macOS). If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The CLX backend needs an X server and `$DISPLAY`. Without `$DISPLAY`, the editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise.
 
 `test/smoke.lisp` shows how to drive the editor without watching it. It posts descriptors with `hemlock.cocoa::post-to-editor`, such as `(list :char #\x '("Meta"))` or `:quit`. It sends real NSEvents to the window, and has the view render itself to a PNG. `screencapture` needs Screen Recording permission, which a terminal usually lacks. A synthesized key-down cannot enter a dead-key state, so dead keys need a real keyboard.
 
