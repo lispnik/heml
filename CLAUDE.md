@@ -18,17 +18,17 @@ From a REPL (the usual development loop):
 
 ```lisp
 (push #p"/path/to/xoamax/" asdf:*central-registry*)
-(asdf:load-system :hemlock.clx)   ; or :hemlock.tty / :hemlock.qt
+(asdf:load-system :hemlock.tty)   ; or :hemlock.qt
 (hemlock:hemlock)                 ; or (ed) on SBCL/CCL
 ```
 
-Quicklisp also works: `(ql:quickload :hemlock.clx :verbose t)`.
+Quicklisp also works: `(ql:quickload :hemlock.tty :verbose t)`.
 
-Standalone SBCL binary: `./build.sh [tty|clx|qt ...]` builds `./hemlock`, with tty and clx by default. It runs Lisp via `$SBCL`, which defaults to `clbuild lisp`, so set `SBCL=sbcl` if you don't use clbuild. Load order matters: the last backend loaded becomes the default, so clx must come after tty. `./hemlock --help` lists the options, including `--backend tty|clx|qt` (or `--tty`, `--clx`, `--qt`). `ttyhemlock.sh`, `hemlock.qt.sh` and `dist.sh` are legacy clbuild scripts.
+Standalone SBCL binary: `./build.sh [tty|qt ...]` builds `./hemlock`, with tty by default. It runs Lisp via `$SBCL`, which defaults to `clbuild lisp`, so set `SBCL=sbcl` if you don't use clbuild. When `$DISPLAY` is set, the last backend loaded becomes the default. `./hemlock --help` lists the options, including `--backend tty|qt|cocoa` (or `--tty`, `--qt`, `--cocoa`). `ttyhemlock.sh`, `hemlock.qt.sh` and `dist.sh` are legacy clbuild scripts.
 
 `c/Makefile` builds `setpty`, a small helper for pty-backed subprocesses.
 
-Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on macOS). If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The CLX backend needs an X server and `$DISPLAY`. Without `$DISPLAY`, the editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise.
+Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on macOS). If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. Without `$DISPLAY`, the editor picks Cocoa if `hemlock.cocoa` is loaded, and TTY otherwise.
 
 `test/smoke.lisp` shows how to drive the editor without watching it. It posts descriptors with `hemlock.cocoa::post-to-editor`, such as `(list :char #\x '("Meta"))` or `:quit`. It sends real NSEvents to the window, and has the view render itself to a PNG. `screencapture` needs Screen Recording permission, which a terminal usually lacks. A synthesized key-down cannot enter a dead-key state, so dead keys need a real keyboard.
 
@@ -36,11 +36,10 @@ Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on m
 
 **ASDF systems.** `hemlock.base.asd` is the backend-independent core. Each backend is its own system that depends on it:
 - `hemlock.tty`: terminfo/termcap terminal display (`tty-*.lisp`, `terminfo.lisp`, `linedit.lisp`)
-- `hemlock.clx`: X11 via CLX (`bit-*.lisp`, `bitmap-*.lisp`, `hunk-draw.lisp`)
 - `hemlock.qt`: experimental CommonQt backend (`qt*.lisp`, `browser.lisp`, `graphics.lisp`)
 - `hemlock.cocoa`: native macOS backend through the `objc` bridge (`cocoa-*.lisp`), SBCL only
 
-`ioconnections.lisp` (the iolib event loop and connections) is not in `hemlock.base`. Every iolib-based backend (tty, clx, cocoa) lists it among its own components.
+`ioconnections.lisp` (the iolib event loop and connections) is not in `hemlock.base`. Every iolib-based backend (tty, cocoa) lists it among its own components.
 
 All sources live flat in `src/`. Module membership and load order are defined only in the `.asd` files. When you add a file, register it in the right module. `core-2` is `:serial t`, so position matters there. `hemlock.base.asd` also proclaims `(optimize (safety 3) (speed 0) (debug 3))` globally.
 
@@ -55,11 +54,11 @@ All sources live flat in `src/`. Module membership and load order are defined on
 - `hemlock-interface`: the public extension API, re-exported through `hi`.
 - `hemlock`: commands and modes.
 - `hemlock-ext`: portability shims.
-- `hemlock.wire` (nickname `wire`), `hemlock.terminfo`, `hemlock.x11`, `hemlock.qt`, and `hemlock-user`, where user init code runs.
+- `hemlock.wire` (nickname `wire`), `hemlock.terminfo`, `hemlock.qt`, and `hemlock-user`, where user init code runs.
 
 When you use a new internal symbol from another package, export it from `package.lisp`.
 
-**Backend dispatch.** `call-with-editor` in `main.lisp` picks a backend keyword (`:tty`, `:clx`, `:qt`, `:cocoa`) and dispatches through generic functions specialized with `(eql :backend)`: `backend-init-raw-io`, `%init-screen-manager`, `make-event-loop`, `dispatch-events-with-backend`, and so on. TTY, CLX and Cocoa share the iolib event loop. Qt has its own. To see what a backend must provide, grep for `(eql :clx)`.
+**Backend dispatch.** `call-with-editor` in `main.lisp` picks a backend keyword (`:tty`, `:qt`, `:cocoa`) and dispatches through generic functions specialized with `(eql :backend)`: `backend-init-raw-io`, `%init-screen-manager`, `make-event-loop`, `dispatch-events-with-backend`, and so on. TTY and Cocoa share the iolib event loop. Qt has its own. To see what a backend must provide, grep for `(eql :cocoa)`.
 
 The backend keyword is also mapped to a connection backend in two `ecase` forms: `%call-with-editor` in `main.lisp` and `%start-slave` in `eval-server.lisp`. A new backend must be added to both.
 

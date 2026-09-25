@@ -300,7 +300,6 @@
   chars                       ; The line-image to be displayed.
   (length 0 :type fixnum)     ; Length of line-image.
   font-changes                ; Font-Change structures for changes in this line.
-  ;; TTY (and/or CLX?) backend stuff:
   old-chars                   ; Line-Chars of line displayed.
   line                        ; Line displayed.
   (flags 0 :type fixnum)      ; Bit flags indicate line status.
@@ -633,23 +632,7 @@
   (apply #'make-instance 'tty-device initargs))
 
 
-;;;; Device screen hunks and window-group.
-
-;;; Window groups are used to keep track of the old width and height of a group
-;;; so that when a configure-notify event is sent, we can determine if the size
-;;; of the window actually changed or not.
-;;;
-;;; Window groups belong to the X11 backend. --GB
-(defstruct (window-group (:print-function %print-window-group)
-                         (:constructor
-                          make-window-group (xparent width height)))
-  xparent
-  width
-  height)
-
-(defun %print-window-group (object stream depth)
-  (declare (ignore object depth))
-  (format stream "#<Hemlock Window Group>"))
+;;;; Device screen hunks.
 
 ;;; Device-hunks are used to claim a piece of the screen and for ordering
 ;;; pieces of the screen.  Window motion primitives and splitting/merging

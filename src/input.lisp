@@ -289,7 +289,6 @@
            (random-typeout-cleanup stream))
           ((logical-key-event-p key-event :keep)
            (setf (random-typeout-stream-no-prompt stream) t)
-           (maybe-keep-random-typeout-window stream)
            (random-typeout-cleanup stream))
           ((logical-key-event-p key-event :no)
            (random-typeout-cleanup stream)
@@ -301,22 +300,6 @@
 
 (declaim (special *more-prompt-action*))
 
-(defun maybe-keep-random-typeout-window (stream)
-  (let* ((window (random-typeout-stream-window stream))
-         (buffer (window-buffer window))
-         (start (buffer-start-mark buffer)))
-    (when (typep (hi::device-hunk-device (hi::window-hunk window))
-                 (the class (class-of 'hi::bitmap-device)))
-      (let ((*more-prompt-action* :normal))
-        (update-modeline-field buffer window :more-prompt)
-        (random-typeout-redisplay window))
-      (buffer-start (buffer-point buffer))
-      (let* ((xwindow (make-xwindow-like-hwindow window))
-             (window (make-window start :window xwindow)))
-        (unless window
-          #+clx(xlib:destroy-window xwindow)
-          (editor-error "Could not create random typeout window."))))))
-
 (defun end-random-typeout (stream)
   (let ((*more-prompt-action* :flush)
         (window (random-typeout-stream-window stream)))
@@ -325,7 +308,6 @@
   (unless (random-typeout-stream-no-prompt stream)
     (let* ((key-event (more-read-key-event))
            (keep-p (logical-key-event-p key-event :keep)))
-      (when keep-p (maybe-keep-random-typeout-window stream))
       (random-typeout-cleanup stream)
       (unless (or (logical-key-event-p key-event :do-all)
                   (logical-key-event-p key-event :exit)

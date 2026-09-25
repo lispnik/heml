@@ -12,7 +12,7 @@
 ;;; Written by Blaine Burks.
 ;;;
 
-(in-package :hemlock.x11)
+(in-package :hemlock-internals)
 
 
 
@@ -78,8 +78,8 @@
       (random-typeout-redisplay window))))
 
 
-;;; DO-BITMAP-FULL-MORE and DO-TTY-FULL-MORE scroll through the fresh text in
-;;; random typeout buffer.
+;;; DO-TTY-FULL-MORE scrolls through the fresh text in a random typeout
+;;; buffer.
 ;;;
 
 ;;; Tty full-buffered support.

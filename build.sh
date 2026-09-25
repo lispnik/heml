@@ -5,13 +5,13 @@ SBCL=${SBCL:-clbuild lisp}
 
 if test $# -eq 0; then
 	cat <<eof
-Building backends tty and clx.
+Building backend tty.
 (Specify backend types at the command line to override this default.)
 eof
 else
 	while test $# -gt 0; do
 		case $1 in
-			tty|clx|qt)
+			tty|qt)
 				backends="$backends :hemlock.$1"
 				echo backend $1 enabled
 				shift
@@ -26,12 +26,9 @@ fi
 
 
 $SBCL <<EOF
-;; NOTE: the order in which clx and tty are given matters.
-;; The last backend loaded is the default, and only if no $DISPLAY is
-;; specified, main.lisp has special-cased the tty backend as a fallback,
-;; so CLX must come last to have a chance of overriding it.
+;; The last backend loaded is the default when $DISPLAY is set.
 ;;
-(dolist (system (or '($backends) '(:hemlock.tty :hemlock.clx)))
+(dolist (system (or '($backends) '(:hemlock.tty)))
   (asdf:operate 'asdf:load-op system))
 
 (defun hemlock-toplevel ()

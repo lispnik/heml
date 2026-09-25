@@ -30,7 +30,7 @@ ver=$(date '+%Y-%m-%d')-$(cd $base/clbuild/source/hemlock && git show-ref --hash
 export PATH=$base/clbuild:$PATH
 
 cd $base/clbuild/source/hemlock
-./build.sh tty qt clx
+./build.sh tty qt
 cp hemlock $base/
 
 cd $base

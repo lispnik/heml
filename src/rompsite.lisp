@@ -57,9 +57,6 @@
 ;;;
 
 (defun site-init ()
-  (defhvar "Beep Border Width"
-    "Width in pixels of the border area inverted by beep."
-    :value 20)
   (defhvar "Default Window Width"
     "This is used to make a window when prompting the user.  The value is in
      characters."
@@ -84,56 +81,6 @@
     "This is used when Hemlock first starts up to make its first window.
      The value is in pixels."
     :value nil)
-  (defhvar "Bell Style"
-    "This controls what beeps do in Hemlock.  Acceptable values are :border-flash
-     (which is the default), :feep, :border-flash-and-feep, :flash,
-     :flash-and-feep, and NIL (do nothing)."
-    :value :border-flash)
-  #||
-  ;; ###
-  (defhvar "Reverse Video"
-    "Paints white on black in window bodies, black on white in modelines."
-    :value nil
-    :hooks '(reverse-video-hook-fun))
-  ||#
-  (defhvar "Cursor Bitmap File"
-    "File to read to setup cursors for Hemlock windows.  The mask is found by
-     merging this name with \".mask\"."
-    :value (make-pathname :name "hemlock11" :type "cursor"
-                          :defaults (merge-pathnames
-                                     "resources/"
-                                     hemlock-system:*hemlock-base-directory*)))
-  (defhvar "Enter Window Hook"
-    "When the mouse enters an editor window, this hook is invoked.  These
-     functions take the Hemlock Window as an argument."
-    :value nil)
-  (defhvar "Exit Window Hook"
-    "When the mouse exits an editor window, this hook is invoked.  These
-     functions take the Hemlock Window as an argument."
-    :value nil)
-  (defhvar "Set Window Autoraise"
-    "When non-nil, setting the current window will automatically raise that
-     window via a function on \"Set Window Hook\".  If the value is :echo-only
-     (the default), then only the echo area window will be raised
-     automatically upon becoming current."
-    :value :echo-only)
-  (defhvar "Default Font"
-    "The string name of the font to be used for Hemlock -- buffer text,
-     modelines, random typeout, etc.  The font is loaded when initializing
-     Hemlock."
-    :value "*-courier-medium-r-normal--*-120-*")
-  (defhvar "Active Region Highlighting Font"
-    "The string name of the font to be used for highlighting active regions.
-     The font is loaded when initializing Hemlock."
-    :value "*-courier-medium-o-normal--*-120-*")
-  (defhvar "Open Paren Highlighting Font"
-    "The string name of the font to be used for highlighting open parens.
-     The font is loaded when initializing Hemlock."
-    :value "*-courier-bold-r-normal--*-120-*")
-  (defhvar "Thumb Bar Meter"
-    "When non-nil (the default), windows will be created to be displayed with
-     a ruler in the bottom border of the window."
-    :value t)
 
   (setf *key-event-history* (make-ring 60))
   nil)
@@ -173,15 +120,6 @@
 ;;;
 (defvar *editor-file-descriptor*)
 
-
-;;; This is a hack, so screen can tell how to initialize screen management
-;;; without re-opening the display.  It is set in INIT-RAW-IO and referenced
-;;; in WINDOWED-MONITOR-P.
-;;;
-(defvar *editor-windowed-input* nil)
-
-;;; These are used for selecting X events.
-(declaim (special *editor-input* *real-editor-input*))
 
 (declaim (special *editor-input* *real-editor-input*))
 
@@ -228,21 +166,13 @@
   (backend-init-raw-io :tty display))
 
 (defun init-raw-io (backend-type display)
-  (setf *editor-windowed-input* nil)
   (backend-init-raw-io backend-type display))
 
-;;; Stop flaming from compiler due to CLX macros expanding into illegal
-;;; declarations.
-;;;
 (declaim (special *default-font-family*))
 
 ;;; font-map-size should be defined in font.lisp, but SETUP-FONT-FAMILY would
 ;;; assume it to be special, issuing a nasty warning.
 ;;;
-#+clx
-(defconstant font-map-size 16
-  "The number of possible fonts in a font-map.")
-#-clx
 (defconstant font-map-size 16)
 
 
@@ -260,9 +190,6 @@
     (unix:unix-write 1 *editor-bell* 0 1)))
 
 (declaim (special *current-window*))
-
-#+clx
-(declaim (special *foreground-background-xor*))
 
 (defun hemlock-beep (stream)
   "Using the current window, calls the device's beep function on stream."
@@ -283,36 +210,17 @@
 
 ;;;; GC messages.
 
-;;; HEMLOCK-GC-NOTIFY-BEFORE and HEMLOCK-GC-NOTIFY-AFTER both MESSAGE GC
-;;; notifications when Hemlock is not running under X11.  It cannot affect
-;;; its window's without using its display connection.  Since GC can occur
-;;; inside CLX request functions, using the same display confuses CLX.
+;;; HEMLOCK-GC-NOTIFY-BEFORE and HEMLOCK-GC-NOTIFY-AFTER beep for GC
+;;; notifications.
 ;;;
 
 (defun hemlock-gc-notify-before (bytes-in-use)
-  (let ((control "~%[GC threshold exceeded with ~:D bytes in use.  ~
-                  Commencing GC.]~%"))
-    (cond ((not hi::*editor-windowed-input*)
-           (beep)
-           #|(message control bytes-in-use)|#)
-          (t
-           ;; Can't call BEEP since it would use Hemlock's display connection.
-           #+nil (lisp::default-beep-function *standard-output*)
-           (format t control bytes-in-use)
-           (finish-output)))))
+  (declare (ignore bytes-in-use))
+  (beep))
 
 (defun hemlock-gc-notify-after (bytes-retained bytes-freed trigger)
-  (let ((control
-         "[GC completed with ~:D bytes retained and ~:D bytes freed.]~%~
-          [GC will next occur when at least ~:D bytes are in use.]~%"))
-    (cond ((not hi::*editor-windowed-input*)
-           (beep)
-           #|(message control bytes-retained bytes-freed)|#)
-          (t
-           ;; Can't call BEEP since it would use Hemlock's display connection.
-           #+nil (lisp::default-beep-function *standard-output*)
-           (format t control bytes-retained bytes-freed trigger)
-           (finish-output)))))
+  (declare (ignore bytes-retained bytes-freed trigger))
+  (beep))
 
 
 
@@ -340,12 +248,7 @@
        (let ((*beep-function* #'hemlock-beep)
              (*gc-notify-before* #'hemlock-gc-notify-before)
              (*gc-notify-after* #'hemlock-gc-notify-after))
-         (cond ((not *editor-windowed-input*)
-                ,@body)
-               (t
-                (hemlock-ext:with-clx-event-handling
-                    (*editor-windowed-input* #'hemlock-ext:object-set-event-handler)
-                  ,@body)))))
+         ,@body))
      (let ((device (device-hunk-device (window-hunk (current-window)))))
        (device-exit device))))
 
@@ -560,20 +463,7 @@
 
 
 
-;;;; X Stuff.
-;;; Setting window cursors ...
-;;;
-
-
 ;;;; Some hacks for supporting Hemlock under Mach.
-
-;;; WINDOWED-MONITOR-P is used by the reverse video variable's hook function
-;;; to determine if it needs to go around fixing all the windows.
-;;;
-(defun windowed-monitor-p ()
-  "This returns whether the monitor is being used with a window system.  It
-   returns the console's CLX display structure."
-  *editor-windowed-input*)
 
 (defun process-editor-tty-input (&optional fd)
   (declare (ignore fd))

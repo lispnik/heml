@@ -275,7 +275,7 @@ GB
          *after-editor-initializations-funs*))
 
 #-(or cmu scl)
-(defparameter *backend-options* '(:tty :clx :qt :cocoa)
+(defparameter *backend-options* '(:tty :qt :cocoa)
   "The backends that have a --tty style flag of their own.")
 
 #-(or cmu scl)
@@ -297,7 +297,7 @@ GB
        :type string)
       (("backend" "backend-type")
        :type string
-       :documentation "backend to use, one of tty, clx, qt, or cocoa. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
+       :documentation "backend to use, one of tty, qt, or cocoa. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
        :action ,#'keywordize)
       ,@(iter:iter (iter:for b in *backend-options*)
                    (iter:collect
@@ -478,7 +478,7 @@ GB
     (setf *connection-backend*
           (ecase backend-type
             (:qt :qt)
-            ((:tty :clx :mini :cocoa) :iolib)))
+            ((:tty :mini :cocoa) :iolib)))
     (with-existing-event-loop
         (or *main-event-base*
             (setf *main-event-base*

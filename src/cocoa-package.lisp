@@ -15,7 +15,7 @@
 
 AppKit owns the main thread and runs its own event loop there.  Hemlock
 runs its command loop on a thread of its own, with the iolib event loop
-the TTY and CLX backends use, so shells and slave Lisps work unchanged.
+the TTY backend uses, so shells and slave Lisps work unchanged.
 The two meet in two places:
 
   - Input.  The view's -keyDown: turns an NSEvent into a plain key

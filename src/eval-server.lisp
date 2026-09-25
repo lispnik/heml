@@ -864,7 +864,7 @@
   (let ((hi::*connection-backend*
          (ecase backend-type
            (:qt :qt)
-           ((:tty :clx :mini :cocoa) :iolib)))
+           ((:tty :mini :cocoa) :iolib)))
         (seperator (position #\: editor :test #'char=)))
     (unless seperator
       (error "Editor name ~S invalid. ~

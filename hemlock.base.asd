@@ -209,7 +209,6 @@
                (:file "edit-defs")
                (:file "auto-save")
                (:file "register")
-               (:file "xcoms")
                #+port-user-unixcoms (:file "unixcoms")
                #+port-user-mh (:file "mh")
                (:file "highlight")

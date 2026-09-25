@@ -14,13 +14,11 @@
 
 ** Backends
 
-   This version of Hemlock has four backends, of which you need at least
+   This version of Hemlock has three backends, of which you need at least
    one:
 
      * The TTY backend doesn't need much, except for a terminal
        and an installed terminfo database.
-
-     * The X11 backend needs CLX and an X server.
 
      * The Cocoa backend is a native macOS window, drawn with AppKit
        through [[https://github.com/lispnik/objc][objc]].  SBCL on macOS only.
@@ -114,7 +112,6 @@
    #+BEGIN_SRC lisp  :tangle no
      (push #p"/path/to/hemlock/" asdf:*central-registry*)
      (asdf:operate 'asdf:load-op :hemlock.tty)
-     (asdf:operate 'asdf:load-op :hemlock.clx)
      (asdf:operate 'asdf:load-op :hemlock.qt)
 
      (hemlock:hemlock)

@@ -7,18 +7,12 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; This file implements key-events for representing editor input.  It also
-;;; provides a couple routines to interface this to X11.
+;;; This file implements key-events for representing editor input.
 ;;;
 ;;; Written by Blaine Burks and Bill Chiles.
 ;;;
 
-;;; The following are the implementation dependent parts of this code (what
-;;; you would have to change if you weren't using X11):
-;;;    *modifier-translations*
-;;;    DEFINE-CLX-MODIFIER
-;;;    TRANSLATE-KEY-EVENT
-;;;    TRANSLATE-MOUSE-KEY-EVENT
+;;; The following are the implementation dependent parts of this code:
 ;;;    DEFINE-KEYSYM
 ;;;    DEFINE-MOUSE-KEYSYM
 ;;;    DO-ALPHA-KEY-EVENTS
@@ -84,12 +78,6 @@
   (setf (gethash keysym *keysyms-to-names*) (cons preferred-name other-names))
   (dolist (name (cons preferred-name other-names))
     (setf (gethash (get-name-case-right name) *names-to-keysyms*) keysym)))
-
-;;; This is an a-list mapping CLX modifier masks to defined key-event
-;;; modifier names.  DEFINE-CLX-MODIFIER fills this in, so TRANSLATE-KEY-EVENT
-;;; and TRANSLATE-MOUSE-KEY-EVENT can work.
-;;;
-(defvar *modifier-translations*)
 
 ;;; This is an ordered a-list mapping defined key-event modifier names to the
 ;;; appropriate mask for the modifier.  Modifier names have a short and a long
@@ -189,25 +177,6 @@
   (setf (mouse-translation-info button event-key :keysym) keysym)
   (setf (mouse-translation-info button event-key :shifted-modifier-name)
         shifted-bit))
-
-;;; TRANSLATE-MOUSE-KEY-EVENT -- Public.
-;;;
-(defun translate-mouse-key-event (scan-code bits event-key)
-  "This translates the X button code, scan-code, and modifier bits, bits, for
-   the X event-key into a key-event.  See DEFINE-MOUSE-KEYSYM."
-  (let ((keysym (mouse-translation-info scan-code event-key :keysym))
-        (new-bits 0))
-    (dolist (map *modifier-translations*)
-      (when (logtest (car map) bits)
-        (setf new-bits
-              (if (string-equal (cdr map) "Shift")
-                  (logior new-bits
-                          (key-event-modifier-mask
-                           (mouse-translation-info
-                            scan-code event-key :shifted-modifier-name)))
-                  (logior new-bits
-                          (key-event-modifier-mask (cdr map)))))))
-    (make-key-event keysym new-bits)))
 
 
 
@@ -413,23 +382,6 @@
 ;;;
 ;;; RE-INITIALIZE-KEY-EVENTS at the end of this file defines the system
 ;;; default key-event modifiers.
-;;;
-
-;;; DEFINE-CLX-MODIFIER -- Public.
-;;;
-(defun define-clx-modifier (clx-mask modifier-name)
-  "This establishes a mapping from clx-mask to a define key-event modifier-name.
-   TRANSLATE-KEY-EVENT and TRANSLATE-MOUSE-KEY-EVENT can only return key-events
-   with bits defined by this routine."
-  (let ((map (assoc modifier-name *modifiers-to-internal-masks*
-                    :test #'string-equal)))
-    (unless map (error "~S an undefined modifier name." modifier-name))
-    (push (cons clx-mask (car map)) *modifier-translations*)))
-
-;;;
-;;; RE-INITIALIZE-KEY-EVENTS at the end of this file defines the system
-;;; default clx modifiers, mapping them to some system default key-event
-;;; modifiers.
 ;;;
 
 ;;; MAKE-KEY-EVENT-BITS -- Public.
@@ -712,15 +664,13 @@
 (defun re-initialize-key-events ()
   "This blows away all data associated with keysyms, modifiers, mouse
    translations, and key-event/characters mapping.  Then it re-establishes
-   the system defined key-event modifiers and the system defined CLX
-   modifier mappings to some of those key-event modifiers.
+   the system defined key-event modifiers.
 
    When recompiling this file, you should load it and call this function
    before using any part of the key-event interface, especially before
    defining all your keysyms and using #k syntax."
   (setf *keysyms-to-names* (make-hash-table :test #'eql))
   (setf *names-to-keysyms* (make-hash-table :test #'equal))
-  (setf *modifier-translations* ())
   (setf *modifiers-to-internal-masks* ())
   (setf *mouse-translation-info* (make-array 6 :initial-element nil))
   (setf *modifier-count* 0)

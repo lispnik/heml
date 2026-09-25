@@ -554,12 +554,6 @@
 (bind-key "Insert Scribe Directive" #k"hyper-i" :mode "Scribe")
 
 
-;;;; X commands:
-
-#+nil (bind-key "Insert Cut Buffer" #k"insert")
-(bind-key "Region to Cut Buffer" #k"meta-insert")
-
-
 ;;;; Mailer commands.
 
 ;;; Clear everything user might hit to avoid getting the internal error

@@ -62,17 +62,8 @@
    Device is the Hemlock device to make the window on.  If it is nil, then
    the window is made on the same device as CURRENT-WINDOW.
 
-   Window is an X window to be used with the Hemlock window.  The supplied
-   window becomes the parent window for a new group of windows that behave
-   in a stack orientation as windows do on the terminal.
-
-   Font-Family is the font-family used for displaying text in the window.
-
-   If Ask-User is non-nil, Hemlock prompts the user for missing X, Y, Width,
-   and Height arguments to make a new group of windows that behave in a stack
-   orientation as windows do on the terminal.  This occurs by invoking
-   hi::*create-window-hook*.  X and Y are supplied as pixels, but Width and
-   Height are supplied in characters."
+   Window, Font-Family, Ask-User, X, Y, Width and Height are passed to the
+   device, and the current devices ignore them."
 
   (let* ((device (or device (device-hunk-device (window-hunk (current-window)))))
          (window (device-make-window
@@ -83,9 +74,7 @@
     window))
 
 (defun delete-window (window)
-  "Make Window go away, removing it from the screen.  This uses
-   hi::*delete-window-hook* to get rid of parent windows on a bitmap device
-   when you delete the last Hemlock window in a group."
+  "Make Window go away, removing it from the screen."
   (when (<= (length *window-list*) 2)
     (error "Cannot kill the only window."))
   (invoke-hook hemlock::delete-window-hook window)

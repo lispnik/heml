@@ -105,8 +105,6 @@
    #:delete-characters
    #:delete-region
    #:delete-and-save-region
-   #:fetch-cut-string
-   #:store-cut-string
    #:filter-region
    #:start-line-p
    #:end-line-p
@@ -320,12 +318,7 @@
    #:goto-buffer-start
    #:goto-buffer-end
 
-   ;;;; !!!!
-   ;;;; !!!! Everything below here is because putting bit-screen.lisp,
-   ;;;; !!!! bit-display.lisp and hunk-draw.lisp into its own package.
-   ;;;; !!!! Besides the DEVICE-xyz entries this list should be empty.
-   ;;;; !!!! --GB 2004-05-26
-   ;;;; !!!!
+   ;; The device protocol, and the internals that backends use.
 
    #:device                             ;[class]
    ;; their methods
@@ -353,71 +346,33 @@
    #:device-hunk
    #:random-typeout-stream
    #:with-mark
-   #:init-bitmap-screen-manager
-   #:reverse-video-hook-fun             ;### only defined in bitmap device, refered to from rompsite.lisp
 
-   ;; variables, due to bit-screen.lisp
+   ;; variables
    #:*current-buffer*
    #:*current-window*
-   #:*cursor-background-color*
-   #:*cursor-foreground-color*
    #:*default-font-family*
    #:*echo-area-buffer*
-   #:*hemlock-cursor*
    #:*random-typeout-buffers*
    #:*random-typeout-ml-fields*
    #:*window-list*
-   #:child-interesting-xevents-mask
-   #:group-interesting-xevents-mask
-   #:random-typeout-xevents-mask
    #:the-sentinel
-   #:*default-foreground-pixel*         ;### rompsite.lisp
-   #:*default-background-pixel*         ;### rompsite.lisp
-   ;; functions, due to bit-screen.lisp
+   ;; functions
    #:device-hunks
    #:random-typeout-stream-window
-   #:window-group-height
-   #:window-group-width
-   #:add-xwindow-object
    #:device-hunk-device
    #:device-hunks
    #:font-family-cursor-y-offset
    #:font-family-height
    #:font-family-map
    #:font-family-width
-   #:get-hemlock-cursor
-   #:get-hemlock-grey-pixmap
-   #:hemlock-window
    #:hlet
-   #:make-black-color
-   #:make-white-color
-   #:make-window-group
    #:random-typeout-stream-mark
    #:random-typeout-stream-window
-   #:remove-xwindow-object
-   #:window-for-hunk
-   #:window-group-height
-   #:window-group-width
-   #:window-group-xparent
    #:window-hunk
    #:window-input-handler
    #:window-modeline-buffer
-   #:windowed-monitor-p
-   ;;;; grrr
-   #:bitmap-device-display
-   #:bitmap-hunk-font-family
-   #:bitmap-hunk-modeline-dis-line
-   #:bitmap-hunk-modeline-pos
-   #:bitmap-hunk-trashed
-   #:bitmap-hunk-window
-   #:bitmap-hunk-window-group
-   #:bitmap-hunk-xwindow
    #:changed-bit
-   #:*create-initial-windows-hook*
-   #:*create-window-hook*
    #:default-font
-   #:define-window-cursor
-   #:*delete-window-hook*
    #:dis-line-chars
    #:dis-line-delta
    #:dis-line-flags
@@ -433,30 +388,20 @@
    #:font-family-cursor-height
    #:font-family-cursor-width
    #:font-family-cursor-x-offset
-   #:*foreground-background-xor*
    #:hunk-width-limit
    #:line-buffered-p
-   #:make-xwindow-like-hwindow
-   #:minimum-window-columns
-   #:minimum-window-lines
    #:*more-prompt-action*
    #:moved-bit
    #:prepare-window-for-redisplay
-   #:raise-echo-area-when-modified
-   #:*random-typeout-hook*
    #:random-typeout-redisplay
    #:random-typeout-stream-first-more-p
    #:random-typeout-stream-more-mark
    #:random-typeout-stream-no-prompt
-   #:set-window-name-for-buffer-name
-   #:set-window-name-for-window-buffer
    #:unaltered-bits
    #:update-tty-line-buffered-stream
    #:wait-for-more
    #:window-first-changed
    #:window-first-line
-   #:window-group
-   #:window-group-p
    #:window-last-changed
    #:window-last-line
    #:window-modeline-dis-line
@@ -547,40 +492,18 @@
    #:file-writable
 
    #:define-keysym #:define-mouse-keysym #:name-keysym #:keysym-names
-   #:keysym-preferred-name #:define-key-event-modifier #:define-clx-modifier
+   #:keysym-preferred-name #:define-key-event-modifier
    #:make-key-event-bits #:key-event-modifier-mask #:key-event-bits-modifiers
-   #:*all-modifier-names* #:translate-key-event #:translate-mouse-key-event
+   #:*all-modifier-names*
    #:make-key-event #:key-event #:key-event-p #:key-event-bits #:key-event-keysym
    #:char-key-event #:key-event-char #:key-event-bit-p #:do-alpha-key-events
    #:character-key-event
    #:print-pretty-key #:print-pretty-key-event
 
    ;; hemlock-ext.lisp
-   #:disable-clx-event-handling
    #:quit
    #:serve-event
    #:sap-ref-8
-   #:make-object-set
-   #:default-clx-event-handler
-   #:serve-exposure
-   #:serve-graphics-exposure
-   #:serve-no-exposure
-   #:serve-configure-notify
-   #:serve-destroy-notify
-   #:serve-unmap-notify
-   #:serve-map-notify
-   #:serve-reparent-notify
-   #:serve-gravity-notify
-   #:serve-circulate-notify
-   #:serve-client-message
-   #:serve-key-press
-   #:serve-button-press
-   #:serve-button-release
-   #:serve-enter-notify
-   #:serve-leave-notify
-   #:flush-display-events
-   #:object-set-event-handler
-   #:with-clx-event-handling
    #:complete-file
    #:default-directory
    #:set-file-permissions
@@ -612,13 +535,9 @@
 
    ;; rompsite.lisp
    #:show-mark #:*input-transcript* #:fun-defined-from-pathname
-   #:editor-describe-function #:pause-hemlock #:store-cut-string
-   #:fetch-cut-string #:schedule-event #:remove-scheduled-event
-   #:enter-window-autoraise #:directoryp #:merge-relative-pathnames
-   ;;
-   ;; Export default-font to prevent a name conflict that occurs due to
-   ;; the Hemlock variable "Default Font" defined in SITE-INIT below.
-   ;;
+   #:editor-describe-function #:pause-hemlock
+   #:schedule-event #:remove-scheduled-event
+   #:directoryp #:merge-relative-pathnames
    #:default-font
    #:*beep-function* #:beep
 
@@ -659,11 +578,6 @@
    ;; bit-display.lisp
    #:redisplay #:redisplay-all
 
-   ;; bit-screen.lisp
-   #:make-xwindow-like-hwindow          ;used in input.lisp
-   #:*create-window-hook* #:*delete-window-hook*
-   #:*random-typeout-hook* #:*create-initial-windows-hook*
-
    ;; buffer.lisp
    #:buffer-modified #:buffer-region #:buffer-name #:buffer-pathname
    #:buffer-major-mode #:buffer-minor-mode #:buffer-modeline-fields
@@ -703,7 +617,6 @@
 
    ;; font.lisp
    #:font-mark #:delete-font-mark #:delete-line-font-marks #:move-font-mark
-   #:window-font
 
    ;; htext1.lisp
    #:line-length #:line-buffer #:line-string #:line-character #:mark #:mark-kind
@@ -810,18 +723,14 @@
    #:*all-modifier-names*
    #:assq
    #:char-key-event
-   #:default-clx-event-handler
    #:default-directory
-   #:define-clx-modifier
    #:define-key-event-modifier
    #:define-keysym
    #:define-mouse-keysym
    #:delq
-   #:disable-clx-event-handling
    #:do-alpha-key-events
    #:file-writable
    #:fixnump
-   #:flush-display-events
    #:key-event
    #:key-event-bit-p
    #:key-event-bits
@@ -836,44 +745,14 @@
    #:make-key-event-bits
    #:memq
    #:name-keysym
-   #:object-set-event-handler
    #:print-pretty-key
    #:print-pretty-key-event
    #:quit
 
-   ;; these four are from system package
-   #:make-object-set
+   ;; these are from system package
    #:sap-ref-8
    #:serve-event
-   #:without-interrupts
-
-   #:translate-key-event
-   #:translate-mouse-key-event
-   #:with-clx-event-handling))
-
-
-(defpackage :hemlock.x11
-  (:use :common-lisp :hemlock-interface)
-
-  (:import-from :hemlock-ext
-   #:serve-button-press
-   #:serve-button-release
-   #:serve-circulate-notify
-   #:serve-client-message
-   #:serve-configure-notify
-   #:serve-destroy-notify
-   #:serve-enter-notify
-   #:serve-exposure
-   #:serve-graphics-exposure
-   #:serve-gravity-notify
-   #:serve-key-press
-   #:serve-leave-notify
-   #:serve-map-notify
-   #:serve-no-exposure
-   #:serve-reparent-notify
-   #:serve-unmap-notify)
-
-  (:use :trivial-gray-streams))
+   #:without-interrupts))
 
 (defpackage :hemlock-user
     (:use :common-lisp :hemlock-interface))

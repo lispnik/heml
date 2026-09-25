@@ -8,7 +8,6 @@
 ;;; **********************************************************************
 ;;;
 ;;; Written by Rob MacLachlan
-;;; Modified by Bill Chiles toward Hemlock running under X.
 ;;;
 ;;;    This file contains various functions that make up the user interface to
 ;;; fonts.
@@ -95,22 +94,6 @@
 
 ;;;; Referencing and setting font ids.
 
-(defun window-font (window font)
-  "Returns a font id for window and font."
-  (svref (font-family-map (bitmap-hunk-font-family (window-hunk window))) font))
-
-(defun (setf window-font) (font-object window font)
-  "Change the font-object associated with a font-number in a window."
-  (unless (valid-font-p font)
-    (error "Invalid font: ~S" font))
-  (setf (bitmap-hunk-trashed (window-hunk window)) :font-change)
-  (let ((family (bitmap-hunk-font-family (window-hunk window))))
-    (when (eq family *default-font-family*)
-      (setq family (copy-font-family family))
-      (setf (font-family-map family) (copy-seq (font-family-map family)))
-      (setf (bitmap-hunk-font-family (window-hunk window)) family))
-    (setf (svref (font-family-map family) font) font-object)))
-
 (defun default-font (font)
   "Returns the font id for font out of the default font family."
   (svref (font-family-map *default-font-family*) font))
@@ -119,7 +102,4 @@
   "Change the font-object associated with a font-number in new windows."
   (unless (valid-font-p font)
     (error "Invalid font: ~S" font))
-  (dolist (w *window-list*)
-    (when (eq (bitmap-hunk-font-family (window-hunk w)) *default-font-family*)
-      (setf (bitmap-hunk-trashed (window-hunk w)) :font-change)))
   (setf (svref (font-family-map *default-font-family*) font) font-object))
