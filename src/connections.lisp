@@ -210,10 +210,6 @@
     ((backend (eql :iolib)) (type (eql 'process-connection-mixin)))
   'process-connection/iolib)
 
-(defmethod class-for
-    ((backend (eql :qt)) (type (eql 'process-connection-mixin)))
-  'process-connection/qt)
-
 (defun make-process-connection
        (command
         &rest args
@@ -246,10 +242,6 @@
 (defmethod class-for
     ((backend (eql :iolib)) (type (eql 'tcp-connection-mixin)))
   'tcp-connection/iolib)
-
-(defmethod class-for
-    ((backend (eql :qt)) (type (eql 'tcp-connection-mixin)))
-  'tcp-connection/qt)
 
 (defun make-tcp-connection
     (name host port &rest args &key buffer stream filter sentinel)
@@ -418,16 +410,8 @@
   'process-with-pty-connection/iolib)
 
 (defmethod class-for
-    ((backend (eql :qt)) (type (eql 'process-with-pty-connection-mixin)))
-  'process-with-pty-connection/qt)
-
-(defmethod class-for
     ((backend (eql :iolib)) (type (eql 'pipelike-connection-mixin)))
   'pipelike-connection/iolib)
-
-(defmethod class-for
-    ((backend (eql :qt)) (type (eql 'pipelike-connection-mixin)))
-  'pipelike-connection/qt)
 
 (defun make-pipelike-connection
     (read-fd
@@ -544,10 +528,6 @@
 (defmethod class-for
     ((backend (eql :iolib)) (type (eql 'tcp-listener-mixin)))
   'tcp-listener/iolib)
-
-(defmethod class-for
-    ((backend (eql :qt)) (type (eql 'tcp-listener-mixin)))
-  'tcp-listener/qt)
 
 
 ;;; wire interaction

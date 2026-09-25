@@ -239,20 +239,6 @@ GB
     :value 30
     :hooks (list 'maximum-modeline-pathname-length-hook)))
 
-(defvar *background-image* :auto
-  "Path to a background image in SVG format, or one of :AUTO, NIL.
-
-   Possible values indicate:
-     - STRING or PATHNAME -- Open this file name.
-
-     - The symbol :AUTO --  Try to open ~/.hemlock/background.svg, then
-       background.svg in Hemlock's installation directory (in this order).
-
-     - The symbol NIL -- No background image.
-       (Not using a background image is faster, especially with remote X.)
-
-   Currently supported only in the Qt backend.")
-
 
 
 ;;;; ED.
@@ -275,7 +261,7 @@ GB
          *after-editor-initializations-funs*))
 
 #-(or cmu scl)
-(defparameter *backend-options* '(:tty :qt :cocoa)
+(defparameter *backend-options* '(:tty :cocoa)
   "The backends that have a --tty style flag of their own.")
 
 #-(or cmu scl)
@@ -297,7 +283,7 @@ GB
        :type string)
       (("backend" "backend-type")
        :type string
-       :documentation "backend to use, one of tty, qt, or cocoa. If not specified, checks if $DISPLAY is set, and use the first available backend; without a $DISPLAY, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
+       :documentation "backend to use, one of tty or cocoa. If not specified, uses Cocoa when it is loaded and otherwise falls back to TTY.  See also --tty et al."
        :action ,#'keywordize)
       ,@(iter:iter (iter:for b in *backend-options*)
                    (iter:collect
@@ -472,12 +458,9 @@ GB
        (%call-with-editor fun load-user-init backend-type display)))))
 
 (defun %call-with-editor (fun load-user-init backend-type display)
-  ;; fixme: pass DISPLAY to WITH-EVENT-LOOP, so that Qt can pick it up
-  ;; in case the user wants a DISPLAY != $DISPLAY
   (let* ((*default-backend* backend-type))
     (setf *connection-backend*
           (ecase backend-type
-            (:qt :qt)
             ((:tty :mini :cocoa) :iolib)))
     (with-existing-event-loop
         (or *main-event-base*

@@ -14,7 +14,6 @@
    - Bring Xomax' envirenment into allignment with the Xemacs and GNU
      Emacs 'object model'
    - Begin packages and symbols for the Xomax namespace.
-   - Get QT working, even if it's in Motif.
    - Setup JIRA
    - Get the Lisp View project working.
    - Fix a shit ton of bugs.

@@ -14,7 +14,7 @@
 
 ** Backends
 
-   This version of Hemlock has three backends, of which you need at least
+   This version of Hemlock has two backends, of which you need at least
    one:
 
      * The TTY backend doesn't need much, except for a terminal
@@ -22,8 +22,6 @@
 
      * The Cocoa backend is a native macOS window, drawn with AppKit
        through [[https://github.com/lispnik/objc][objc]].  SBCL on macOS only.
-
-     * The experimental Qt backends needs CommonQt.
 
 
 ** macOS
@@ -50,8 +48,8 @@
 
    AppKit needs the process's main thread, so call this from the main
    thread -- a terminal SBCL's REPL -- not from a SLIME or Sly REPL
-   thread.  Without =$DISPLAY= set, Cocoa is chosen when it is loaded,
-   so =:backend-type= can usually be left out.
+   thread.  Cocoa is chosen whenever it is loaded, so =:backend-type=
+   can usually be left out.
 
    The left Option key is Meta (=hemlock.cocoa:*option-is-meta*=), and
    the right one types what the keyboard layout puts on it, dead keys
@@ -112,7 +110,6 @@
    #+BEGIN_SRC lisp  :tangle no
      (push #p"/path/to/hemlock/" asdf:*central-registry*)
      (asdf:operate 'asdf:load-op :hemlock.tty)
-     (asdf:operate 'asdf:load-op :hemlock.qt)
 
      (hemlock:hemlock)
    #+END_SRC

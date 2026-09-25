@@ -655,7 +655,6 @@
    #:*global-variable-names* #:*mode-names* #:*buffer-names*
    #:*character-attribute-names* #:*command-names* #:*buffer-list*
    #:*window-list* #:*last-key-event-typed* #:after-editor-initializations
-   #:*background-image*
 
    ;; screen.lisp
    #:make-window #:delete-window #:next-window #:previous-window
@@ -711,7 +710,6 @@
            #:with-editor
            #:call-with-editor
            #:start-slave
-           #:*background-image*
            #:linedit
            #:formedit
            #:repl)

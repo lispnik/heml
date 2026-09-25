@@ -9,7 +9,6 @@ set -x
 # 1. Make a directory /opt/hemlock
 #
 # 2. Check out clbuild to /opt/hemlock/clbuild
-# 2a. (Optionally) Install Qt libraries into /opt/hemlock/lib
 #
 # 3. Use clbuild to download hemlock
 #
@@ -20,8 +19,6 @@ set -x
 # 6. Find tarballs in /opt/hemlock
 #
 # - Only the -base- tarballs is required for users.
-# - The optional -qt- tarball extracts on top of the -base- tarball
-#   and enables use of the qt backend.
 # - The optional -src- tarball enabled use of M-.
 #
 
@@ -30,7 +27,7 @@ ver=$(date '+%Y-%m-%d')-$(cd $base/clbuild/source/hemlock && git show-ref --hash
 export PATH=$base/clbuild:$PATH
 
 cd $base/clbuild/source/hemlock
-./build.sh tty qt
+./build.sh tty
 cp hemlock $base/
 
 cd $base
@@ -41,14 +38,7 @@ tar cjf hemlock-bin-base-$ver.tar.bz2 \
 	$base/hemlock \
 	$base/clbuild/source/iolib/src/syscalls/libiolib-syscalls.so \
 	$base/clbuild/source/osicat/posix/libosicat.so \
-	$base/clbuild/target/lib/sbcl \
-        $base/clbuild/source/hemlock/resources/hemlock11.cursor
-
-tar cjf hemlock-bin-qt-$ver.tar.bz2 \
-	--absolute-names \
-	$base/background.svg \
-	$base/clbuild/source/commonqt/libcommonqt.so* \
-	$base/lib
+	$base/clbuild/target/lib/sbcl
 
 tar cjf hemlock-src-$ver.tar.bz2 \
 	--absolute-names \

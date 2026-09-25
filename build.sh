@@ -11,7 +11,7 @@ eof
 else
 	while test $# -gt 0; do
 		case $1 in
-			tty|qt)
+			tty)
 				backends="$backends :hemlock.$1"
 				echo backend $1 enabled
 				shift
@@ -26,13 +26,10 @@ fi
 
 
 $SBCL <<EOF
-;; The last backend loaded is the default when $DISPLAY is set.
-;;
 (dolist (system (or '($backends) '(:hemlock.tty)))
   (asdf:operate 'asdf:load-op system))
 
 (defun hemlock-toplevel ()
-  #+ccl (when (find-package :qt) (funcall (find-symbol "REBIRTH" :qt)))
   (let ((argv0 (car (command-line-arguments:get-command-line-arguments)))) 
     (setf hi::*installation-directory*
 	  (concatenate 
