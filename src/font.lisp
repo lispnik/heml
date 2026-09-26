@@ -40,7 +40,6 @@
   (unless (valid-font-p font)
     (error "Invalid font: ~S" font))
   (let ((new (internal-make-font-mark line charpos kind font)))
-    (new-font-mark new line)
     (push new (line-marks line))
     new))
 
@@ -50,7 +49,6 @@
   (let ((line (mark-line font-mark)))
     (when line
       (setf (line-marks line) (delq font-mark (line-marks line)))
-      (nuke-font-mark font-mark line)
       (setf (mark-line font-mark) nil))))
 
 (defun delete-line-font-marks (line)
@@ -62,33 +60,8 @@
 (defun move-font-mark (font-mark new-position)
   "Moves font mark font-mark to location of mark new-position."
   (check-type font-mark font-mark)
-  (let ((old-line (mark-line font-mark))
-        (new-line (mark-line new-position)))
-    (nuke-font-mark font-mark old-line)
-    (move-mark font-mark new-position)
-    (new-font-mark font-mark new-line)
-    font-mark))
-
-(defun nuke-font-mark (mark line)
-  (new-font-mark mark line))
-
-(defun new-font-mark (mark line)
-  (declare (ignore mark))
-  (let ((buffer (line-%buffer line))
-        (number (line-number line)))
-    (when (bufferp buffer)
-      (dolist (w (buffer-windows buffer))
-        (setf (window-tick w) (1- (buffer-modified-tick buffer)))
-        (let ((first (cdr (window-first-line w))))
-          (unless (or (> (line-number (dis-line-line (car first))) number)
-                      (> number
-                         (line-number
-                          (dis-line-line (car (window-last-line w))))))
-            (do ((dl first (cdr dl)))
-                ((or (null dl)
-                     (eq (dis-line-line (car dl)) line))
-                 (when dl
-                   (setf (dis-line-old-chars (car dl)) :font-change))))))))))
+  (move-mark font-mark new-position)
+  font-mark)
 
 
 

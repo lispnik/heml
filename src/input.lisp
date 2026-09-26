@@ -227,7 +227,6 @@
        (return))
      (invoke-scheduled-events)
      (unless (internal-redisplay)
-       (internal-redisplay)
        (device-note-read-wait device t)
        (let ((wait (and (not
                          ;; Let's be extra careful here and prepare

@@ -189,7 +189,7 @@
 ;;;
 (defun mark-to-cursorpos (mark window)
   "Return the (x, y) position of mark within window, or NIL if not displayed."
-  (maybe-update-window-image window)
+  (update-window-image window)
   (let* ((line (mark-line mark))
          (number (line-number line))
          (charpos (mark-charpos mark))
@@ -308,7 +308,7 @@
 ;;;
 (defun displayed-p (mark window)
   "Return true if Mark is displayed on Window, false otherwise."
-  (maybe-update-window-image window)
+  (update-window-image window)
   (%displayed-p mark window))
 
 

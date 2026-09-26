@@ -104,8 +104,6 @@
   font-marks)
 
 (defstruct tag
-  (ticks -1)
-  (line-number 1 :type (integer 1))
   (syntax-info nil :type (or null syntax-info))
   (package (symbol-name :cl-user) :type (or null string)))
 

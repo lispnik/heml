@@ -24,8 +24,7 @@
 
 (defvar *screen-image-trashed* ()
   "This variable is set to true if the screen has been trashed by some screen
-   manager operation, and thus should be totally refreshed.  This is currently
-   only used by tty redisplay.")
+   manager operation, and so should be cleared before it is drawn again.")
 
 ;;; True if we are in redisplay, and thus don't want to enter it recursively.
 ;;;
@@ -41,11 +40,9 @@
 ;;; wants to recenter to keep the window's buffer's point visible.  General-fun
 ;;; is for other windows.
 ;;;
-;;; Whenever we invoke one of the internal routines, we keep track of the
-;;; non-nil return values, so we can return t when we are done.  Returning t
-;;; means redisplay should run again to make sure it converged.  To err on the
-;;; safe side, if any window had any changed lines, then let's go through
-;;; redisplay again; that is, return t.
+;;; Every window is drawn in full, so one pass is enough: the internal
+;;; routines return NIL, and we return T, meaning redisplay should run again,
+;;; only when the cursor cannot be placed.
 ;;;
 ;;; After checking each window, we put the cursor in the appropriate place and
 ;;; force output.  When we try to position the cursor, it may no longer lie
@@ -107,13 +104,12 @@
 
 ;;; REDISPLAY -- Public.
 ;;;
-;;; This function updates the display of all windows which need it.  It assumes
-;;; it's internal representation of the screen is accurate and attempts to do
-;;; the minimal amount of output to bring the screen into correspondence.
-;;; *screen-image-trashed* is only used by terminal redisplay.
+;;; This function draws every window.  There is no incremental redisplay:
+;;; each window's image is rebuilt from its buffer, and the device draws all
+;;; of it.
 ;;;
 (defun redisplay ()
-  "The main entry into redisplay; updates any windows that seem to need it."
+  "The main entry into redisplay; draws every window."
   (when *things-to-do-once*
     (dolist (thing *things-to-do-once*) (apply (car thing) (cdr thing)))
     (setf *things-to-do-once* nil))
@@ -144,15 +140,7 @@
           ;;
           ;; It's cleared whether we did clear it or there was no method.
           (push device cleared-devices)))))
-  (redisplay-loop
-   #'redisplay-window-all
-   #'(lambda (window)
-       (setf (window-tick window) (tick))
-       (update-window-image window)
-       (maybe-recenter-window window)
-       (device-dumb-redisplay (device-hunk-device (window-hunk window))
-                              window)
-       t)))
+  (redisplay-loop #'redisplay-window #'redisplay-window-recentering))
 
 
 
@@ -177,10 +165,9 @@
 ;;;
 ;;; hemlock-output-stream methods call this to update the screen.  It only
 ;;; redisplays windows which are displaying the buffer concerned and doesn't
-;;; deal with making the cursor track the point.  *screen-image-trashed* is
-;;; only used by terminal redisplay.  This must call the device after-redisplay
-;;; method since stream output may occur without ever returning to the
-;;; Hemlock input/event-handling loop.
+;;; deal with making the cursor track the point.  This must call the device
+;;; after-redisplay method since stream output may occur without ever
+;;; returning to the Hemlock input/event-handling loop.
 ;;;
 (defun redisplay-windows-from-mark (mark)
   (when *things-to-do-once*
@@ -213,29 +200,21 @@
 
 ;;; REDISPLAY-WINDOW -- Internal.
 ;;;
-;;; Return t if there are any changed lines, nil otherwise.
+;;; Rebuild the window's image and draw all of it.  Returns NIL: there is
+;;; nothing left over for another pass.
 ;;;
 (defun redisplay-window (window)
-  "Maybe updates the window's image and calls the device's smart redisplay
-   method.  NOTE: the smart redisplay method may throw to
-   'hi::redisplay-catcher to abort redisplay."
-  (maybe-update-window-image window)
-  (prog1
-      (not (eq (window-first-changed window) the-sentinel))
-    (device-smart-redisplay (device-hunk-device (window-hunk window)) window)))
-
-(defun redisplay-window-all (window)
-  "Updates the window's image and calls the device's dumb redisplay method."
-  (setf (window-tick window) (tick))
+  "Rebuild the window's image and draw it.  NOTE: the device's redisplay
+   method may throw to 'hi::redisplay-catcher to abort redisplay."
   (update-window-image window)
-  (device-dumb-redisplay (device-hunk-device (window-hunk window)) window)
-  t)
+  (device-redisplay (device-hunk-device (window-hunk window)) window)
+  nil)
 
 (defun random-typeout-redisplay (window)
   (catch 'redisplay-catcher
-    (maybe-update-window-image window)
+    (update-window-image window)
     (let* ((device (device-hunk-device (window-hunk window))))
-      (device-smart-redisplay device window)
+      (device-redisplay device window)
       (device-force-output device))))
 
 
@@ -243,23 +222,18 @@
 
 ;;; REDISPLAY-WINDOW-RECENTERING -- Internal.
 ;;;
-;;; This tries to be clever about updating the window image unnecessarily,
-;;; recenters the window if the window's buffer's point moved off the window,
-;;; and does a smart redisplay.  We call the redisplay method even if we didn't
-;;; update the image or recenter because someone else may have modified the
-;;; window's image and already have updated it; if nothing happened, then the
-;;; smart method shouldn't do anything anyway.  NOTE: the smart redisplay
-;;; method may throw to 'hi::redisplay-catcher to abort redisplay.
-;;;
-;;; This return t if there are any changed lines, nil otherwise.
+;;; This recenters the window if its buffer's point moved off it, runs the
+;;; redisplay hook -- whose functions may add font marks, such as the
+;;; highlighting of an open paren -- and draws the window.  NOTE: the
+;;; device's redisplay method may throw to 'hi::redisplay-catcher to abort
+;;; redisplay.
 ;;;
 (defun redisplay-window-recentering (window)
   (setup-for-recentering-redisplay window)
   (invoke-hook hemlock::redisplay-hook window)
   (setup-for-recentering-redisplay window)
-  (prog1
-      (not (eq (window-first-changed window) the-sentinel))
-    (device-smart-redisplay (device-hunk-device (window-hunk window)) window)))
+  (device-redisplay (device-hunk-device (window-hunk window)) window)
+  nil)
 
 (defun setup-for-recentering-redisplay (window)
   (let* ((display-start (window-display-start window))
@@ -271,27 +245,5 @@
                (not (start-line-p display-start))
                (start-line-p old-start))
       (line-start display-start))
-    (maybe-update-window-image window)
-    (maybe-recenter-window window)))
-
-
-;;; MAYBE-UPDATE-WINDOW-IMAGE only updates if the text has changed or the
-;;; display start.
-;;;
-(defun maybe-update-window-image (window)
-  (when (or (> (buffer-modified-tick (window-buffer window))
-               (window-tick window))
-            (mark/= (window-display-start window)
-                    (window-old-start window)))
-    (setf (window-tick window) (tick))
     (update-window-image window)
-    t))
-
-
-;;; prepare-window-for-redisplay  --  Internal
-;;;
-;;;    Called by make-window to do whatever redisplay wants to set up
-;;; a new window.
-;;;
-(defun prepare-window-for-redisplay (window)
-  (setf (window-old-lines window) 0))
+    (maybe-recenter-window window)))

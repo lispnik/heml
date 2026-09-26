@@ -193,17 +193,13 @@
                    (:copier nil)
                    (:print-function %print-hwindow))
   "This structure implements a Hemlock window."
-  tick                          ; The last time this window was updated.
   %buffer                       ; buffer displayed in this window.
   height                        ; Height of window in lines.
   width                         ; Width of the window in characters.
-  old-start                     ; The charpos of the first char displayed.
+  old-start                     ; The display start when the image was built.
   first-line                    ; The head of the list of dis-lines.
   last-line                     ; The last dis-line displayed.
-  first-changed                 ; The first changed dis-line on last update.
-  last-changed                  ; The last changed dis-line.
   spare-lines                   ; The head of the list of unused dis-lines
-  (old-lines 0)                 ; Slot used by display to keep state info
   hunk                          ; The device hunk that displays this window.
   display-start                 ; first character position displayed
   display-end                   ; last character displayed
@@ -296,15 +292,9 @@
   chars                       ; The line-image to be displayed.
   (length 0 :type fixnum)     ; Length of line-image.
   font-changes                ; Font-Change structures for changes in this line.
-  old-chars                   ; Line-Chars of line displayed.
   line                        ; Line displayed.
-  (flags 0 :type fixnum)      ; Bit flags indicate line status.
-  (delta 0 :type fixnum)      ; # lines moved from previous position.
   (position 0 :type fixnum)   ; Line # to be displayed on.
-  (end 0 :type fixnum)        ; Index after last logical character displayed.
-  (tick 0)
-  (tag nil :type (or null tag))
-  (tag-ticks -1 :type fixnum))
+  (end 0 :type fixnum))       ; Index after last logical character displayed.
 
 (defstruct (font-change (:copier nil)
                         (:constructor make-font-change (next)))
@@ -419,11 +409,8 @@
 
 (defgeneric device-exit (device))
 
-(defgeneric device-smart-redisplay (device window)
-  (:documentation "redisplay a window on this device."))
-
-(defgeneric device-dumb-redisplay (device window)
-  (:documentation "fun to redisplay a window on this device."))
+(defgeneric device-redisplay (device window)
+  (:documentation "Draw all of WINDOW's image, and its modeline, on DEVICE."))
 
 (defgeneric device-after-redisplay (device)
   (:documentation "call at the end of redisplay entry points."))
@@ -524,9 +511,7 @@
 
 
 (defclass tty-device (device)
-  ((dumbp :initarg :dumbp :initform nil :accessor tty-device-dumbp)
-                                        ; t if it does not have line insertion and deletion.
-   (lines :initarg :lines :initform nil :accessor tty-device-lines)
+  ((lines :initarg :lines :initform nil :accessor tty-device-lines)
                                         ; number of lines on device.
    (columns :initarg :columns :initform nil :accessor tty-device-columns)
                                         ; number of columns per line.
@@ -539,27 +524,9 @@
    (standout-end :initarg :standout-end :initform nil :accessor tty-device-standout-end)
                                         ; fun to take terminal out of standout mode.
                                         ; args: hunk
-   (clear-lines :initarg :clear-lines :initform nil :accessor tty-device-clear-lines)
-                                        ; fun to clear n lines starting at (x,y).
-                                        ; args: hunk x y n
    (clear-to-eol :initarg :clear-to-eol :initform nil :accessor tty-device-clear-to-eol)
                                         ; fun to clear to the end of a line from (x,y).
                                         ; args: hunk x y
-   (clear-to-eow :initarg :clear-to-eow :initform nil :accessor tty-device-clear-to-eow)
-                                        ; fun to clear to the end of a window from (x,y).
-                                        ; args: hunk x y
-   (open-line :initarg :open-line :initform nil :accessor tty-device-open-line)
-                                        ; fun to open a line moving lines below it down.
-                                        ; args: hunk x y &optional n
-   (delete-line :initarg :delete-line :initform nil :accessor tty-device-delete-line)
-                                        ; fun to delete a line moving lines below it up.
-                                        ; args: hunk x y &optional n
-   (insert-string :initarg :insert-string :initform nil :accessor tty-device-insert-string)
-                                        ; fun to insert a string in the middle of a line.
-                                        ; args: hunk x y string &optional start end
-   (delete-char :initarg :delete-char :initform nil :accessor tty-device-delete-char)
-                                        ; fun to delete a character from the middle of a line.
-                                        ; args: hunk x y &optional n
    (cursor-x :initarg :cursor-x :initform 0 :accessor tty-device-cursor-x) ; column the cursor is in.
    (cursor-y :initarg :cursor-y :initform 0 :accessor tty-device-cursor-y) ; line the cursor is on.
    (standout-init-string :initarg :standout-init-string :initform nil :accessor tty-device-standout-init-string)
@@ -570,25 +537,6 @@
                                         ; string to cause device to clear to eol at (x,y).
    (clear-string :initarg :clear-string :initform nil :accessor tty-device-clear-string)
                                         ; string to cause device to clear entire screen.
-   (open-line-string :initarg :open-line-string :initform nil :accessor tty-device-open-line-string)
-                                        ; string to cause device to open a blank line.
-   (delete-line-string :initarg :delete-line-string :initform nil :accessor tty-device-delete-line-string)
-                                        ; string to cause device to delete a line, moving
-                                        ; lines below it up.
-   (insert-init-string :initarg :insert-init-string :initform nil :accessor tty-device-insert-init-string)
-                                        ; string to put terminal in insert mode.
-   (insert-char-init-string :initarg :insert-char-init-string :initform nil :accessor tty-device-insert-char-init-string)
-                                        ; string to prepare terminal for insert-mode character.
-   (insert-char-end-string :initarg :insert-char-end-string :initform nil :accessor tty-device-insert-char-end-string)
-                                        ; string to affect terminal after insert-mode character.
-   (insert-end-string :initarg :insert-end-string :initform nil :accessor tty-device-insert-end-string)
-                                        ; string to take terminal out of insert mode.
-   (delete-init-string :initarg :delete-init-string :initform nil :accessor tty-device-delete-init-string)
-                                        ; string to put terminal in delete mode.
-   (delete-char-string :initarg :delete-char-string :initform nil :accessor tty-device-delete-char-string)
-                                        ; string to delete a character.
-   (delete-end-string :initarg :delete-end-string :initform nil :accessor tty-device-delete-end-string)
-                                        ; string to take terminal out of delete mode.
    (init-string :initarg :init-string :initform nil :accessor tty-device-init-string)
                                         ; device init string.
    (cm-end-string :initarg :cm-end-string :initform nil :accessor tty-device-cm-end-string)
@@ -613,9 +561,6 @@
                                         ; 0 sends digit-chars.
    (cm-y-pad :initarg :cm-y-pad :initform nil :accessor tty-device-cm-y-pad) ; nil, 0, 2, or 3 for places to pad.
                                         ; 0 sends digit-chars.
-   (screen-image :initarg :screen-image :initform nil :accessor tty-device-screen-image)
-                                        ; vector device-lines long of strings
-                                        ; device-columns long.
    ;;
    ;; This terminal's baud rate, or NIL for infinite.
    (speed :initarg :speed :initform nil :type (or (unsigned-byte 24) null)

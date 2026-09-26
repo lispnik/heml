@@ -64,7 +64,7 @@
 
 ;;;; Output routines and buffering.
 
-(defconstant redisplay-output-buffer-length 256)
+(defconstant redisplay-output-buffer-length 65536)
 
 (defvar *redisplay-output-buffer*
   (make-string redisplay-output-buffer-length))
@@ -75,17 +75,29 @@
 
 ;;; WRITE-AND-MAYBE-WAIT  --  Internal
 ;;;
-;;;    Write the first Count characters in the redisplay output buffer.  If
-;;; *terminal-baud-rate* is set, then sleep for long enough to allow the
-;;; written text to be displayed.  We multiply by 10 to get the baud-per-byte
-;;; conversion, which assumes 7 character bits + 1 start bit + 2 stop bits, no
-;;; parity.
+;;;    Write the first Count characters in the redisplay output buffer to the
+;;; terminal, now.  Not through the connection's write handler: that runs
+;;; from the event loop, and redisplay itself often runs from an event
+;;; handler -- a shell's output redisplays its window -- where dispatching
+;;; events again is not safe.  Every redisplay writes the whole screen, so
+;;; this happens every time.  When the terminal cannot take more, wait until
+;;; it can, without dispatching anything else.
 ;;;
 (defun write-and-maybe-wait (count)
   (declare (fixnum count))
-  (connection-write (subseq *redisplay-output-buffer* 0 count)
-                    *tty-connection*)
-  (dispatch-events-no-hang))
+  (let* ((connection *tty-connection*)
+         (bytes (filter-connection-output
+                 connection (subseq *redisplay-output-buffer* 0 count)))
+         (fd (connection-write-fd connection))
+         (start 0)
+         (end (length bytes)))
+    (cffi-sys:with-pointer-to-vector-data (ptr bytes)
+      (loop while (< start end)
+            do (handler-case
+                   (incf start (isys:write fd (cffi:inc-pointer ptr start)
+                                           (- end start)))
+                 (isys:ewouldblock ()
+                   (iolib.multiplex:wait-until-fd-ready fd :output)))))))
 
 
 ;;; TTY-WRITE-STRING blasts the string into the redisplay output buffer.
@@ -188,21 +200,6 @@
               ;; event handler.
               ))))))
 
-;;; Return the total number of characters in the command list returned
-;;; by 'tputs.
-(defun tty-cmd-length (cmd)
-  (declare (type (or string list) cmd))
-  (etypecase cmd
-    (string
-     (length cmd))
-    (list
-     (let ((len 0))
-       (dolist (string-or-delay cmd)
-         (when (stringp string-or-delay)
-           (incf len (length string-or-delay))))
-       len))))
-
-
 ;;; TTY-FORCE-OUTPUT dumps the redisplay output buffer.  This is called
 ;;; out of terminal device structures in multiple places -- the device
 ;;; exit method, random typeout methods, out of tty-hunk-stream methods,
@@ -242,17 +239,6 @@
   (tty-write-cmd (tty-device-cm-end-string device))
   (device-force-output device)
   (reset-input))
-
-
-;;;; Screen image line hacks.
-
-(defun replace-si-line (dst-string src-string src-start dst-start dst-end)
-;;;   `(%primitive byte-blt ,src-string ,src-start ,dst-string ,dst-start ,dst-end)
-  (replace dst-string
-           src-string
-           :start1 dst-start
-           :end1 dst-end
-           :start2 src-start))
 
 (defvar *old-c-iflag*)
 (defvar *old-c-oflag*)

@@ -417,14 +417,9 @@
   `(load-time-value (ppcre:create-scanner ,regex)))
 
 (defun recompute-line-tag (line)
-  (let* ((prev (line-previous line))
-         (ptag (%line-tag prev))
-         (tag (or (%line-tag line)
-                  (setf (%line-tag line) (make-tag)))))
-    (let ((new-line (1+ (tag-line-number ptag))))
-      (unless (eql (tag-line-number tag) new-line)
-        (incf (tag-ticks tag)))
-      (setf (tag-line-number tag) new-line))
+  (let ((ptag (%line-tag (line-previous line)))
+        (tag (or (%line-tag line)
+                 (setf (%line-tag line) (make-tag)))))
     (setf (tag-syntax-info tag) (recompute-syntax-marks line tag))
     (setf (tag-package tag)
           (or (cl-ppcre:register-groups-bind

@@ -317,8 +317,7 @@
    #:device-init
    #:device-make-window
    #:device-exit
-   #:device-smart-redisplay
-   #:device-dumb-redisplay
+   #:device-redisplay
    #:device-after-redisplay
    #:device-clear
    #:device-note-read-wait
@@ -363,11 +362,8 @@
    #:window-hunk
    #:window-input-handler
    #:window-modeline-buffer
-   #:changed-bit
    #:default-font
    #:dis-line-chars
-   #:dis-line-delta
-   #:dis-line-flags
    #:dis-line-font-changes
    #:dis-line-length
    #:dis-line-position
@@ -383,31 +379,23 @@
    #:hunk-width-limit
    #:line-buffered-p
    #:*more-prompt-action*
-   #:moved-bit
-   #:prepare-window-for-redisplay
    #:random-typeout-redisplay
    #:random-typeout-stream-first-more-p
    #:random-typeout-stream-more-mark
    #:random-typeout-stream-no-prompt
-   #:unaltered-bits
    #:update-tty-line-buffered-stream
    #:wait-for-more
-   #:window-first-changed
    #:window-first-line
-   #:window-last-changed
    #:window-last-line
    #:window-modeline-dis-line
-   #:window-old-lines
    #:dummy-line
    #:setup-modeline-image
    #:tick
-   #:dis-line-old-chars
    #:update-window-image
    #:make-window-dis-line
    #:internal-make-window
    #:maybe-recenter-window
    #:window-modeline-buffer-len
-   #:window-tick
    #:window-spare-lines
    #:maybe-recenter-window
    #:window                             ;as a type

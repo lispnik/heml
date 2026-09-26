@@ -219,8 +219,7 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
       (hi::setup-window-image hi::*parse-starting-mark* echo echo-height width)
       (hi::setup-modeline-image hi::*echo-area-buffer* echo)
       (setf (hi::device-hunk-previous echo-hunk) echo-hunk
-            (hi::device-hunk-next echo-hunk) echo-hunk)
-      (hi::prepare-window-for-redisplay echo))
+            (hi::device-hunk-next echo-hunk) echo-hunk))
     (let* ((main-hunk (make-hunk device main-text-lines main-lines
                                  last-text-line main-text-lines))
            (main (hi::internal-make-window :hunk main-hunk)))
@@ -229,7 +228,6 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
       (hi::setup-window-image (hi::buffer-point hi::*current-buffer*)
                               main main-text-lines width)
       (hi::setup-modeline-image hi::*current-buffer* main)
-      (hi::prepare-window-for-redisplay main)
       (setf (hi::device-hunk-previous main-hunk) main-hunk
             (hi::device-hunk-next main-hunk) main-hunk)
       (setf (hi::device-hunks device) main-hunk))
@@ -279,13 +277,12 @@ run, which carries the modeline's colours, is carried to the edge."
     (store-row screen line text runs)))
 
 (defun render-window (device window)
-  "Copy WINDOW's image into the screen, and tell redisplay it is done."
+  "Copy all of WINDOW's image into the screen."
   (let* ((screen *screen*)
          (hunk (hi::window-hunk window))
          (top (hunk-top-line hunk))
          (height (hunk-text-height hunk))
-         (first (hi::window-first-line window))
-         (count 0))
+         (first (hi::window-first-line window)))
     (with-screen-lock (screen)
       (dotimes (i height)
         (store-row screen (+ top i) "" '()))
@@ -294,26 +291,15 @@ run, which carries the modeline's colours, is carried to the edge."
         (let* ((dis-line (car dl))
                (position (hi::dis-line-position dis-line)))
           (when (< -1 position height)
-            (store-dis-line screen (+ top position) dis-line))
-          (setf (hi::dis-line-flags dis-line) hi::unaltered-bits
-                (hi::dis-line-delta dis-line) 0)
-          (incf count)))
+            (store-dis-line screen (+ top position) dis-line))))
       (when (hi::window-modeline-buffer window)
-        (let ((dis-line (hi::window-modeline-dis-line window)))
-          (store-modeline screen (+ top height) dis-line)
-          (setf (hi::dis-line-flags dis-line) hi::unaltered-bits))))
-    (setf (hi::window-first-changed window) hi::the-sentinel
-          (hi::window-last-changed window) first
-          (hi::window-old-lines window) (1- count)
-          (device-dirty device) t)))
+        (store-modeline screen (+ top height)
+                        (hi::window-modeline-dis-line window))))
+    (setf (device-dirty device) t)))
 
-;;; Copying a window is cheap next to drawing it, and drawing is always the
-;;; whole view, so smart and dumb redisplay are the same thing here.
+;;; The whole window is copied every time, and the view draws all of it.
 ;;;
-(defmethod hi::device-smart-redisplay ((device cocoa-device) window)
-  (render-window device window))
-
-(defmethod hi::device-dumb-redisplay ((device cocoa-device) window)
+(defmethod hi::device-redisplay ((device cocoa-device) window)
   (render-window device window))
 
 (defmethod hi::device-clear ((device cocoa-device))
@@ -403,7 +389,6 @@ run, which carries the modeline's colours, is carried to the edge."
                 (- old-win-new-pos old-text-pos-diff)))
         (hi::setup-window-image start new-window new-lines
                                 (hi::window-width old-window))
-        (hi::prepare-window-for-redisplay new-window)
         (when modelinep
           (hi::setup-modeline-image (hi::line-buffer (hi::mark-line start)) new-window))
         (hi::change-window-image-height old-window old-lines)
@@ -508,8 +493,7 @@ The image is rebuilt by the next redisplay."
   (let ((dis-line (hi::window-modeline-dis-line window)))
     (when (and dis-line (hi::window-modeline-buffer window))
       (setf (hi::dis-line-chars dis-line) (make-string width :initial-element #\Space))
-      (hi::update-modeline-fields (hi::window-buffer window) window)))
-  (setf (hi::window-tick window) -1))
+      (hi::update-modeline-fields (hi::window-buffer window) window))))
 
 (defun resize-screen (device columns lines)
   (let* ((screen *screen*)

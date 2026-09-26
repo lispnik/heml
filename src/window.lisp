@@ -76,24 +76,16 @@
       (move-mark (window-display-start window) (buffer-display-start new-buffer))
       (move-mark (window-display-end window) (buffer-display-start new-buffer)))
     ;;
-    ;; Delete all the dis-lines, and nil out the line and chars so they get
-    ;; gc'ed.
+    ;; Delete all the dis-lines, and nil out the lines so they get gc'ed.
     (let ((first (window-first-line window))
           (last (window-last-line window))
           (free (window-spare-lines window)))
       (unless (eq (cdr first) the-sentinel)
         (shiftf (cdr last) free (cdr first) the-sentinel))
       (dolist (dl free)
-        (setf (dis-line-line dl) nil  (dis-line-old-chars dl) nil))
+        (setf (dis-line-line dl) nil))
       (setf (window-spare-lines window) free))
-    ;;
-    ;; Set the last line and first&last changed so we know there's nothing there.
-    (setf (window-last-line window) the-sentinel
-          (window-first-changed window) the-sentinel
-          (window-last-changed window) the-sentinel)
-    ;;
-    ;; Make sure the window gets updated, and set the buffer.
-    (setf (window-tick window) -3)
+    (setf (window-last-line window) the-sentinel)
     (setf (window-%buffer window) new-buffer)))
 
 
@@ -237,8 +229,7 @@
         (when (< effective-length len)
           (fill (dis-line-chars dis-line) #\space :start effective-length))
         (setf (window-modeline-buffer-len window) len)
-        (setf (dis-line-length dis-line) len)
-        (setf (dis-line-flags dis-line) changed-bit)))))
+        (setf (dis-line-length dis-line) len)))))
 
 ;;; UPDATE-MODELINE-FIELD must replace the entire dis-line-chars with ml-buffer
 ;;; after blt'ing into buffer.  Otherwise it has to do all the work
@@ -266,8 +257,7 @@
         (replace (the simple-string (dis-line-chars dis-line)) ml-buffer
                  :end1 dis-len :end2 dis-len)
         (setf (window-modeline-buffer-len window) ml-buffer-len)
-        (setf (dis-line-length dis-line) dis-len)
-        (setf (dis-line-flags dis-line) changed-bit)))))
+        (setf (dis-line-length dis-line) dis-len)))))
 
 (defvar *truncated-field-char* #\!)
 
@@ -546,10 +536,7 @@
           (window-height window) height
           (window-width window) width
           (window-first-line window) first
-          (window-last-line window) the-sentinel
-          (window-first-changed window) the-sentinel
-          (window-last-changed window) first
-          (window-tick window) -1)
+          (window-last-line window) the-sentinel)
     (push window *window-list*)
     (push window (buffer-windows buffer))
     ;;

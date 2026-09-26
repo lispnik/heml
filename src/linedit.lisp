@@ -84,40 +84,27 @@
 
 (defvar *linedit-redisplay-mode* :full-tty-redisplay)
 
-(flet
-    ((% (device window call-next-method)
-       (ecase *linedit-redisplay-mode*
-         (:full-tty-redisplay
-          (ensure-in-cm-mode device)
-          (funcall call-next-method))
-         (:partial-tty-redisplay
-          ;; This is conceptually the reverse of linedit redisplay.
-          ;; Instead of only displaying the linedit buffer, we display
-          ;; everything _except_ for the linedit buffer.
-          (ensure-in-cm-mode device)
-          (cond
-            ((eq (window-buffer window) (hbuf device))
-             (let ((hunk (window-hunk window)))
-               (let ((y (hi::tty-hunk-modeline-pos hunk)))
-                 (funcall (tty-device-clear-to-eol device) hunk 0 y)
-                 (device-write-string
-                  (make-string (tty-device-columns device)
-                               :initial-element #\space)))
-               (mark-window-display-as-done window)))
-            (t (funcall call-next-method))))
-         ((:no-redisplay :linedit-redisplay)
-          (dumb-linedit-redisplay device window)))))
-  (defmethod device-dumb-redisplay ((device linedit-device) window)
-    (% device window #'call-next-method))
-  (defmethod device-smart-redisplay ((device linedit-device) window)
-    (% device window #'call-next-method)))
-
-(defun mark-window-display-as-done (window)
-  (let* ((first (window-first-line window))
-         ;; (hunk (window-hunk window))
-         #+nil (device (device-hunk-device hunk)))
-    (setf (window-first-changed window) the-sentinel
-          (window-last-changed window) first)))
+(defmethod device-redisplay ((device linedit-device) window)
+  (ecase *linedit-redisplay-mode*
+    (:full-tty-redisplay
+     (ensure-in-cm-mode device)
+     (call-next-method))
+    (:partial-tty-redisplay
+     ;; This is conceptually the reverse of linedit redisplay.
+     ;; Instead of only displaying the linedit buffer, we display
+     ;; everything _except_ for the linedit buffer.
+     (ensure-in-cm-mode device)
+     (cond
+       ((eq (window-buffer window) (hbuf device))
+        (let* ((hunk (window-hunk window))
+               (y (hi::tty-hunk-modeline-pos hunk)))
+          (funcall (tty-device-clear-to-eol device) hunk 0 y)
+          (device-write-string
+           (make-string (tty-device-columns device)
+                        :initial-element #\space))))
+       (t (call-next-method))))
+    ((:no-redisplay :linedit-redisplay)
+     (dumb-linedit-redisplay device window))))
 
 ;; no smarts yet
 (defun dumb-linedit-redisplay (device window)
@@ -148,11 +135,7 @@
                               (summing (1+ (line-length line)))
                               (setf line (line-previous line)))
                             0))))
-          :fonts (compute-linedit-font-marks buffer (editor-prompt device)))))))
-
-  ;; tell the redisplay algorithm that we did our job, otherwise it
-  ;; retries forever:
-  (mark-window-display-as-done window))
+          :fonts (compute-linedit-font-marks buffer (editor-prompt device))))))))
 
 (iter::defclause-driver (for var in-buffer-lines buffer)
   "Lines of a buffer"

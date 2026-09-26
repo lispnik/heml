@@ -59,8 +59,7 @@
       (setup-window-image *parse-starting-mark* echo echo-height width)
       (setup-modeline-image *echo-area-buffer* echo)
       (setf (device-hunk-previous echo-hunk) echo-hunk
-            (device-hunk-next echo-hunk) echo-hunk)
-      (prepare-window-for-redisplay echo))
+            (device-hunk-next echo-hunk) echo-hunk))
     ;;
     ;; Make the main window.
     (let* ((main-hunk (make-tty-hunk :position main-text-lines
@@ -74,7 +73,6 @@
       (setup-window-image (buffer-point *current-buffer*)
                           main main-text-lines width)
       (setup-modeline-image *current-buffer* main)
-      (prepare-window-for-redisplay main)
       (setf (device-hunk-previous main-hunk) main-hunk
             (device-hunk-next main-hunk) main-hunk)
       (setf (device-hunks device) main-hunk))
@@ -101,11 +99,6 @@
     (when (termcap :overstrikes)
       (error "Terminal sufficiently irritating -- not currently supported."))
     ;;
-    ;; A few useful values.
-    (setf (tty-device-dumbp device)
-          (not (and (termcap :open-line)
-                    (termcap :delete-line))))
-    ;;
     ;; Get size and speed.
     (multiple-value-bind  (lines cols speed)
                           (get-terminal-attributes)
@@ -122,49 +115,10 @@
               #'display-string))
     (setf (tty-device-standout-init device) #'standout-init)
     (setf (tty-device-standout-end device) #'standout-end)
-    (setf (tty-device-open-line device)
-          (if (termcap :open-line)
-              #'open-tty-line
-              ;; look for scrolling region stuff
-              ))
-    (setf (tty-device-delete-line device)
-          (if (termcap :delete-line)
-              #'delete-tty-line
-              ;; look for reverse scrolling stuff
-              ))
     (setf (tty-device-clear-to-eol device)
           (if (termcap :clear-to-eol)
               #'clear-to-eol
               #'space-to-eol))
-    (setf (tty-device-clear-lines device) #'clear-lines)
-    (setf (tty-device-clear-to-eow device) #'clear-to-eow)
-    ;;
-    ;; Insert and delete modes.
-    (let ((init-insert-mode (termcap :init-insert-mode))
-          (init-insert-char (termcap :init-insert-char))
-          (end-insert-char (termcap :end-insert-char)))
-      (when (and init-insert-mode (string/= init-insert-mode ""))
-        (setf (tty-device-insert-string device) #'tty-insert-string)
-        (setf (tty-device-insert-init-string device)
-              (hemlock.terminfo:tputs init-insert-mode))
-        (setf (tty-device-insert-end-string device)
-              (termcap :end-insert-mode)))
-      (when init-insert-char
-        (setf (tty-device-insert-string device) #'tty-insert-string)
-        (setf (tty-device-insert-char-init-string device)
-              (hemlock.terminfo:tputs init-insert-char)))
-      (when (and end-insert-char (string/= end-insert-char ""))
-        (setf (tty-device-insert-char-end-string device)
-              (hemlock.terminfo:tputs end-insert-char))))
-    (let ((delete-char (termcap :delete-char)))
-      (when delete-char
-        (setf (tty-device-delete-char device) #'delete-char)
-        (setf (tty-device-delete-char-string device)
-              (hemlock.terminfo:tputs delete-char))
-        (setf (tty-device-delete-init-string device)
-              (hemlock.terminfo:tputs (termcap :init-delete-mode)))
-        (setf (tty-device-delete-end-string device)
-              (hemlock.terminfo:tputs (termcap :end-delete-mode)))))
     ;;
     ;; Some string slots.
     (setf (tty-device-standout-init-string device)
@@ -177,10 +131,6 @@
       (unless clear-string
         (error "Terminal not sufficiently powerful enough to run Hemlock."))
       (setf (tty-device-clear-string device) (hemlock.terminfo:tputs clear-string)))
-    (setf (tty-device-open-line-string device)
-          (hemlock.terminfo:tputs (termcap :open-line)))
-    (setf (tty-device-delete-line-string device)
-          (hemlock.terminfo:tputs (termcap :delete-line)))
     (let* ((init-string (termcap :init-string))
            (init-file (termcap :init-file))
            (init-file-string (if init-file (get-init-file-string init-file)))
@@ -199,18 +149,7 @@
                         (or (termcap :end-cursor-motion) "")
                         ;; Exit transmit-mode.
                         hemlock.terminfo:keypad-local)))
-    ;;
-    ;; Screen image initialization.
-    (set-up-screen-image device)
     device))
-
-(defun set-up-screen-image (device)
-  (let* ((lines (tty-device-lines device))
-         (columns (tty-device-columns device))
-         (screen-image (make-array lines)))
-    (dotimes (i lines)
-      (setf (svref screen-image i) (make-si-line columns)))
-    (setf (tty-device-screen-image device) screen-image)))
 
 
 ;;;; Making a window
@@ -248,7 +187,6 @@
                 (- old-win-new-pos old-text-pos-diff)))
         (setup-window-image start new-window new-lines
                             (window-width old-window))
-        (prepare-window-for-redisplay new-window)
         (when modelinep
           (setup-modeline-image (line-buffer (mark-line start)) new-window))
         (change-window-image-height old-window old-lines)
@@ -300,7 +238,6 @@
 
 (defmethod enlarge-device
     ((device tty-device) offset)
-  (set-up-screen-image device)
   (let ((first (device-hunks device)))
     (incf (device-hunk-position first) offset)
     (incf (tty-hunk-text-position first) offset)
@@ -360,80 +297,6 @@
 
 
 
-;;;; Random typeout support
-
-#+(or)
-(defun tty-random-typeout-setup (device stream height)
-  (declare (fixnum height))
-  (let* ((*more-prompt-action* :empty)
-         (height (min (1- (device-bottom-window-base device)) height))
-         (old-hwindow (random-typeout-stream-window stream))
-         (new-hwindow (if old-hwindow
-                          (change-tty-random-typeout-window old-hwindow height)
-                          (setf (random-typeout-stream-window stream)
-                                (make-tty-random-typeout-window
-                                 device
-                                 (buffer-start-mark
-                                  (line-buffer
-                                   (mark-line
-                                    (random-typeout-stream-mark stream))))
-                                 height)))))
-    (funcall (tty-device-clear-to-eow device) (window-hunk new-hwindow) 0 0)))
-
-#+(or)
-(defun change-tty-random-typeout-window (window height)
-  (update-modeline-field (window-buffer window) window :more-prompt)
-  (let* ((height-1 (1- height))
-         (hunk (window-hunk window)))
-    (setf (device-hunk-position hunk) height-1
-          (device-hunk-height hunk) height
-          (tty-hunk-text-position hunk) (1- height-1)
-          (tty-hunk-text-height hunk) height-1)
-    (change-window-image-height window height-1)
-    window))
-
-#+(or)
-(defun make-tty-random-typeout-window (device mark height)
-  (let* ((height-1 (1- height))
-         (hunk (make-tty-hunk :position height-1
-                              :height height
-                              :text-position (1- height-1)
-                              :text-height height-1
-                              :device device))
-         (window (internal-make-window :hunk hunk)))
-    (setf (device-hunk-window hunk) window)
-    (setf (device-hunk-device hunk) device)
-    (setup-window-image mark window height-1 (tty-device-columns device))
-    (setf *window-list* (delete window *window-list*))
-    (prepare-window-for-redisplay window)
-    (setup-modeline-image (line-buffer (mark-line mark)) window)
-    (update-modeline-field (window-buffer window) window :more-prompt)
-    window))
-
-#+(or)
-(defun tty-random-typeout-cleanup (stream degree)
-  (declare (ignore degree))
-  (let* ((window (random-typeout-stream-window stream))
-         (stream-hunk (window-hunk window))
-         (last-line-affected (device-hunk-position stream-hunk))
-         (device (device-hunk-device stream-hunk))
-         (*more-prompt-action* :normal))
-    (declare (fixnum last-line-affected))
-    (update-modeline-field (window-buffer window) window :more-prompt)
-    (funcall (tty-device-clear-to-eow device) stream-hunk 0 0)
-    (do* ((hunk (device-hunks device) (device-hunk-next hunk))
-          (window (device-hunk-window hunk) (device-hunk-window hunk))
-          (last (device-hunk-previous hunk)))
-         ((>= (device-hunk-position hunk) last-line-affected)
-          (if (= (device-hunk-position hunk) last-line-affected)
-              (redisplay-window-all window)
-              (tty-redisplay-n-lines window
-                                     (- (+ last-line-affected
-                                           (tty-hunk-text-height hunk))
-                                        (tty-hunk-text-position hunk)))))
-      (redisplay-window-all window)
-      (when (eq hunk last) (return)))))
-
 ;;;; from rompsite.lisp
 
 (defmethod device-show-mark ((device tty-device) window x y time)
