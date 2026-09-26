@@ -440,45 +440,6 @@
     (setf string (format nil "~A[~A" (char string 0) (subseq string 2))))
   (setf (gethash (string string) *tty-translations*) keysym))
 
-(defun translate-tty-event (data)
-  (let* ((string (coerce data 'string))
-         (sym (gethash string *tty-translations*)))
-    (if sym
-        (etypecase sym
-          (hemlock-ext:key-event sym)
-          (t (hemlock-ext:make-key-event sym 0)))
-        (when (= 1 (length string))
-          (hemlock-ext:char-key-event (char string 0))))))
-
-(defun tty-key-event (data)
-  (loop with start = 0
-        with length = (length data)
-        while (< start length)
-        do (loop for end from length downto (1+ start)
-                 do (let ((event (translate-tty-event (subseq data start end))))
-                      (when event
-                        (q-event *real-editor-input* event)
-                        (setf start end)
-                        (return)))))
-  #+nil
-  (iter:iter (iter:for char in-vector data)
-             (let ((sym
-                    (cond
-                      ((eql char #\newline) ;### hmm
-                       (hemlock-ext:key-event-keysym #k"Return"))
-                      ((eql char #\tab) ;### hmm
-                       (hemlock-ext:key-event-keysym #k"Tab"))
-                      ((eql char #\Backspace)
-                       (hemlock-ext:key-event-keysym #k"Backspace"))
-                      ((eql char #\Escape)
-                       (hemlock-ext:key-event-keysym #k"Escape"))
-                      ((eql char #\rubout)
-                       (hemlock-ext:key-event-keysym #k"delete")))))
-               (q-event *real-editor-input*
-                        (if sym
-                            (hemlock-ext:make-key-event sym 0)
-                            (hemlock-ext:char-key-event char))))))
-
 #||
 ;;; GET-EDITOR-TTY-INPUT reads from stream's Unix file descriptor queuing events
 ;;; in the stream's queue.
