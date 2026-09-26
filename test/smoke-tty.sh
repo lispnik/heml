@@ -85,10 +85,55 @@ type_text 'echo tty-$((6*7))'
 send Enter
 expect 'tty-42' "a shell runs in a buffer" 15
 
+# C-v is the terminal's literal-next character unless the editor turns it
+# off, and then it is swallowed rather than scrolling.
+type_text 'seq -f row-%03g 1 200'
+send Enter
+expect 'row-200' "a shell's output is shown" 15
+send 'M-<'
+sleep 1
+send C-v
+expect 'row-030' "C-v scrolls a page"
+
 send C-x C-c
 sleep 1
 send n
 expect 'EDITOR-RETURNED' "C-x C-c leaves the editor" 15
+
+# The :mini backend: HEMLOCK:REPL, a REPL whose lines are edited by Hemlock
+# where they stand rather than on a screen of their own.
+tmux kill-session -t "$session" 2>/dev/null
+session=xoamax-smoke-repl-$$
+tmux new-session -d -s "$session" -x 100 -y 30 \
+     "$LISP $quiet \
+        --eval '(asdf:load-system :hemlock.tty)' \
+        --eval '(uiop:symbol-call :hemlock :repl)'; \
+      echo REPL-EXITED; sleep 30"
+
+expect 'CL-USER>' "hemlock:repl prompts" 180
+
+type_text '(format nil "repl-~A" (* 6 7))'
+send Enter
+expect 'repl-42' "hemlock:repl evaluates what is typed"
+
+send C-p
+sleep 1
+checks=$((checks + 1))
+if [ "$(screen | grep -c 'format nil')" -ge 2 ]; then
+    echo "  ok    C-p recalls the last line"
+else
+    echo "  FAIL  C-p recalls the last line"
+    failures=$((failures + 1))
+fi
+
+send C-a C-k
+type_text '(defun'
+send Enter
+expect 'Not a complete form' "an unfinished form is not read"
+
+send C-a C-k
+send C-d
+expect 'REPL-EXITED' "C-d on an empty line leaves the REPL" 15
 
 echo "$checks checks, $failures failed"
 [ "$failures" -eq 0 ]

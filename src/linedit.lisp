@@ -182,7 +182,7 @@
                                         nil)))
                        (incf offset (1+ (line-length line)))))))
 
-(defmethod device-init ((device tty-device))
+(defmethod device-init ((device linedit-device))
   (setup-input)
   ;; similar to ordinary tty initialization, but without init-cm-string:
   (let* ((init-string (termcap :init-string))

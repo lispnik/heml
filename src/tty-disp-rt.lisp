@@ -279,7 +279,11 @@
                           (when (boundp 'osicat-posix::cflag-vdsusp)
                             (ccref osicat-posix::cflag-vdsusp))
                           (ccref osicat-posix::cflag-vmin)
-                          (ccref osicat-posix::cflag-vtime)))
+                          (ccref osicat-posix::cflag-vtime)
+                          (ccref osicat-posix::cflag-vlnext)
+                          (ccref osicat-posix::cflag-vdiscard)
+                          (when (boundp 'osicat-posix::cflag-vstatus)
+                            (ccref osicat-posix::cflag-vstatus))))
             (setf osicat-posix::lflag
                   (logandc2 osicat-posix::lflag
                             (logior osicat-posix::tty-echo
@@ -306,6 +310,14 @@
               ;; Default VDSUSP is C-y; it causes SIGTSTP on BSD-heritage
               ;; systems -- but may be undefined elsewhere.
               (setf (ccref osicat-posix::cflag-vdsusp) osicat-posix::posix-vdisable))
+            ;; IEXTEN stays on, so its characters work even out of
+            ;; canonical mode: C-v would quote the next key, C-o discard
+            ;; output, and C-t (on BSD) print a status line.  All three are
+            ;; editor keys.
+            (setf (ccref osicat-posix::cflag-vlnext) osicat-posix::posix-vdisable)
+            (setf (ccref osicat-posix::cflag-vdiscard) osicat-posix::posix-vdisable)
+            (when (boundp 'osicat-posix::cflag-vstatus)
+              (setf (ccref osicat-posix::cflag-vstatus) osicat-posix::posix-vdisable))
             (setf (ccref osicat-posix::cflag-vmin) 1)
             (setf (ccref osicat-posix::cflag-vtime) 0))
           (osicat-posix::tcsetattr fd osicat-posix::tcsaflush tios))))))
@@ -406,7 +418,7 @@
           (setf osicat-posix::lflag *old-c-lflag*)
           (macrolet ((ccref (slot)
                        `(cffi:mem-ref osicat-posix::cc :uint8 ,slot)))
-            (assert (= (length *old-c-cc*) 11))
+            (assert (= (length *old-c-cc*) 14))
             (setf (ccref osicat-posix::cflag-vsusp) (elt *old-c-cc* 0)
                   (ccref osicat-posix::cflag-veof) (elt *old-c-cc* 1)
                   (ccref osicat-posix::cflag-verase) (elt *old-c-cc* 2)
@@ -418,7 +430,11 @@
             (when (boundp 'osicat-posix::cflag-vdsusp)
               (setf (ccref osicat-posix::cflag-vdsusp) (elt *old-c-cc* 8)))
             (setf (ccref osicat-posix::cflag-vmin) (elt *old-c-cc* 9)
-                  (ccref osicat-posix::cflag-vtime) (elt *old-c-cc* 10)))
+                  (ccref osicat-posix::cflag-vtime) (elt *old-c-cc* 10)
+                  (ccref osicat-posix::cflag-vlnext) (elt *old-c-cc* 11)
+                  (ccref osicat-posix::cflag-vdiscard) (elt *old-c-cc* 12))
+            (when (boundp 'osicat-posix::cflag-vstatus)
+              (setf (ccref osicat-posix::cflag-vstatus) (elt *old-c-cc* 13))))
           (osicat-posix::tcsetattr fd osicat-posix::tcsaflush tios))))))
 
 #+(or)
