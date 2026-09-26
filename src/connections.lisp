@@ -15,6 +15,10 @@
 (defun dispatch-events-no-hang ()
   (dispatch-events-no-hang-with-backend *connection-backend*))
 
+(defun dispatch-events-for (seconds)
+  "Dispatch events, waiting at most SECONDS for one to arrive."
+  (dispatch-events-for-with-backend *connection-backend* seconds))
+
 
 ;;;;
 ;;;; CONNECTION

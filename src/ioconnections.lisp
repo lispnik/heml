@@ -31,6 +31,14 @@
                             :min-step 0)
     ((or isys:etimedout isys:ewouldblock) ())))
 
+(defmethod dispatch-events-for-with-backend ((backend (eql :iolib)) seconds)
+  (handler-case
+      (iolib:event-dispatch *event-base*
+                            :one-shot t
+                            :timeout seconds
+                            :min-step 0)
+    ((or isys:etimedout isys:ewouldblock) ())))
+
 (defmethod invoke-later ((backend (eql :iolib)) fun)
   (iolib.multiplex:add-timer *event-base* fun 0 :one-shot t))
 

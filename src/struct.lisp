@@ -412,6 +412,15 @@
 (defgeneric device-redisplay (device window)
   (:documentation "Draw all of WINDOW's image, and its modeline, on DEVICE."))
 
+(defgeneric device-begin-redisplay (device)
+  (:documentation "Called before a redisplay draws anything on DEVICE.")
+  (:method (device) (declare (ignore device)) nil))
+
+(defgeneric device-end-redisplay (device)
+  (:documentation "Called when a redisplay has finished drawing on DEVICE,
+   including when it was cut short.")
+  (:method (device) (declare (ignore device)) nil))
+
 (defgeneric device-after-redisplay (device)
   (:documentation "call at the end of redisplay entry points."))
 

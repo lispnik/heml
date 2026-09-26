@@ -26,6 +26,31 @@
   "This variable is set to true if the screen has been trashed by some screen
    manager operation, and so should be cleared before it is drawn again.")
 
+;;; The internal real time at which the screen was last drawn.
+;;;
+(defvar *last-redisplay-time* 0)
+
+(defvar *redisplay-interval* 1/60
+  "The shortest time, in seconds, between the redisplays that events such as
+   output cause.  A flood of output is drawn at most this often, and a
+   keystroke waits at most this long to be drawn.")
+
+(defun time-since-redisplay ()
+  "The seconds since the screen was last drawn."
+  (/ (- (get-internal-real-time) *last-redisplay-time*)
+     internal-time-units-per-second))
+
+;;; WITH-DEVICE-REDISPLAY brackets one pass of redisplay on Device, so that
+;;; the device can present it all at once, and notes when it was drawn.
+;;;
+(defmacro with-device-redisplay ((device) &body body)
+  (let ((d (gensym "DEVICE")))
+    `(let ((,d ,device))
+       (device-begin-redisplay ,d)
+       (unwind-protect (progn ,@body)
+         (device-end-redisplay ,d)
+         (setf *last-redisplay-time* (get-internal-real-time))))))
+
 ;;; True if we are in redisplay, and thus don't want to enter it recursively.
 ;;;
 (defvar *in-redisplay* nil)
@@ -70,37 +95,38 @@
     (catch 'redisplay-catcher
       (when (listen-editor-input *real-editor-input*)
         (throw 'redisplay-catcher :editor-input))
-      (let ((win *current-window*))
-        (when (funcall special-fun win)
-          (setf n-res t)))
-      (dolist (win *window-list*)
-        (unless (eq win *current-window*)
-          (when (listen-editor-input *real-editor-input*)
-            (throw 'redisplay-catcher :editor-input))
-          (when (funcall (if (window-display-recentering win)
-                             special-fun
-                             general-fun)
-                         win)
-            (setf n-res t))))
-      (let* ((hunk (window-hunk *current-window*))
-             (device (device-hunk-device hunk))
-             (point (window-point *current-window*)))
-        (move-mark point (buffer-point (window-buffer *current-window*)))
-        (multiple-value-bind (x y)
-                             (mark-to-cursorpos point *current-window*)
-          (if x
-              (device-put-cursor device hunk x y)
-              (setf n-res t)))
-        (device-force-output device)
-        (when afterp
-          (device-after-redisplay device)
-          ;; The after method may have queued input that the input
-          ;; loop won't see until the next input arrives, so check
-          ;; here to return the correct value as per the redisplay
-          ;; contract.
-          (when (listen-editor-input *real-editor-input*)
-            (setf n-res :editor-input)))
-        n-res))))
+      (with-device-redisplay ((device-hunk-device (window-hunk *current-window*)))
+        (let ((win *current-window*))
+          (when (funcall special-fun win)
+            (setf n-res t)))
+        (dolist (win *window-list*)
+          (unless (eq win *current-window*)
+            (when (listen-editor-input *real-editor-input*)
+              (throw 'redisplay-catcher :editor-input))
+            (when (funcall (if (window-display-recentering win)
+                               special-fun
+                               general-fun)
+                           win)
+              (setf n-res t))))
+        (let* ((hunk (window-hunk *current-window*))
+               (device (device-hunk-device hunk))
+               (point (window-point *current-window*)))
+          (move-mark point (buffer-point (window-buffer *current-window*)))
+          (multiple-value-bind (x y)
+                               (mark-to-cursorpos point *current-window*)
+            (if x
+                (device-put-cursor device hunk x y)
+                (setf n-res t)))
+          (device-force-output device)
+          (when afterp
+            (device-after-redisplay device)
+            ;; The after method may have queued input that the input
+            ;; loop won't see until the next input arrives, so check
+            ;; here to return the correct value as per the redisplay
+            ;; contract.
+            (when (listen-editor-input *real-editor-input*)
+              (setf n-res :editor-input)))
+          n-res)))))
 
 ;;; REDISPLAY -- Public.
 ;;;
@@ -169,11 +195,17 @@
 ;;; after-redisplay method since stream output may occur without ever
 ;;; returning to the Hemlock input/event-handling loop.
 ;;;
-(defun redisplay-windows-from-mark (mark)
+;;; When Throttlep, as it is for ordinary output, nothing is drawn if the
+;;; screen was drawn less than *redisplay-interval* ago: the next output, or
+;;; the input loop once it gets control back, draws it.  FINISH-OUTPUT and
+;;; FORCE-OUTPUT draw at once.
+;;;
+(defun redisplay-windows-from-mark (mark &optional throttlep)
   (when *things-to-do-once*
     (dolist (thing *things-to-do-once*) (apply (car thing) (cdr thing)))
     (setf *things-to-do-once* nil))
   (cond ((or *in-redisplay* (not *in-the-editor*)) t)
+        ((and throttlep (< (time-since-redisplay) *redisplay-interval*)) t)
         ((listen-editor-input *editor-input*) :editor-input)
         (*screen-image-trashed*
          (when (eq (redisplay-all) t)
@@ -184,19 +216,21 @@
            (catch 'redisplay-catcher
              (let ((buffer (line-buffer (mark-line mark))))
                (when buffer
-                 (flet ((frob (win)
-                          (let* ((device (device-hunk-device
-                                          (window-hunk win))))
-                            (device-force-output device)
-                            (device-after-redisplay device))))
-                   (let ((windows (buffer-windows buffer)))
-                     (when (member *current-window* windows :test #'eq)
-                       (redisplay-window-recentering *current-window*)
-                       (frob *current-window*))
-                     (dolist (window windows)
-                       (unless (eq window *current-window*)
-                         (redisplay-window window)
-                         (frob window))))))))))))
+                 (with-device-redisplay ((device-hunk-device
+                                          (window-hunk *current-window*)))
+                   (flet ((frob (win)
+                            (let* ((device (device-hunk-device
+                                            (window-hunk win))))
+                              (device-force-output device)
+                              (device-after-redisplay device))))
+                     (let ((windows (buffer-windows buffer)))
+                       (when (member *current-window* windows :test #'eq)
+                         (redisplay-window-recentering *current-window*)
+                         (frob *current-window*))
+                       (dolist (window windows)
+                         (unless (eq window *current-window*)
+                           (redisplay-window window)
+                           (frob window)))))))))))))
 
 ;;; REDISPLAY-WINDOW -- Internal.
 ;;;
@@ -212,10 +246,11 @@
 
 (defun random-typeout-redisplay (window)
   (catch 'redisplay-catcher
-    (update-window-image window)
-    (let* ((device (device-hunk-device (window-hunk window))))
-      (device-redisplay device window)
-      (device-force-output device))))
+    (let ((device (device-hunk-device (window-hunk window))))
+      (with-device-redisplay (device)
+        (update-window-image window)
+        (device-redisplay device window)
+        (device-force-output device)))))
 
 
 ;;;; Support for redisplay entry points.

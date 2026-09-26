@@ -318,6 +318,8 @@
    #:device-make-window
    #:device-exit
    #:device-redisplay
+   #:device-begin-redisplay
+   #:device-end-redisplay
    #:device-after-redisplay
    #:device-clear
    #:device-note-read-wait

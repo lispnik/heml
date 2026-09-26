@@ -114,12 +114,12 @@
 (defun hemlock-output-unbuffered-out (stream character)
   (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
     (insert-character mark character)
-    (redisplay-windows-from-mark mark)))
+    (redisplay-windows-from-mark mark t)))
 
 (defun hemlock-output-unbuffered-sout (stream string start end)
   (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
     (insert-string mark string start end)
-    (redisplay-windows-from-mark mark)))
+    (redisplay-windows-from-mark mark t)))
 
 (defun hemlock-output-buffered-out (stream character)
   (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
@@ -133,14 +133,14 @@
   (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
     (insert-character mark character)
     (when (char= character #\newline)
-      (redisplay-windows-from-mark mark))))
+      (redisplay-windows-from-mark mark t))))
 
 (defun hemlock-output-line-buffered-sout (stream string start end)
   (declare (simple-string string))
   (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
     (insert-string mark string start end)
     (when (find #\newline string :start start :end end)
-      (redisplay-windows-from-mark mark))))
+      (redisplay-windows-from-mark mark t))))
 
 (defmethod stream-finish-output ((stream hemlock-output-stream))
   (redisplay-windows-from-mark (hemlock-output-stream-mark stream)))

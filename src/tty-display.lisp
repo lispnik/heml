@@ -96,6 +96,46 @@
     (when (< length (tty-device-columns device))
       (funcall (tty-device-clear-to-eol device) hunk length y))))
 
+;;; Each pass of redisplay is bracketed so that the terminal shows it at
+;;; once: synchronized output (DEC private mode 2026) holds the old frame
+;;; until the end, on the terminals that have it, and others ignore the
+;;; request.  The cursor is hidden meanwhile, so that it does not show on
+;;; every row as they are written.  Where hiding it is DECTCEM, as it almost
+;;; always is, it is shown again with DECTCEM alone: terminfo's cnorm often
+;;; does more, such as xterm's turning off a blinking cursor, which would
+;;; happen on every redisplay.
+;;;
+(defvar *tty-synchronized-output* t
+  "When true, each redisplay asks the terminal to show it all at once.")
+
+(defparameter +begin-synchronized-update+
+  (format nil "~C[?2026h" (code-char 27)))
+
+(defparameter +end-synchronized-update+
+  (format nil "~C[?2026l" (code-char 27)))
+
+(defparameter +hide-cursor+ (format nil "~C[?25l" (code-char 27)))
+(defparameter +show-cursor+ (format nil "~C[?25h" (code-char 27)))
+
+(defun show-cursor-string ()
+  (let ((civis hemlock.terminfo:cursor-invisible))
+    (cond ((null civis) nil)
+          ((equal civis +hide-cursor+) +show-cursor+)
+          (t (hemlock.terminfo:tputs hemlock.terminfo:cursor-normal)))))
+
+(defmethod device-begin-redisplay ((device tty-device))
+  (when *tty-synchronized-output*
+    (tty-write-cmd +begin-synchronized-update+))
+  (when hemlock.terminfo:cursor-invisible
+    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-invisible))))
+
+(defmethod device-end-redisplay ((device tty-device))
+  (let ((show (show-cursor-string)))
+    (when show (tty-write-cmd show)))
+  (when *tty-synchronized-output*
+    (tty-write-cmd +end-synchronized-update+))
+  (device-force-output device))
+
 (defmethod device-redisplay ((device tty-device) window)
   (maybe-resize-tty-device device)
   (let ((hunk (window-hunk window))

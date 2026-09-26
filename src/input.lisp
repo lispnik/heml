@@ -189,7 +189,7 @@
   "This keeps us from undefined nasties like re-entering Hemlock stream
    input methods from input hooks and scheduled events.")
 
-(declaim (special *screen-image-trashed*))
+(declaim (special *screen-image-trashed* *redisplay-interval*))
 
 ;;; These are the characters GET-KEY-EVENT notices when it pays attention
 ;;; to aborting input.  This happens via EDITOR-INPUT-METHOD-MACRO.
@@ -226,17 +226,23 @@
        (dolist (f (variable-value 'hemlock::input-hook)) (funcall f))
        (return))
      (invoke-scheduled-events)
-     (unless (internal-redisplay)
-       (device-note-read-wait device t)
-       (let ((wait (and (not
-                         ;; Let's be extra careful here and prepare
-                         ;; for the case where key events have been
-                         ;; seen in the mean time, in which case we
-                         ;; must not wait here:
-                         (listen-editor-input editor-input))
-                        (next-scheduled-event-wait))))
-         (when wait
-           (dispatch-events)))))
+     (cond
+       ((and (< (time-since-redisplay) *redisplay-interval*)
+             (not (listen-editor-input editor-input)))
+        ;; Drawn a moment ago.  Let more events in first, so that a flood
+        ;; of output is drawn at most *redisplay-interval* apart.
+        (dispatch-events-for (- *redisplay-interval* (time-since-redisplay))))
+       ((not (internal-redisplay))
+        (device-note-read-wait device t)
+        (let ((wait (and (not
+                          ;; Let's be extra careful here and prepare
+                          ;; for the case where key events have been
+                          ;; seen in the mean time, in which case we
+                          ;; must not wait here:
+                          (listen-editor-input editor-input))
+                         (next-scheduled-event-wait))))
+          (when wait
+            (dispatch-events))))))
     (device-note-read-wait device nil)
     (when (and (abort-key-event-p key-event)
                ;; ignore-abort-attempts-p must exist outside the macro.
