@@ -28,6 +28,11 @@ smoke-tty-ecl:
 	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
 	LISP=ecl test/smoke-tty.sh
 
+# A video of the TTY editor: build/demo/xoamax-tty.mp4 and .gif.  Needs vhs.
+demo:
+	@mkdir -p build/demo
+	vhs scripts/demo/xoamax-tty.tape
+
 # --- the bundle --------------------------------------------------------------
 #
 #   make app                          ad hoc: runs here, cannot be notarised
@@ -192,5 +197,5 @@ clean:
 
 FORCE:
 
-.PHONY: FORCE deps run smoke smoke-tty smoke-tty-ecl app run-app install-app \
+.PHONY: FORCE deps run smoke smoke-tty smoke-tty-ecl demo app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean
