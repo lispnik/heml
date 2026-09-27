@@ -1,12 +1,22 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(proclaim '(optimize (safety 3) (speed 0) (debug 3)))
-
 (defpackage #:hemlock-system
   (:use #:cl)
   (:export #:*hemlock-base-directory*))
 
 (in-package #:hemlock-system)
+
+;;; The policy every Hemlock file is compiled with.  It is proclaimed just
+;;; before each file is compiled, as the :AROUND-COMPILE of hemlock.base,
+;;; hemlock.tty and hemlock.cocoa: proclaimed once, here, it would not last
+;;; on SBCL, whose LOAD restores the policy after the .asd, and on ECL a
+;;; dependency's own declaims would replace it as its fasl loaded.
+;;;
+(defparameter *hemlock-policy* '(optimize (safety 3) (speed 0) (debug 3)))
+
+(defun call-with-hemlock-policy (thunk)
+  (proclaim *hemlock-policy*)
+  (funcall thunk))
 
 (defvar *modern-hemlock* nil)
 (setf *modern-hemlock* t)
@@ -47,6 +57,7 @@
                  :defaults *hemlock-base-directory*))
 
 (asdf:defsystem :hemlock.base
+     :around-compile "hemlock-system::call-with-hemlock-policy"
      :pathname #.(make-pathname
                         :directory
                         (pathname-directory *hemlock-base-directory*)
@@ -230,8 +241,6 @@
                (:file "bindings")
                (:file "slave-list")))
      ;; The iolib event loop and connections, which every backend uses.
-     ;; Loaded last: it declaims (speed 2), which stays in effect for
-     ;; whatever is compiled after it.
      (:module io
               :pathname #.(merge-pathnames
                            (make-pathname
