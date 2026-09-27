@@ -48,7 +48,7 @@ ECL notes:
 
 `ioconnections.lisp` (the iolib event loop and connections) is the last module of `hemlock.base`. On SBCL it compiles at `(speed 2)`, from its own `declaim`.
 
-All sources live flat in `src/`. Module membership and load order are defined only in the `.asd` files. When you add a file, register it in the right module. `core-2` is `:serial t`, so position matters there. Every Hemlock file compiles with `(optimize (safety 3) (speed 0) (debug 3))`. `hemlock.base.asd`'s `call-with-hemlock-policy` proclaims it before each file, as the `:around-compile` of all three systems. A single `proclaim` wouldn't last: SBCL's `load` restores the policy after the `.asd`, and on ECL a dependency's `declaim`s replace it.
+All sources live flat in `src/`. Module membership and load order are defined only in the `.asd` files. When you add a file, register it in the right module. `core-2` is `:serial t`, so position matters there.
 
 **Layers within `hemlock.base`.**
 - `core-1`/`core-2`: the text model (`line`, `htext1-4`, `buffer`, `ring`), Hemlock variables (`vars`), the command interpreter (`interp`), `syntax`, search, and the redisplay model (`window`, `winimage`, `linimage`, `screen`, `display`, `cursor`). It also holds `connections.lisp` and `rompsite.lisp`, which are the event-loop and I/O abstractions.

@@ -6,18 +6,6 @@
 
 (in-package #:hemlock-system)
 
-;;; The policy every Hemlock file is compiled with.  It is proclaimed just
-;;; before each file is compiled, as the :AROUND-COMPILE of hemlock.base,
-;;; hemlock.tty and hemlock.cocoa: proclaimed once, here, it would not last
-;;; on SBCL, whose LOAD restores the policy after the .asd, and on ECL a
-;;; dependency's own declaims would replace it as its fasl loaded.
-;;;
-(defparameter *hemlock-policy* '(optimize (safety 3) (speed 0) (debug 3)))
-
-(defun call-with-hemlock-policy (thunk)
-  (proclaim *hemlock-policy*)
-  (funcall thunk))
-
 (defvar *modern-hemlock* nil)
 (setf *modern-hemlock* t)
 
@@ -57,7 +45,6 @@
                  :defaults *hemlock-base-directory*))
 
 (asdf:defsystem :hemlock.base
-     :around-compile "hemlock-system::call-with-hemlock-policy"
      :pathname #.(make-pathname
                         :directory
                         (pathname-directory *hemlock-base-directory*)

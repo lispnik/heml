@@ -8,7 +8,6 @@
                  :defaults (parse-namestring *load-truename*)))
 
 (asdf:defsystem :hemlock.cocoa
-     :around-compile "hemlock-system::call-with-hemlock-policy"
      :pathname #.(make-pathname
                         :directory
                         (pathname-directory *hemlock-base-directory*)
