@@ -116,6 +116,7 @@
                (:file "winimage")
                (:file "window")
                (:file "screen")
+               (:file "layout")
                (:file "linimage")
                (:file "cursor")
                (:file "display")

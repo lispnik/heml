@@ -76,6 +76,28 @@ else
 fi
 send C-x 1
 
+# Side by side: two modelines on one line, with the bar between them.
+send C-x 3
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'Hemlock CL-USER:.*|Hemlock CL-USER:'; then
+    echo "  ok    C-x 3 splits the window side by side"
+else
+    echo "  FAIL  C-x 3 splits the window side by side"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+send C-x 0
+sleep 1
+checks=$((checks + 1))
+if [ "$(screen | grep -c 'Hemlock CL-USER:')" -eq 1 ] && ! screen | grep -q '|Hemlock'; then
+    echo "  ok    C-x 0 leaves one window across the screen"
+else
+    echo "  FAIL  C-x 0 leaves one window across the screen"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+
 send M-x
 expect 'Extended Command:' "Meta (ESC) prefixes: M-x prompts"
 type_text 'Shell'

@@ -1223,6 +1223,18 @@
     (unless new (editor-error "Could not make a new window."))
     (setf (current-window) new)))
 
+(defcommand "Split Window Horizontally" (p)
+  "Make a new window beside the current one, on its right, by splitting it.
+   The new window is made the current window and displays starting at the
+   same place as the current window."
+  "Create a new window beside the current one, which displays starting at
+   the same place as the current window."
+  (declare (ignore p))
+  (let ((new (make-window (window-display-start (current-window))
+                          :direction :columns)))
+    (unless new (editor-error "Could not make a new window."))
+    (setf (current-window) new)))
+
 (defun hi::enlarge-window (window offset)
   "offset in lines.  Can be negative."
   (hi::device-enlarge-window (device-hunk-device (window-hunk window))
@@ -1232,6 +1244,22 @@
 (defcommand "Enlarge Window" (p)
   "" ""
   (hi::enlarge-window (current-window) (or p 1)))
+
+(defun enlarge-window-horizontally (offset)
+  (let ((hunk (window-hunk (current-window))))
+    (hi::layout-enlarge-hunk (device-hunk-device hunk) hunk offset :columns)))
+
+(defcommand "Enlarge Window Horizontally" (p)
+  "Make the current window P columns wider, one by default, taking them
+   from the window beside it."
+  "Make the current window P columns wider."
+  (enlarge-window-horizontally (or p 1)))
+
+(defcommand "Shrink Window Horizontally" (p)
+  "Make the current window P columns narrower, one by default, giving them
+   to the window beside it."
+  "Make the current window P columns narrower."
+  (enlarge-window-horizontally (- (or p 1))))
 
 (defcommand "New Window" (p)
   "Make a new window and go to it.

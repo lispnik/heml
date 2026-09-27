@@ -461,6 +461,15 @@ that makes every character advance exactly one cell."
             do (let ((character (char string i)))
                  (cond ((char= character hi::wide-character-filler)
                         (incf i))
+                       ;; The bar between windows side by side: a line the
+                       ;; full height of the cell, which a glyph is not.
+                       ((char= character #\│)
+                        (fill-rect (foreground-color display)
+                                   (+ (cell-x display i)
+                                      (floor (display-char-width display) 2))
+                                   (cell-y display line)
+                                   1 (display-char-height display))
+                        (incf i))
                        ((< (char-code character) 128)
                         (let ((j (or (position-if (lambda (c) (>= (char-code c) 128))
                                                   string :start i :end end)
@@ -1118,6 +1127,7 @@ exists of those Hemlock loads, or the first of them to create."
      ("Default Size" (:font-size nil) :key "0")
      :separator
      ("Split Window" (:command "Split Window"))
+     ("Split Window Side by Side" (:command "Split Window Horizontally"))
      ("Next Window" (:command "Next Window"))
      ("Delete Window" (:command "Delete Window"))
      ("Delete Next Window" (:command "Delete Next Window"))

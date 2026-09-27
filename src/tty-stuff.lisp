@@ -2,15 +2,12 @@
 
 (in-package :hi)
 
-;;; Terminal hunks.
+;;; Terminal hunks.  Their geometry is DEVICE-HUNK's, set by layout.lisp.
 ;;;
-(defclass tty-hunk (device-hunk)
-  ((text-position :initarg :text-position
-                  :accessor tty-hunk-text-position)
-   (text-height :initarg :text-height
-                :accessor tty-hunk-text-height)))
+(defclass tty-hunk (device-hunk) ())
 
-(defun make-tty-hunk (&rest args
-                      &key position height text-position text-height device)
-  (declare (ignore position height text-position text-height device))
-  (apply #'make-instance 'tty-hunk args))
+(defun make-tty-hunk (&rest initargs)
+  (apply #'make-instance 'tty-hunk initargs))
+
+(defmethod device-make-hunk ((device tty-device))
+  (make-tty-hunk :device device))

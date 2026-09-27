@@ -302,6 +302,41 @@ café λ 日本語 end")
   (settle)
   (check "View > Delete Window deletes one"
          (= 1 (length (hi::buffer-windows (hi::current-buffer)))))
+
+  (note "side by side")
+  (choose-menu-item "View" "Split Window Side by Side")
+  (settle)
+  (let* ((hunks (sort (mapcar #'hi::window-hunk (hi::buffer-windows (hi::current-buffer)))
+                      #'< :key #'hi::device-hunk-column))
+         (left (first hunks))
+         (right (second hunks)))
+    (check "View > Split Window Side by Side puts two windows side by side"
+           (and (= 2 (length hunks))
+                (= (hi::device-hunk-position left) (hi::device-hunk-position right))
+                (= (hi::device-hunk-column right)
+                   (+ 1 (hi::device-hunk-column left) (hi::device-hunk-width left)))))
+    (check "a bar divides them"
+           (let ((text (hemlock.cocoa::row-text
+                        (svref (hemlock.cocoa::screen-rows hemlock.cocoa::*screen*) 0))))
+             (char= #\│ (char text (hi::device-hunk-width left)))))
+    (shot "side-by-side")
+    (mouse :down 2 0) (mouse :up 2 0)
+    (settle)
+    (check "a click in the left window goes to it"
+           (eq (hi::window-hunk hi::*current-window*) left))
+    (let ((column (+ 3 (hi::device-hunk-column right))))
+      (mouse :down column 0) (mouse :up column 0))
+    (settle)
+    (check "a click in the right window lands where it is in that window"
+           (and (eq (hi::window-hunk hi::*current-window*) right)
+                (= (point-column) 3))))
+  (choose-menu-item "View" "Delete Window")
+  (settle)
+  (check "deleting one of them leaves one window across the screen"
+         (let ((windows (hi::buffer-windows (hi::current-buffer))))
+           (and (= 1 (length windows))
+                (= (hi::device-hunk-width (hi::window-hunk (first windows)))
+                   (hemlock.cocoa::screen-columns hemlock.cocoa::*screen*)))))
   (press-menu #\b)
   (settle)
   (check "Cmd-B prompts for a buffer" (eq hi::*current-window* hi::*echo-area-window*))

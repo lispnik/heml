@@ -52,7 +52,8 @@
     ;; Make echo area.
     (let* ((echo-hunk (make-tty-hunk :position (1- height) :height echo-height
                                      :text-position (- height 2)
-                                     :text-height echo-height :device device))
+                                     :text-height echo-height :device device
+                                     :width width))
            (echo (internal-make-window :hunk echo-hunk)))
       (setf *echo-area-window* echo)
       (setf (device-hunk-window echo-hunk) echo)
@@ -61,21 +62,15 @@
       (setf (device-hunk-previous echo-hunk) echo-hunk
             (device-hunk-next echo-hunk) echo-hunk))
     ;;
-    ;; Make the main window.
-    (let* ((main-hunk (make-tty-hunk :position main-text-lines
-                                     :height main-lines
-                                     :text-position last-text-line
-                                     :text-height main-text-lines
-                                     :device device))
-           (main (internal-make-window :hunk main-hunk)))
-      (setf (device-hunk-window main-hunk) main)
-      (setf *current-window* main)
-      (setup-window-image (buffer-point *current-buffer*)
-                          main main-text-lines width)
-      (setup-modeline-image *current-buffer* main)
-      (setf (device-hunk-previous main-hunk) main-hunk
-            (device-hunk-next main-hunk) main-hunk)
-      (setf (device-hunks device) main-hunk))
+    ;; Make the main window, the whole of the layout.
+    (let ((main-hunk (make-tty-hunk :device device)))
+      (init-layout device main-hunk 0 0 main-lines width)
+      (let ((main (internal-make-window :hunk main-hunk)))
+        (setf (device-hunk-window main-hunk) main)
+        (setf *current-window* main)
+        (setup-window-image (buffer-point *current-buffer*)
+                            main (device-hunk-text-height main-hunk) width)
+        (setup-modeline-image *current-buffer* main)))
     (defhvar "Paren Pause Period"
       "This is how long commands that deal with \"brackets\" shows the cursor at
       the matching \"bracket\" for this number of seconds."
@@ -150,148 +145,6 @@
                         ;; Exit transmit-mode.
                         hemlock.terminfo:keypad-local)))
     device))
-
-
-;;;; Making a window
-
-(defmethod device-make-window ((device tty-device) start modelinep proportion)
-  (let* ((old-window (current-window))
-         (victim (window-hunk old-window))
-         (text-height (tty-hunk-text-height victim))
-         (availability (if modelinep (1- text-height) text-height)))
-    (when (> availability 1)
-      (let* ((new-lines (truncate (* availability proportion)))
-             (old-lines (- availability new-lines))
-             (pos (device-hunk-position victim))
-             (new-height (if modelinep (1+ new-lines) new-lines))
-             (new-text-pos (if modelinep (1- pos) pos))
-             (new-hunk (make-tty-hunk :position pos
-                                      :height new-height
-                                      :text-position new-text-pos
-                                      :text-height new-lines
-                                      :device device))
-             (new-window (internal-make-window :hunk new-hunk)))
-        (declare (fixnum new-lines old-lines pos new-height new-text-pos))
-        (setf (device-hunk-window new-hunk) new-window)
-        (let* ((old-text-pos-diff (- pos (tty-hunk-text-position victim)))
-               (old-win-new-pos (- pos new-height)))
-          (declare (fixnum old-text-pos-diff old-win-new-pos))
-          (setf (device-hunk-height victim)
-                (- (device-hunk-height victim) new-height))
-          (setf (tty-hunk-text-height victim) old-lines)
-          (setf (device-hunk-position victim) old-win-new-pos)
-          (setf (tty-hunk-text-position victim)
-                (- old-win-new-pos old-text-pos-diff)))
-        (setup-window-image start new-window new-lines
-                            (window-width old-window))
-        (when modelinep
-          (setup-modeline-image (line-buffer (mark-line start)) new-window))
-        (change-window-image-height old-window old-lines)
-        (shiftf (device-hunk-previous new-hunk)
-                (device-hunk-previous (device-hunk-next victim))
-                new-hunk)
-        (shiftf (device-hunk-next new-hunk) (device-hunk-next victim) new-hunk)
-        (setf *currently-selected-hunk* nil)
-        (setf *screen-image-trashed* t)
-        new-window))))
-
-
-
-;;;; Changing window size
-
-(defmethod device-enlarge-window ((device tty-device) window offset)
-  (let* ((hunk (window-hunk window))
-         (victim
-          (cond
-            ((eq hunk (device-hunks (device-hunk-device hunk)))
-             ;; we're the first hunk
-             (let ((victim (device-hunk-next hunk)))
-               (when (eq hunk victim)
-                 ;; ... the first and only hunk
-                 (editor-error "Cannot enlarge only window"))
-               ;; move the victim down
-               (incf (device-hunk-position hunk) offset)
-               (incf (tty-hunk-text-position hunk) offset)
-               victim))
-            (t
-             ;; we're not first hunk, so there is a victim in front of us
-             ;; move us up
-             (let ((victim (device-hunk-previous hunk)))
-               (decf (device-hunk-position victim) offset)
-               (decf (tty-hunk-text-position victim) offset)
-               victim)))))
-    ;; bump up our height
-    (incf (device-hunk-height hunk) offset)
-    (incf (tty-hunk-text-height hunk) offset)
-    ;; make the victim smaller
-    (decf (device-hunk-height victim) offset)
-    (decf (tty-hunk-text-height victim) offset)
-    ;; housekeeping
-    (let ((w (device-hunk-window victim)))
-      (change-window-image-height w (- offset (window-height w))))
-    (let ((w (device-hunk-window hunk)))
-      (change-window-image-height w (+ offset (window-height w))))
-    (setf *screen-image-trashed* t)))
-
-(defmethod enlarge-device
-    ((device tty-device) offset)
-  (let ((first (device-hunks device)))
-    (incf (device-hunk-position first) offset)
-    (incf (tty-hunk-text-position first) offset)
-    (incf (device-hunk-height first) offset)
-    (incf (tty-hunk-text-height first) offset)
-    (let ((w (device-hunk-window first)))
-      (change-window-image-height w (+ offset (window-height w))))
-    (do ((hunk (device-hunk-next first) (device-hunk-next hunk)))
-        ((eq hunk first))
-      (incf (device-hunk-position hunk) offset)
-      (incf (tty-hunk-text-position hunk) offset))
-    (let ((hunk (window-hunk *echo-area-window*)))
-      (incf (device-hunk-position hunk) offset)
-      (incf (tty-hunk-text-position hunk) offset))
-    (setf *screen-image-trashed* t)))
-
-
-;;;; Deleting a window
-
-(defmethod device-delete-window ((device tty-device) window)
-  (let* ((hunk (window-hunk window))
-         (prev (device-hunk-previous hunk))
-         (next (device-hunk-next hunk))
-         (device (device-hunk-device hunk)))
-    (setf (device-hunk-next prev) next)
-    (setf (device-hunk-previous next) prev)
-    (let ((buffer (window-buffer window)))
-      (setf (buffer-windows buffer) (delq window (buffer-windows buffer))))
-    (let ((new-lines (device-hunk-height hunk)))
-      (declare (fixnum new-lines))
-      (cond ((eq hunk (device-hunks (device-hunk-device next)))
-             (incf (device-hunk-height next) new-lines)
-             (incf (tty-hunk-text-height next) new-lines)
-             (let ((w (device-hunk-window next)))
-               (change-window-image-height w (+ new-lines (window-height w)))))
-            (t
-             (incf (device-hunk-height prev) new-lines)
-             (incf (device-hunk-position prev) new-lines)
-             (incf (tty-hunk-text-height prev) new-lines)
-             (incf (tty-hunk-text-position prev) new-lines)
-             (let ((w (device-hunk-window prev)))
-               (change-window-image-height w (+ new-lines (window-height w)))))))
-    (when (eq hunk (device-hunks device))
-      (setf (device-hunks device) next)))
-  (setf *currently-selected-hunk* nil)
-  (setf *screen-image-trashed* t))
-
-
-
-;;;; Next and Previous window operations.
-
-(defmethod device-next-window ((device tty-device) window)
-  (device-hunk-window (device-hunk-next (window-hunk window))))
-
-(defmethod device-previous-window ((device tty-device) window)
-  (device-hunk-window (device-hunk-previous (window-hunk window))))
-
 
 
 ;;;; from rompsite.lisp

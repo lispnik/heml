@@ -404,9 +404,13 @@
 (defgeneric device-init (device)
   (:documentation "called whenever going into the editor."))
 
-(defgeneric device-make-window (device start modelinep proportion)
+(defgeneric device-make-window (device start modelinep proportion direction)
   (:documentation "Make a window displaying from START by splitting the
-   current window, PROPORTION of it going to the new one."))
+   current window, PROPORTION of it going to the new one: below it when
+   DIRECTION is :ROWS, beside it when :COLUMNS."))
+
+(defgeneric device-make-hunk (device)
+  (:documentation "A new hunk of DEVICE's class of hunk, not yet placed."))
 
 (defgeneric device-exit (device))
 
@@ -485,7 +489,12 @@
     :initarg :hunks
     :initform nil
     :accessor device-hunks
-    :documentation "list of hunks on the screen.") ))
+    :documentation "list of hunks on the screen.")
+   (layout
+    :initarg :layout
+    :initform nil
+    :accessor device-layout
+    :documentation "How the windows tile the screen; see layout.lisp.")))
 
 ;; These seem to have default do-nothing methods ...
 
@@ -620,7 +629,32 @@
     :initarg :device
     :initform nil
     :accessor device-hunk-device
-    :documentation "Display device hunk is on."))
+    :documentation "Display device hunk is on.")
+   (text-position
+    :initarg :text-position
+    :initform nil
+    :accessor device-hunk-text-position
+    :documentation "Line of the hunk's last line of text.")
+   (text-height
+    :initarg :text-height
+    :initform nil
+    :accessor device-hunk-text-height
+    :documentation "Lines of text in the hunk, not counting its modeline.")
+   (column
+    :initarg :column
+    :initform 0
+    :accessor device-hunk-column
+    :documentation "Column of the hunk's left edge.")
+   (width
+    :initarg :width
+    :initform nil
+    :accessor device-hunk-width
+    :documentation "Columns the hunk is wide.")
+   (modelinep
+    :initarg :modelinep
+    :initform t
+    :accessor device-hunk-modelinep
+    :documentation "Whether the hunk's bottom line is a modeline."))
   (:documentation
    "This structure is used internally by Hemlock's screen management system."))
 

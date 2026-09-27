@@ -42,7 +42,8 @@
 
 ;;;; Window operations.
 
-(defun make-window (start &key (modelinep t) (device nil) (proportion .5))
+(defun make-window (start &key (modelinep t) (device nil) (proportion .5)
+                               (direction :rows))
   "Make a window that displays text starting at the mark start.  The default
    action is to make the new window a proportion of the current window's height
    to make room for the new window.
@@ -52,13 +53,16 @@
    after accommodating the new one.  The default is to split the current window
    in half.
 
+   Direction is :ROWS for the new window to go below the current one, and
+   :COLUMNS for it to go beside it, on the right.
+
    Modelinep specifies whether the window should display buffer modelines.
 
    Device is the Hemlock device to make the window on.  If it is nil, then
    the window is made on the same device as CURRENT-WINDOW."
 
   (let* ((device (or device (device-hunk-device (window-hunk (current-window)))))
-         (window (device-make-window device start modelinep proportion)))
+         (window (device-make-window device start modelinep proportion direction)))
     (unless window (editor-error "Could not make a window."))
     (invoke-hook hemlock::make-window-hook window)
     window))

@@ -569,3 +569,24 @@
         ((minusp i))
       (push (make-window-dis-line (make-string width)) res))
     (setf (window-spare-lines window) res)))
+
+;;; change-window-image-width  --  Internal
+;;;
+;;;    Give Window dis-lines Width characters wide, and a modeline to match.
+;;; The image is rebuilt by the next redisplay.
+;;;
+(defun change-window-image-width (window width)
+  (unless (eq (cdr (window-first-line window)) the-sentinel)
+    (shiftf (cdr (window-last-line window))
+            (window-spare-lines window)
+            (cdr (window-first-line window))
+            the-sentinel))
+  (setf (window-spare-lines window)
+        (loop repeat (max (length (window-spare-lines window))
+                          (* 2 (window-height window)))
+              collect (make-window-dis-line (make-string width))))
+  (setf (window-width window) width)
+  (let ((dis-line (window-modeline-dis-line window)))
+    (when (and dis-line (window-modeline-buffer window))
+      (setf (dis-line-chars dis-line) (make-string width :initial-element #\Space))
+      (update-modeline-fields (window-buffer window) window))))

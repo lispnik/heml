@@ -20,24 +20,19 @@
 ;;;; Macros.
 
 (defmacro tty-hunk-modeline-pos (hunk)
-  `(tty-hunk-text-height ,hunk))
+  `(device-hunk-text-height ,hunk))
 
+;;; The screen line of HUNK's first line of text.
+;;;
+(defun hunk-top-line (hunk)
+  (1+ (- (device-hunk-text-position hunk) (device-hunk-text-height hunk))))
 
-(defvar *currently-selected-hunk* nil)
-(defvar *hunk-top-line*)
-
-(declaim (fixnum *hunk-top-line*))
-
-(defmacro select-hunk (hunk)
-  `(unless (eq ,hunk *currently-selected-hunk*)
-     (setf *currently-selected-hunk* ,hunk)
-     (setf *hunk-top-line*
-           (the fixnum
-                (1+ (the fixnum
-                         (- (the fixnum
-                                 (tty-hunk-text-position ,hunk))
-                            (the fixnum
-                                 (tty-hunk-text-height ,hunk)))))))))
+;;; Whether HUNK reaches the right edge of the screen, rather than having a
+;;; window beside it.
+;;;
+(defun rightmost-hunk-p (device hunk)
+  (>= (+ (device-hunk-column hunk) (device-hunk-width hunk))
+      (tty-device-columns device)))
 
 
 
@@ -70,15 +65,12 @@
 (defun maybe-resize-tty-device (device)
   (multiple-value-bind (lines cols)
       (hi::get-terminal-attributes)
-    (let ((delta (- lines (tty-device-lines device)))
-          #+nil (cols (if hemlock.terminfo:auto-right-margin
-                    (1- cols)
-                    cols)))
-      (unless (and (zerop delta)
-                   #+nil (eql (tty-device-columns device) cols))
-        (setf (tty-device-lines device) lines)
-        #+nil (setf (tty-device-columns device) cols)
-        (enlarge-device device delta)))))
+    (let ((cols (if hemlock.terminfo:auto-right-margin (1- cols) cols)))
+      (unless (and (eql lines (tty-device-lines device))
+                   (eql cols (tty-device-columns device)))
+        (setf (tty-device-lines device) lines
+              (tty-device-columns device) cols)
+        (resize-device-layout device lines cols)))))
 
 
 ;;;; Redisplay.
@@ -88,13 +80,37 @@
 ;;; terminal shows exactly the window's image whatever it showed before.
 ;;; Nothing is cleared first, which is what keeps it from flickering.
 
+;;; The rest of a row of HUNK, from X, made blank.  Clearing to the end of
+;;; the line would clear a window beside it too, so that is only for a hunk
+;;; at the right edge; others are written over with spaces.
+;;;
+(defun tty-blank-to-edge (device hunk x y)
+  (let ((width (device-hunk-width hunk)))
+    (when (< x width)
+      (if (rightmost-hunk-p device hunk)
+          (funcall (tty-device-clear-to-eol device) hunk x y)
+          (let ((blanks (- width x)))
+            (update-cursor hunk x y)
+            (device-write-string (make-string blanks :initial-element #\Space))
+            (incf (tty-device-cursor-x device) blanks))))))
+
 (defun tty-write-dis-line (device hunk dis-line y)
-  (let ((length (dis-line-length dis-line)))
+  (let ((length (min (dis-line-length dis-line) (device-hunk-width hunk))))
     (funcall (tty-device-display-string device)
              hunk 0 y (dis-line-chars dis-line) (compute-font-usages dis-line)
              0 length)
-    (when (< length (tty-device-columns device))
-      (funcall (tty-device-clear-to-eol device) hunk length y))))
+    (tty-blank-to-edge device hunk length y)))
+
+;;; The column after a hunk that has a window beside it belongs to neither,
+;;; and has a bar down the hunk's lines, its modeline's included.
+;;;
+(defun tty-write-separator (device hunk)
+  (unless (rightmost-hunk-p device hunk)
+    (let ((x (device-hunk-width hunk)))
+      (dotimes (y (device-hunk-height hunk))
+        (update-cursor hunk x y)
+        (device-write-string "|")
+        (incf (tty-device-cursor-x device))))))
 
 ;;; Each pass of redisplay is bracketed so that the terminal shows it at
 ;;; once: synchronized output (DEC private mode 2026) holds the old frame
@@ -146,10 +162,11 @@
              (tty-write-dis-line device hunk (car dl) y)
              (setf dl (cdr dl)))
             (t
-             (funcall (tty-device-clear-to-eol device) hunk 0 y))))
+             (tty-blank-to-edge device hunk 0 y))))
     (when (window-modeline-buffer window)
       (tty-write-dis-line device hunk (window-modeline-dis-line window)
-                          (tty-hunk-modeline-pos hunk)))))
+                          (tty-hunk-modeline-pos hunk)))
+    (tty-write-separator device hunk)))
 
 
 
@@ -178,10 +195,10 @@
 ;;;
 (defmethod device-put-cursor ((device tty-device) hunk x y)
   (declare (fixnum x y))
-  (select-hunk hunk)
-  (let ((y (the fixnum (+ *hunk-top-line* y)))
+  (let ((x (+ (device-hunk-column hunk) x))
+        (y (+ (hunk-top-line hunk) y))
         (device (device-hunk-device hunk)))
-    (declare (fixnum y))
+    (declare (fixnum x y))
     (unless (and (= (the fixnum (tty-device-cursor-x device)) x)
                  (= (the fixnum (tty-device-cursor-y device)) y))
       (cursor-motion device x y)
@@ -333,7 +350,7 @@
     (when (< posn end)
       (device-write-string string posn end)))
   (setf (tty-device-cursor-x (device-hunk-device hunk))
-        (the fixnum (+ x (the fixnum (- end start))))))
+        (+ (device-hunk-column hunk) x (- end start))))
 
 ;;; DISPLAY-STRING-CHECKING-UNDERLINES is used for terminals that special
 ;;; case underlines doing an overstrike when they don't otherwise overstrike.
@@ -359,8 +376,8 @@
                                          (char/= (schar string i) #\_)) i)
                                   (declare (fixnum i))))
                 (let ((ulen (the fixnum (- after-pos upos)))
-                      (cursor-x (the fixnum (+ x (the fixnum
-                                                      (- after-pos start))))))
+                      (cursor-x (+ (device-hunk-column hunk) x
+                                   (- after-pos start))))
                   (declare (fixnum ulen))
                   (dotimes (i ulen) (tty-write-char #\space))
                   (setf (tty-device-cursor-x device) cursor-x)
@@ -375,7 +392,7 @@
                   (return))))
         (device-write-string string start end))
     (setf (tty-device-cursor-x device)
-          (the fixnum (+ x (the fixnum (- end start)))))))
+          (+ (device-hunk-column hunk) x (- end start)))))
 
 
 ;;; DEVICE-WRITE-STRING is used to shove a string at the terminal regardless
@@ -406,9 +423,9 @@
   (declare (fixnum x))
   (update-cursor hunk x y)
   (let* ((device (device-hunk-device hunk))
-         (num (- (the fixnum (tty-device-columns device))
-                 x)))
-    (declare (fixnum num))
+         (x (+ (device-hunk-column hunk) x))
+         (num (- (tty-device-columns device) x)))
+    (declare (fixnum x num))
     (dotimes (i num) (tty-write-char #\space))
     (setf (tty-device-cursor-x device) (+ x num))))
 
