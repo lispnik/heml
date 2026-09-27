@@ -230,8 +230,11 @@
        ((and (< (time-since-redisplay) *redisplay-interval*)
              (not (listen-editor-input editor-input)))
         ;; Drawn a moment ago.  Let more events in first, so that a flood
-        ;; of output is drawn at most *redisplay-interval* apart.
-        (dispatch-events-for (- *redisplay-interval* (time-since-redisplay))))
+        ;; of output is drawn at most *redisplay-interval* apart.  The
+        ;; clock has moved on since it was read, so what is left of the
+        ;; interval may be nothing.
+        (dispatch-events-for
+         (max 0 (- *redisplay-interval* (time-since-redisplay)))))
        ((not (internal-redisplay))
         (device-note-read-wait device t)
         (let ((wait (and (not

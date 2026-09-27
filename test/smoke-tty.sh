@@ -98,6 +98,20 @@ else
     failures=$((failures + 1))
 fi
 
+# Visiting a file: its name is in the modeline.  (On ECL a namestring is
+# not a simple string, and the modeline once refused it.)  A file that does
+# not exist yet is a new one.
+send C-x C-f
+sleep 0.5
+type_text "$PWD/README.org"
+send Enter
+expect 'README.org' "C-x C-f visits a file"
+send C-x C-f
+sleep 0.5
+type_text "$PWD/build/smoke-tty-new-file.txt"
+send Enter
+expect '(New File)' "C-x C-f on a new name starts a new file"
+
 send M-x
 expect 'Extended Command:' "Meta (ESC) prefixes: M-x prompts"
 type_text 'Shell'

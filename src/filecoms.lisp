@@ -382,7 +382,8 @@
              (case kind
                (:directory
                 (dired-guts nil nil trial-pathname))
-               (:regular-file
+               ;; NIL is a file that does not exist yet: a new file.
+               ((:regular-file nil)
                 (let* ((name (pathname-to-buffer-name trial-pathname))
                        (found (getstring name *buffer-names*))
                        (use (if found

@@ -411,7 +411,7 @@
   (declare (ignore window))
   (let ((pn (buffer-pathname buffer)))
     (if pn
-        (let* ((name (namestring pn))
+        (let* ((name (coerce (namestring pn) 'simple-string)) ; not on ECL
                (length (length name))
                ;; Prefer a buffer local value over the global one.
                ;; Because variables don't work right, blow off looking for
