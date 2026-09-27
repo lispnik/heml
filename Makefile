@@ -31,7 +31,20 @@ smoke-tty-ecl:
 # A video of the TTY editor: build/demo/xoamax-tty.mp4 and .gif.  Needs vhs.
 demo:
 	@mkdir -p build/demo
+	$(LISP) --eval '(asdf:load-system :hemlock.tty)'
+	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
 	vhs scripts/demo/xoamax-tty.tape
+
+# A video of the Cocoa editor: build/demo/xoamax-cocoa.mp4.  Needs ffmpeg.
+demo-cocoa:
+	@mkdir -p build/demo
+	$(LISP) --load scripts/demo/cocoa.lisp
+	ffmpeg -v error -y -framerate 10 -i build/demo/cocoa-frames/%05d.png \
+	  -c:v libx264 -pix_fmt yuv420p build/demo/xoamax-cocoa.mp4
+
+# Both, after title cards: build/demo/xoamax.mp4.
+demo-full: demo demo-cocoa
+	scripts/demo/combine.sh
 
 # --- the bundle --------------------------------------------------------------
 #
@@ -197,5 +210,5 @@ clean:
 
 FORCE:
 
-.PHONY: FORCE deps run smoke smoke-tty smoke-tty-ecl demo app run-app install-app \
+.PHONY: FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean

@@ -3,7 +3,8 @@
 ;;;; Run from the top of the tree.  The files the demo edits are made in
 ;;;; build/demo/files/.
 
-(asdf:load-system :hemlock.tty)
+(handler-bind ((warning #'muffle-warning))
+  (asdf:load-system :hemlock.tty))
 
 (defparameter *files* (merge-pathnames "build/demo/files/" (uiop:getcwd)))
 (ensure-directories-exist *files*)
@@ -18,6 +19,10 @@
 ;; An empty file to type into: visiting at startup needs it to exist.
 (with-open-file (s (merge-pathnames "fib.lisp" *files*) :direction :output
                    :if-exists :supersede :if-does-not-exist :create))
+
+;; A clear screen, which is what comes back when the editor leaves.
+(format t "~C[2J~C[H" (code-char 27) (code-char 27))
+(finish-output)
 
 (hemlock:hemlock (merge-pathnames "fib.lisp" *files*)
                  :backend-type :tty :load-user-init nil)
