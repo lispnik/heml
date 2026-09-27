@@ -874,13 +874,15 @@ empty string."
                        (editor-error
                         "Invalid buffer found, resetting.")))
                  (editor-error (c)
-                   (handler-case
-                       (format *terminal-io* "~&~A~%" c)
-                     (error (d)
-                       (format *terminal-io*
-                               "~&error ~A while printing error ~A~%"
-                               (type-of d)
-                               (type-of c))))
+                   ;; On a line of its own.  *TERMINAL-IO* would not do:
+                   ;; it does not know the cursor is after the input, and
+                   ;; in raw mode a newline does not return the carriage.
+                   (print-in-lines
+                    editor
+                    (handler-case (princ-to-string c)
+                      (error (d)
+                        (format nil "error ~A while printing error ~A"
+                                (type-of d) (type-of c)))))
                    (setf (dirty-p editor) t))))))
         (command-loop)))
     (prog1

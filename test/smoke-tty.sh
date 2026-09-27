@@ -130,6 +130,14 @@ send C-a C-k
 type_text '(defun'
 send Enter
 expect 'Not a complete form' "an unfinished form is not read"
+checks=$((checks + 1))
+if screen | grep -q '^CL-USER> (defun'; then
+    echo "  ok    the prompt comes back at the left margin"
+else
+    echo "  FAIL  the prompt comes back at the left margin"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
 
 send C-a C-k
 send C-d
