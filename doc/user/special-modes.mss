@@ -569,7 +569,7 @@ abbreviation and expansion.  If the mode @f["Global"] is specified, then it
 makes a global abbrev.
 @enddefcom
 
-@defcom[com "Add Global Word Abbrev", bind (C-x +)]
+@defcom[com "Add Global Word Abbrev"]
 @defcom1[com "Add Mode Word Abbrev", bind (C-x C-a)]
 @hid[Add Global Word Abbrev] prompts for a word and defines it to be a global
 word abbreviation.  The prefix argument determines which text is used as the

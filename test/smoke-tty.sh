@@ -87,6 +87,23 @@ else
     screen | sed 's/^/        | /'
     failures=$((failures + 1))
 fi
+# C-x } widens the current window, the right one, moving the bar; C-x + puts
+# it back in the middle of the 100 columns, with 49 or 50 on each side.
+bar_column() { screen | grep 'Hemlock CL-USER:.*|Hemlock' | head -1 | awk -F'|' '{ print length($1) }'; }
+balanced=$(bar_column)
+send C-u 1 0 C-x }
+sleep 1
+widened=$(bar_column)
+send C-x +
+sleep 1
+checks=$((checks + 1))
+if [ "$widened" -lt "$balanced" ] && [ $((2 * $(bar_column) - 99)) -ge -1 ] && [ $((2 * $(bar_column) - 99)) -le 1 ]; then
+    echo "  ok    C-x } widens a window, and C-x + balances them"
+else
+    echo "  FAIL  C-x } widens a window, and C-x + balances them ($balanced, $widened, $(bar_column))"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
 send C-x 0
 sleep 1
 checks=$((checks + 1))

@@ -116,6 +116,7 @@
 (bind-key "Split Window Horizontally" #k"control-x 3")
 (bind-key "Enlarge Window Horizontally" #k"control-x }")
 (bind-key "Shrink Window Horizontally" #k"control-x {")
+(bind-key "Balance Windows" #k"control-x +")
 (bind-key "Enlarge Window" #k"control-x ^")
 (bind-key "New Window" #k"control-x 5 2")
 (bind-key "Delete Window" #k"control-x 0")
@@ -521,7 +522,7 @@
 ;;;; Word Abbrev Mode.
 
 (bind-key "Add Mode Word Abbrev" #k"control-x control-a")
-(bind-key "Add Global Word Abbrev" #k"control-x +")
+;; C-x + is Balance Windows, as in Emacs.
 (bind-key "Inverse Add Mode Word Abbrev" #k"control-x control-h")
 (bind-key "Inverse Add Global Word Abbrev" #k"control-x \-")
 ;; Removed in lieu of "Pop and Goto Mark".

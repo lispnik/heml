@@ -1128,6 +1128,7 @@ exists of those Hemlock loads, or the first of them to create."
      :separator
      ("Split Window" (:command "Split Window"))
      ("Split Window Side by Side" (:command "Split Window Horizontally"))
+     ("Balance Windows" (:command "Balance Windows"))
      ("Next Window" (:command "Next Window"))
      ("Delete Window" (:command "Delete Window"))
      ("Delete Next Window" (:command "Delete Next Window"))

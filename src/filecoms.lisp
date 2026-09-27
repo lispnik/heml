@@ -1262,6 +1262,13 @@
   "Make the current window P columns narrower."
   (enlarge-window-horizontally (- (or p 1))))
 
+(defcommand "Balance Windows" (p)
+  "Make the windows the same size as each other: those side by side as wide,
+   and those one above another as high."
+  "Make the windows the same size as each other."
+  (declare (ignore p))
+  (hi::balance-layout (device-hunk-device (window-hunk (current-window)))))
+
 (defcommand "New Window" (p)
   "Make a new window and go to it.
    The window will display the same buffer as the current one."

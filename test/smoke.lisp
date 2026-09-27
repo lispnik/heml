@@ -329,7 +329,15 @@ café λ 日本語 end")
     (settle)
     (check "a click in the right window lands where it is in that window"
            (and (eq (hi::window-hunk hi::*current-window*) right)
-                (= (point-column) 3))))
+                (= (point-column) 3)))
+    (post-key #\u "Control") (post-key #\8) (post-key #\x "Control") (post-key #\})
+    (settle)
+    (check "C-x } widens the window"
+           (> (hi::device-hunk-width right) (+ 4 (hi::device-hunk-width left))))
+    (choose-menu-item "View" "Balance Windows")
+    (settle)
+    (check "View > Balance Windows makes them as wide as each other"
+           (<= (abs (- (hi::device-hunk-width right) (hi::device-hunk-width left))) 1)))
   (choose-menu-item "View" "Delete Window")
   (settle)
   (check "deleting one of them leaves one window across the screen"

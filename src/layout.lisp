@@ -252,6 +252,53 @@
       (decf (nth j sizes) offset))
     (apply-layout device)))
 
+;;; How many windows NODE has across DIRECTION: those side by side add up,
+;;; and of those one above another, the most.
+;;;
+(defun layout-weight (node direction)
+  (etypecase node
+    (device-hunk 1)
+    (layout-split
+     (let ((weights (mapcar (lambda (child) (layout-weight child direction))
+                            (layout-split-children node))))
+       (if (eq direction (layout-split-direction node))
+           (reduce #'+ weights)
+           (reduce #'max weights))))))
+
+;;; Give each split's children room in proportion to the windows across
+;;; them, so that windows side by side are as wide as each other and those
+;;; one above another as high.  A column's separator counts as its own.
+;;;
+(defun balance-layout-node (node rows columns)
+  (when (layout-split-p node)
+    (let* ((columnsp (eq (layout-split-direction node) :columns))
+           (children (layout-split-children node))
+           (weights (mapcar (lambda (child)
+                              (layout-weight child (layout-split-direction node)))
+                            children))
+           (total (reduce #'+ weights))
+           (extent (if columnsp (1+ columns) rows))
+           (sum 0)
+           (previous 0)
+           (sizes (loop for weight in weights
+                        collect (let ((end (round (* extent (incf sum weight)) total)))
+                                  (prog1 (- end previous) (setf previous end))))))
+      (when columnsp
+        (setf sizes (mapcar #'1- sizes)))
+      (setf (layout-split-sizes node) sizes)
+      (loop for child in children
+            for size in sizes
+            do (if columnsp
+                   (balance-layout-node child rows size)
+                   (balance-layout-node child size columns))))))
+
+(defun balance-layout (device)
+  "Make DEVICE's windows the same size as each other, as far as they can be."
+  (let ((layout (device-layout device)))
+    (balance-layout-node (layout-root layout)
+                         (layout-rows layout) (layout-columns layout))
+    (apply-layout device)))
+
 ;;; The screen is now LINES by COLUMNS.  The windows share what the echo
 ;;; area, at the bottom with its own modeline, leaves.
 ;;;
