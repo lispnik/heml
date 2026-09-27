@@ -350,14 +350,6 @@
 (bind-key "Select Background" #k"control-meta-C")
 (bind-key "Clear Typescript Buffer" #k"control-c meta-o" :mode "Typescript")
 
-#+port-user-lispeval
-(progn
-(bind-key "Abort Operations" #k"hyper-a")
-(bind-key "List Operations" #k"hyper-l")
-
-(bind-key "Next Compiler Error" #k"hyper-n")
-(bind-key "Previous Compiler Error" #k"hyper-p")
-)
 
 ;;;; Lisp (some).
 
@@ -547,203 +539,10 @@
 (dolist (key (list #k"]" #k")" #k"}" #k"\>"))
   (bind-key "Scribe Insert Bracket" key :mode "Scribe"))
 
-#+port-user-unixcoms
-(bind-key "Scribe Buffer File" #k"control-x c" :mode "Scribe")
 (bind-key "Select Scribe Warnings" #k"control-meta-C" :mode "Scribe")
 
 (bind-key "Insert Scribe Directive" #k"hyper-i" :mode "Scribe")
 
-
-;;;; Mailer commands.
-
-;;; Clear everything user might hit to avoid getting the internal error
-;;; message about modifying read-only buffers.
-;;;
-#+port-user-mh
-(progn
-(hemlock-ext:do-alpha-key-events (key-event :both)
-                                 (bind-key "Illegal" key-event :mode "Headers")
-                                 (bind-key "Illegal" key-event :mode "Message"))
-
-;;; Global.
-;;;
-(bind-key "Incorporate and Read New Mail" #k"control-x i")
-(bind-key "Send Message" #k"control-x m")
-(bind-key "Message Headers" #k"control-x r")
-
-;;; Both Headers and Message modes.
-;;;
-;;; The bindings in these two blocks should be the same, one for "Message" mode
-;;; and one for "Headers" mode.
-;;;
-(bind-key "Next Message" #k"meta-n" :mode "Message")
-(bind-key "Previous Message" #k"meta-p" :mode "Message")
-(bind-key "Next Undeleted Message" #k"n" :mode "Message")
-(bind-key "Previous Undeleted Message" #k"p" :mode "Message")
-(bind-key "Send Message" #k"s" :mode "Message")
-(bind-key "Send Message" #k"m" :mode "Message")
-(bind-key "Forward Message" #k"f" :mode "Message")
-(bind-key "Headers Delete Message" #k"k" :mode "Message")
-(bind-key "Headers Undelete Message" #k"u" :mode "Message")
-(bind-key "Headers Refile Message" #k"o" :mode "Message")
-(bind-key "List Mail Buffers" #k"l" :mode "Message")
-(bind-key "Quit Headers" #k"q" :mode "Message")
-(bind-key "Incorporate and Read New Mail" #k"i" :mode "Message")
-(bind-key "Beginning of Buffer" #k"\<" :mode "Message")
-(bind-key "End of Buffer" #k"\>" :mode "Message")
-;;;
-(bind-key "Next Message" #k"meta-n" :mode "Headers")
-(bind-key "Previous Message" #k"meta-p" :mode "Headers")
-(bind-key "Next Undeleted Message" #k"n" :mode "Headers")
-(bind-key "Previous Undeleted Message" #k"p" :mode "Headers")
-(bind-key "Send Message" #k"s" :mode "Headers")
-(bind-key "Send Message" #k"m" :mode "Headers")
-(bind-key "Forward Message" #k"f" :mode "Headers")
-(bind-key "Headers Delete Message" #k"k" :mode "Headers")
-(bind-key "Headers Undelete Message" #k"u" :mode "Headers")
-(bind-key "Headers Refile Message" #k"o" :mode "Headers")
-(bind-key "List Mail Buffers" #k"l" :mode "Headers")
-(bind-key "Quit Headers" #k"q" :mode "Headers")
-(bind-key "Incorporate and Read New Mail" #k"i" :mode "Headers")
-(bind-key "Beginning of Buffer" #k"\<" :mode "Headers")
-(bind-key "End of Buffer" #k"\>" :mode "Headers")
-
-
-;;; Headers mode.
-;;;
-(bind-key "Delete Message and Down Line" #k"d" :mode "Headers")
-(bind-key "Pick Headers" #k"h" :mode "Headers")
-(bind-key "Show Message" #k"space" :mode "Headers")
-(bind-key "Show Message" #k"." :mode "Headers")
-(bind-key "Reply to Message" #k"r" :mode "Headers")
-(bind-key "Expunge Messages" #k"!" :mode "Headers")
-(bind-key "Headers Help" #k"?" :mode "Headers")
-
-
-;;; Message mode.
-;;;
-(bind-key "Delete Message and Show Next" #k"d" :mode "Message")
-(bind-key "Goto Headers Buffer" #k"^" :mode "Message")
-(bind-key "Scroll Message" #k"space" :mode "Message")
-(bind-key "Scroll Message" #k"control-v" :mode "Message")
-(bind-key "Scroll Window Up" #k"backspace" :mode "Message")
-(bind-key "Reply to Message in Other Window" #k"r" :mode "Message")
-(bind-key "Edit Message Buffer" #k"e" :mode "Message")
-(bind-key "Insert Message Region" #k"hyper-y" :mode "Message")
-(bind-key "Message Help" #k"?" :mode "Message")
-
-
-;;; Draft mode.
-;;;
-(bind-key "Goto Headers Buffer" #k"hyper-^" :mode "Draft")
-(bind-key "Goto Message Buffer" #k"hyper-m" :mode "Draft")
-(bind-key "Deliver Message" #k"hyper-s" :mode "Draft")
-(bind-key "Deliver Message" #k"hyper-c" :mode "Draft")
-(bind-key "Insert Message Buffer" #k"hyper-y" :mode "Draft")
-(bind-key "Delete Draft and Buffer" #k"hyper-q" :mode "Draft")
-(bind-key "List Mail Buffers" #k"hyper-l" :mode "Draft")
-(bind-key "Draft Help" #k"hyper-?" :mode "Draft")
-)
-
-
-;;;; Netnews.
-
-;;; Clear everything user might hit to avoid getting the internal error
-;;; message about modifying read-only buffers.
-;;;
-#+port-user-netnews
-(progn
-(hemlock-ext:do-alpha-key-events (key-event :both)
-                                 (bind-key "Illegal" key-event :mode "News-Headers")
-                                 (bind-key "Illegal" key-event :mode "News-Message"))
-
-
-;;; Global Netnews bindings
-;;;
-(bind-key "Netnews Post Message" #k"C-x P")
-
-
-;;; Both News-Headers and News-Message modes.
-;;;
-;;; The bindings in these two blocks should be the same, one for "News-Message"
-;;; mode and one for "News-Headers" mode.
-;;;
-(bind-key "List All Groups" #k"l" :mode "News-Headers")
-(bind-key "Netnews Append to File" #k"a" :mode "News-Headers")
-(bind-key "Netnews Forward Message" #k"f" :mode "News-Headers")
-(bind-key "Netnews Go to Next Group" #k"g" :mode "News-Headers")
-(bind-key "Netnews Next Article" #k"n" :mode "News-Headers")
-(bind-key "Netnews Previous Article" #k"p" :mode "News-Headers")
-(bind-key "Netnews Quit Starting Here" #k"." :mode "News-Headers")
-(bind-key "Netnews Group Punt Messages" #k"G" :mode "News-Headers")
-(bind-key "Netnews Show Whole Header" #k"w" :mode "News-Headers")
-(bind-key "Netnews Reply to Sender in Other Window" #k"r" :mode "News-Headers")
-(bind-key "Netnews Reply to Group in Other Window" #k"R" :mode "News-Headers")
-;;;
-(bind-key "List All Groups" #k"l" :mode "News-Message")
-(bind-key "Netnews Append to File" #k"a" :mode "News-Message")
-(bind-key "Netnews Forward Message" #k"f" :mode "News-Message")
-(bind-key "Netnews Go to Next Group" #k"g" :mode "News-Message")
-(bind-key "Netnews Next Article" #k"n" :mode "News-Message")
-(bind-key "Netnews Previous Article" #k"p" :mode "News-Message")
-(bind-key "Netnews Quit Starting Here" #k"." :mode "News-Message")
-(bind-key "Netnews Group Punt Messages" #k"G" :mode "News-Message")
-(bind-key "Netnews Show Whole Header" #k"w" :mode "News-Message")
-(bind-key "Netnews Reply to Sender in Other Window" #k"r" :mode "News-Message")
-(bind-key "Netnews Reply to Group in Other Window" #k"R" :mode "News-Message")
-
-
-;;; News-Headers.
-;;;
-(bind-key "Netnews Exit" #k"q" :mode "News-Headers")
-(bind-key "Netnews Headers File Message" #k"o" :mode "News-Headers")
-(bind-key "Netnews Headers Scroll Window Down" #k"c-v" :mode "News-Headers")
-(bind-key "Netnews Headers Scroll Window Up" #k"m-v" :mode "News-Headers")
-(bind-key "Netnews Next Line" #k"C-n" :mode "News-Headers")
-(bind-key "Netnews Next Line" #k"Downarrow" :mode "News-Headers")
-(bind-key "Netnews Previous Line" #k"C-p" :mode "News-Headers")
-(bind-key "Netnews Previous Line" #k"Uparrow" :mode "News-Headers")
-(bind-key "Netnews Select Message Buffer" #k"hyper-m" :mode "News-Headers")
-(bind-key "Netnews Show Article" #k"space" :mode "News-Headers")
-)
-
-;;; News-Message.
-;;;
-#+port-user-mh
-(bind-key "Insert Message Region" #k"Hyper-y" :mode "News-Message")
-#+port-user-netnews
-(progn
-(bind-key "Netnews Message File Message" #k"o" :mode "News-Message")
-(bind-key "Netnews Message Keep Buffer" #k"k" :mode "News-Message")
-(bind-key "Netnews Message Quit" #k"q" :mode "News-Message")
-(bind-key "Netnews Message Scroll Down"  #k"space" :mode "News-Message")
-(bind-key "Netnews Goto Draft Buffer" #k"hyper-d" :mode "News-Message")
-(bind-key "Netnews Goto Headers Buffer" #k"^" :mode "News-Message")
-(bind-key "Netnews Goto Headers Buffer" #k"hyper-h" :mode "News-Message")
-(bind-key "Netnews Goto Post Buffer" #k"hyper-p" :mode "News-Message")
-(bind-key "Scroll Window Up" #k"backspace" :mode "News-Message")
-
-
-;;; Post.
-;;;
-(bind-key "Netnews Select Message Buffer" #k"hyper-m" :mode "Post")
-(bind-key "Netnews Deliver Post" #k"hyper-s" :mode "Post")
-(bind-key "Netnews Abort Post" #k"hyper-q" :mode "Post")
-)
-#+port-user-mh
-(bind-key "Insert Message Buffer" #k"Hyper-y" :mode "Post")
-
-
-;;; News-Browse.
-
-#+port-user-netnews
-(progn
-(bind-key "Netnews Quit Browse" #k"q" :mode "News-Browse")
-(bind-key "Netnews Browse Add Group To File" #k"a" :mode "News-Browse")
-(bind-key "Netnews Browse Read Group" #k"space" :mode "News-Browse")
-(bind-key "Next Line" #k"n" :mode "News-Browse")
-(bind-key "Previous Line" #k"p" :mode "News-Browse")
-)
 
 ;;;; Process (Shell).
 
@@ -890,18 +689,6 @@
 (bind-key "View Help" #k"?" :mode "View")
 (bind-key "Beginning of Buffer" #k"\<" :mode "View")
 (bind-key "End of Buffer" #k"\>" :mode "View")
-
-;;;; Lisp Library.
-
-#+port-user-lisp-lib
-(progn
-(bind-key "Describe Pointer Library Entry" #k"leftdown" :mode "Lisp-Lib")
-(bind-key "Load Pointer Library Entry" #k"rightdown" :mode "Lisp-Lib")
-(bind-key "Describe Library Entry" #k"space" :mode "Lisp-Lib")
-(bind-key "Load Library Entry" #k"l" :mode "Lisp-Lib")
-(bind-key "Exit Lisp Library" #k"q" :mode "Lisp-Lib")
-(bind-key "Lisp Library Help" #k"?" :mode "Lisp-Lib")
-)
 
 ;;;; Completion mode.
 

@@ -311,8 +311,6 @@
 ;;; CREATE-SLAVE -- Public.
 ;;;
 
-(defvar *clbuild-slave-command* '("clbuild" "run" "hemlock-slave"))
-
 (defvar *slave-command* nil
   "The command that starts a slave Lisp, to which --editor and --backend
    are appended.  NIL means DEFAULT-SLAVE-COMMAND.  A delivered binary sets
@@ -559,14 +557,6 @@
                                 (slave-command-with-arguments))
                             (pick-slave-buffer-names "Process"))))
     (change-to-buffer (server-info-slave-buffer info))))
-
-(defcommand "Start Slave Using Clbuild" (p)
-  "Create a new slave.  When given an argument, ask for a command first.
-   Always defaults to clbuild as the slave startup method, even when
-   the host lisp has a different default method."
-  ""
-  (let ((*slave-command* *clbuild-slave-command*))
-    (start-slave-process-command p)))
 
 (defcommand "Start Slave Thread" (p)
   "Create a new thread acting as a slave."

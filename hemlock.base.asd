@@ -78,7 +78,6 @@
 
                (:file "decls" :depends-on ("package")) ; early declarations of functions and stuff
                (:file "struct" :depends-on ("package"))
-               #+port-core-struct-ed (:file "struct-ed" :depends-on ("package"))
                (:file "charmacs" :depends-on ("package"))
                (:file "key-event" :depends-on ("package" "charmacs"))
                ))
@@ -143,7 +142,6 @@
               :components
               ((:file "font")
                (:file "streams")
-               #+port-root-hacks (:file "hacks")
                (:file "main")
                (:file "echo")
                (:file "new-undo")))
@@ -217,33 +215,20 @@
                (:file "edit-defs")
                (:file "auto-save")
                (:file "register")
-               #+port-user-unixcoms (:file "unixcoms")
-               #+port-user-mh (:file "mh")
                (:file "highlight")
                (:file "dired")
                (:file "diredcoms" :depends-on ("dired"))
                (:file "bufed")
                (:file "coned")
                (:file "xref")
-               #+port-user-lisp-lib (:file "lisp-lib")
                (:file "completion" :depends-on ("lispmode"))
                (:file "cpc")
                (:file "fuzzy" :depends-on ("cpc"))
                (:file "shell")
                (:file "debug")
-               #+port-user-netnews (:file "netnews")
-               #+port-user-rcs (:file "rcs")
                (:file "dabbrev")
                (:file "bindings")
                (:file "slave-list")))
-     (:module misc-1
-              :pathname #.(merge-pathnames
-                           (make-pathname
-                            :directory '(:relative "src"))
-                           *hemlock-base-directory*)
-              :depends-on (core-1)
-              :components
-              ((:file "clbuild")))
      ;; The iolib event loop and connections, which every backend uses.
      ;; Loaded last: it declaims (speed 2), which stays in effect for
      ;; whatever is compiled after it.
@@ -252,6 +237,6 @@
                            (make-pathname
                             :directory '(:relative "src"))
                            *hemlock-base-directory*)
-              :depends-on (core-2 root-2 user-1 misc-1)
+              :depends-on (core-2 root-2 user-1)
               :components
               ((:file "ioconnections")))))
