@@ -42,12 +42,7 @@
 
 ;;;; Window operations.
 
-(defun make-window (start &key (modelinep t) (device nil) window
-                               (proportion .5)
-                               (font-family *default-font-family*)
-                               (ask-user nil) x y
-                               (width (value hemlock::default-window-width))
-                               (height (value hemlock::default-window-height)))
+(defun make-window (start &key (modelinep t) (device nil) (proportion .5))
   "Make a window that displays text starting at the mark start.  The default
    action is to make the new window a proportion of the current window's height
    to make room for the new window.
@@ -60,15 +55,10 @@
    Modelinep specifies whether the window should display buffer modelines.
 
    Device is the Hemlock device to make the window on.  If it is nil, then
-   the window is made on the same device as CURRENT-WINDOW.
-
-   Window, Font-Family, Ask-User, X, Y, Width and Height are passed to the
-   device, and the current devices ignore them."
+   the window is made on the same device as CURRENT-WINDOW."
 
   (let* ((device (or device (device-hunk-device (window-hunk (current-window)))))
-         (window (device-make-window
-                  device start modelinep window font-family
-                  ask-user x y width height proportion)))
+         (window (device-make-window device start modelinep proportion)))
     (unless window (editor-error "Could not make a window."))
     (invoke-hook hemlock::make-window-hook window)
     window))

@@ -1239,8 +1239,7 @@
   "Create a new window which displays starting at the same place
    as the current window."
   (declare (ignore p))
-  (let ((new (make-window (window-display-start (current-window))
-                          :ask-user t)))
+  (let ((new (make-window (window-display-start (current-window)))))
     (unless new (editor-error "Could not make a new window."))
     (setf (current-window) new)))
 
@@ -1270,19 +1269,10 @@
       (delete-window (next-window (current-window)))))
 
 (defcommand "Go to One Window" (p)
-  "Deletes all windows leaving one with the \"Default Initial Window X\",
-   \"Default Initial Window Y\", \"Default Initial Window Width\", and
-   \"Default Initial Window Height\"."
-  "Deletes all windows leaving one with the \"Default Initial Window X\",
-   \"Default Initial Window Y\", \"Default Initial Window Width\", and
-   \"Default Initial Window Height\"."
+  "Deletes all windows but one, which shows what the current window shows."
+  "Deletes all windows but one, which shows what the current window shows."
   (declare (ignore p))
-  (let ((win (make-window (window-display-start (current-window))
-                          :ask-user t
-                          :x (value default-initial-window-x)
-                          :y (value default-initial-window-y)
-                          :width (value default-initial-window-width)
-                          :height (value default-initial-window-height))))
+  (let ((win (make-window (window-display-start (current-window)))))
     (setf (current-window) win)
     (dolist (w *window-list*)
       (unless (or (eq w win)

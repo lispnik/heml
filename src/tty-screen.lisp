@@ -154,10 +154,7 @@
 
 ;;;; Making a window
 
-(defmethod device-make-window ((device tty-device)
-                               start modelinep window font-family
-                               ask-user x y width height proportion)
-  (declare (ignore window font-family ask-user x y width height))
+(defmethod device-make-window ((device tty-device) start modelinep proportion)
   (let* ((old-window (current-window))
          (victim (window-hunk old-window))
          (text-height (tty-hunk-text-height victim))

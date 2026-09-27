@@ -404,8 +404,9 @@
 (defgeneric device-init (device)
   (:documentation "called whenever going into the editor."))
 
-(defgeneric device-make-window (device start modelinep window font-family
-                                ask-user x y width-arg height-arg proportion))
+(defgeneric device-make-window (device start modelinep proportion)
+  (:documentation "Make a window displaying from START by splitting the
+   current window, PROPORTION of it going to the new one."))
 
 (defgeneric device-exit (device))
 

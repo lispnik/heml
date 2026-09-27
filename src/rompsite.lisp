@@ -44,31 +44,6 @@
 ;;;
 
 (defun site-init ()
-  (defhvar "Default Window Width"
-    "This is used to make a window when prompting the user.  The value is in
-     characters."
-    :value 80)
-  (defhvar "Default Window Height"
-    "This is used to make a window when prompting the user.  The value is in
-     characters."
-    :value 24)
-  (defhvar "Default Initial Window Width"
-    "This is used when Hemlock first starts up to make its first window.
-     The value is in characters."
-    :value 80)
-  (defhvar "Default Initial Window Height"
-    "This is used when Hemlock first starts up to make its first window.
-     The value is in characters."
-    :value 24)
-  (defhvar "Default Initial Window X"
-    "This is used when Hemlock first starts up to make its first window.
-     The value is in pixels."
-    :value nil)
-  (defhvar "Default Initial Window Y"
-    "This is used when Hemlock first starts up to make its first window.
-     The value is in pixels."
-    :value nil)
-
   (setf *key-event-history* (make-ring 60))
   nil)
 

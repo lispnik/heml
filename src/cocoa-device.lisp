@@ -362,10 +362,7 @@ run, which carries the modeline's colours, is carried to the edge."
 (defmethod hi::device-previous-window ((device cocoa-device) window)
   (hi::device-hunk-window (hi::device-hunk-previous (hi::window-hunk window))))
 
-(defmethod hi::device-make-window ((device cocoa-device)
-                                   start modelinep window font-family
-                                   ask-user x y width height proportion)
-  (declare (ignore window font-family ask-user x y width height))
+(defmethod hi::device-make-window ((device cocoa-device) start modelinep proportion)
   (let* ((old-window (hi::current-window))
          (victim (hi::window-hunk old-window))
          (text-height (hunk-text-height victim))

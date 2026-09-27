@@ -92,21 +92,20 @@
                (:file "charmacs" :depends-on ("package"))
                (:file "key-event" :depends-on ("package" "charmacs"))
                ))
-     (:module bitmap-1
+     (:module keysyms
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
                            *hemlock-base-directory*)
               :depends-on (core-1)
               :components
-              ((:file "keysym-defs") ; hmm.
-               ))
+              ((:file "keysym-defs")))
      (:module core-2
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
                            *hemlock-base-directory*)
-              :depends-on (bitmap-1 core-1)
+              :depends-on (keysyms core-1)
               :serial t                 ;...
               :components
               ((:file "rompsite")
@@ -161,7 +160,7 @@
                            (make-pathname
                             :directory '(:relative "src"))
                            *hemlock-base-directory*)
-              :depends-on (bitmap-1 core-1 core-2)
+              :depends-on (keysyms core-1 core-2)
               :components
               ((:file "typeout")))
      (:module wire
