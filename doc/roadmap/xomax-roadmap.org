@@ -8,7 +8,8 @@
   other projects to be integrated and tested on a diverse array of tasks.
 
 ** Xomax tasks
-   - ability to change fonts.
+   - ability to change fonts.  (Done in the Cocoa backend: the View
+     menu, Cmd-+, Cmd-- and Cmd-0, and the choice is remembered.)
    - Create side-by-side windows
    - Read emacs files in CL based emacs vertual machine
    - Bring Xomax' envirenment into allignment with the Xemacs and GNU
@@ -20,7 +21,9 @@
    - Integrate with workflow tools like JIRA.
    - port Org mode to Xomax
    - Integrate slime with Xomax
-   - Support Wayland and Garnet in Xomax.
+   - Support Wayland and Garnet in Xomax.  (Dropped: the CLX and Qt
+     backends are gone, and Xoamax now runs in a terminal and natively
+     on macOS.)
 
 
 ** Bugs
@@ -32,7 +35,12 @@
     window-changed
     src/bit-screen.lisp
 
-*** TODO Xomax exiting causes problemms
+*** DONE Xomax exiting causes problemms
+
+    Resolved by the removal of the CLX backend, whose window-manager
+    handling the report blames.  Checked on 2026-09-27: both the TTY
+    and the Cocoa editor start again in the same Lisp image after
+    quitting, and the second session keeps the first one's buffers.
 
     
 **** Report:
@@ -80,11 +88,13 @@
     Also, changes aren't reloaded when the file is changed, possible
     causing a stale version of the function to be loaded.
 
-*** Provide hook for changing font sizes.
+*** DONE Provide hook for changing font sizes.
 
-    See roadmap/xomax-font-lab.lisp for  discussion about using CLX
-    fonts. 
+    The Cocoa backend's change-font (src/cocoa-appkit.lisp), bound to
+    Cmd-+, Cmd-- and Cmd-0 and the View menu.
 
 
-*** Support modern vector fonts.
+*** DONE Support modern vector fonts.
+
+    The Cocoa backend draws with AppKit's fonts.
 
