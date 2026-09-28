@@ -221,7 +221,13 @@ send Enter
 expect 'Not a complete form' "an unfinished form is not read"
 expect_re '^CL-USER> (defun' "the prompt comes back at the left margin"
 
+# C-d leaves only on an empty line, so wait for the kill to be drawn.
 send C-a C-k
+tries=50
+while [ "$tries" -gt 0 ] && screen | grep -q '^CL-USER> (defun'; do
+    sleep 0.2
+    tries=$((tries - 1))
+done
 send C-d
 expect 'REPL-EXITED' "C-d on an empty line leaves the REPL" 15
 
