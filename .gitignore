@@ -3,8 +3,6 @@
 *.lib
 *.lx64fsl
 *~
-c/setpty
-c/setpty.o
 heml.core
 /heml
 build/

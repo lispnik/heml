@@ -28,8 +28,6 @@ Quicklisp also works: `(ql:quickload :heml.tty :verbose t)`.
 
 Standalone SBCL binary: `./build.sh` builds `./heml` with the TTY backend. It runs Lisp via `$SBCL`, which defaults to `clbuild lisp`, so set `SBCL=sbcl` if you don't use clbuild. `./heml --help` lists the options, including `--backend tty|cocoa` (or `--tty`, `--cocoa`). `ttyheml.sh` and `dist.sh` are legacy clbuild scripts.
 
-`c/Makefile` builds `setpty`, a small helper for pty-backed subprocesses.
-
 Runtime requirements: iolib needs `libfixposix` (`brew install libfixposix` on macOS). If CFFI can't find it, run `(push "/usr/local/lib/" cffi:*foreign-library-directories*)`. The editor picks Cocoa if `heml.cocoa` is loaded, and TTY otherwise (`choose-backend-type` in `rompsite.lisp`).
 
 ECL notes:
