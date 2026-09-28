@@ -11,7 +11,7 @@
 ;;;
 ;;; Even more commands...
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defhvar "Region Query Size"
   "A number-of-lines threshold that destructive, undoable region commands
@@ -56,7 +56,7 @@
           (editor-error "Not enough words.")))))
 
 ;;; "Capitalize Word" is different than uppercasing and lowercasing because
-;;; the differences between Hemlock's notion of what a word is and Common
+;;; the differences between Heml's notion of what a word is and Common
 ;;; Lisp's notion are too annoying.
 ;;;
 (defcommand "Capitalize Word" (p)
@@ -210,8 +210,8 @@
 
 
 (defcommand "Set Variable" (p)
-  "Prompt for a Hemlock variable and a new value."
-  "Prompt for a Hemlock variable and a new value."
+  "Prompt for a Heml variable and a new value."
+  "Prompt for a Heml variable and a new value."
   (declare (ignore p))
   (multiple-value-bind (name var)
                        (prompt-for-variable
@@ -225,17 +225,17 @@
                   :help "Expression to evaluate for new value."))))))
 
 (defcommand "Defhvar" (p)
-  "Define a hemlock variable in some location.  If the named variable exists
+  "Define a heml variable in some location.  If the named variable exists
    currently, its documentation is propagated to the new instance, but this
    never prompts for documentation."
-  "Define a hemlock variable in some location."
+  "Define a heml variable in some location."
   (declare (ignore p))
   (let* ((name (nstring-capitalize (prompt-for-variable :must-exist nil)))
          (var (string-to-variable name))
-         (doc (if (hemlock-bound-p var)
+         (doc (if (heml-bound-p var)
                   (variable-documentation var)
                   ""))
-         (hooks (if (hemlock-bound-p var) (variable-hooks var)))
+         (hooks (if (heml-bound-p var) (variable-hooks var)))
          (val (prompt-for-expression :prompt "Variable value: "
                                      :help "Value for the variable.")))
     (multiple-value-bind
@@ -766,7 +766,7 @@
       (push-buffer-mark (copy-mark point))
       (buffer-start point))
     (push-buffer-mark (copy-mark point))
-    (display-page-directory (make-hemlock-output-stream point :full)
+    (display-page-directory (make-heml-output-stream point :full)
                             (page-directory (current-buffer))))
   (setf (last-command-type) :ephemerally-active))
 
@@ -996,7 +996,7 @@
   "Insert the last character typed, or the argument number of them.
    If the last character was an alphabetic character, then insert its
    capital form."
-  (let ((char (char-upcase (hemlock-ext:key-event-char *last-key-event-typed*))))
+  (let ((char (char-upcase (heml-ext:key-event-char *last-key-event-typed*))))
     (if (and p (> p 1))
         (insert-string (current-point) (make-string p :initial-element char))
         (insert-character (current-point) char))))

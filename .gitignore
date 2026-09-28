@@ -5,7 +5,8 @@
 *~
 c/setpty
 c/setpty.o
-hemlock.core
+heml.core
+/heml
 build/
 ocicl/
 .DS_Store

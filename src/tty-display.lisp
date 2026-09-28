@@ -10,7 +10,7 @@
 ;;;    Written by Bill Chiles.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 #+(or)
 (export '(redisplay redisplay-all define-tty-font))
@@ -65,7 +65,7 @@
 (defun maybe-resize-tty-device (device)
   (multiple-value-bind (lines cols)
       (hi::get-terminal-attributes)
-    (let ((cols (if hemlock.terminfo:auto-right-margin (1- cols) cols)))
+    (let ((cols (if heml.terminfo:auto-right-margin (1- cols) cols)))
       (unless (and (eql lines (tty-device-lines device))
                    (eql cols (tty-device-columns device)))
         (setf (tty-device-lines device) lines
@@ -134,16 +134,16 @@
 (defparameter +show-cursor+ (format nil "~C[?25h" (code-char 27)))
 
 (defun show-cursor-string ()
-  (let ((civis hemlock.terminfo:cursor-invisible))
+  (let ((civis heml.terminfo:cursor-invisible))
     (cond ((null civis) nil)
           ((equal civis +hide-cursor+) +show-cursor+)
-          (t (hemlock.terminfo:tputs hemlock.terminfo:cursor-normal)))))
+          (t (heml.terminfo:tputs heml.terminfo:cursor-normal)))))
 
 (defmethod device-begin-redisplay ((device tty-device))
   (when *tty-synchronized-output*
     (tty-write-cmd +begin-synchronized-update+))
-  (when hemlock.terminfo:cursor-invisible
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-invisible))))
+  (when heml.terminfo:cursor-invisible
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-invisible))))
 
 (defmethod device-end-redisplay ((device tty-device))
   (let ((show (show-cursor-string)))
@@ -220,8 +220,8 @@
 ;;;
 (defun cursor-motion (device x y)
   (tty-write-cmd
-   (hemlock.terminfo:tputs
-    (hemlock.terminfo:tparm hemlock.terminfo:cursor-address y x))))
+   (heml.terminfo:tputs
+    (heml.terminfo:tparm heml.terminfo:cursor-address y x))))
 
 ;;; CM-OUTPUT-COORDINATE outputs the coordinate with respect to the pad.  If
 ;;; there is a pad, then the coordinate needs to be sent as digit-char's (for
@@ -258,35 +258,35 @@
 ;;; Font attribute support: color, bold.
 
 (defun setaf (color)
-  (when hemlock.terminfo:set-a-foreground
+  (when heml.terminfo:set-a-foreground
     (tty-write-cmd
-     (hemlock.terminfo:tputs
-      (hemlock.terminfo:tparm hemlock.terminfo:set-a-foreground color)))))
+     (heml.terminfo:tputs
+      (heml.terminfo:tparm heml.terminfo:set-a-foreground color)))))
 
 (defun setab (color)
-  (when hemlock.terminfo:set-a-background
+  (when heml.terminfo:set-a-background
     (tty-write-cmd
-     (hemlock.terminfo:tputs
-      (hemlock.terminfo:tparm hemlock.terminfo:set-a-background color)))))
+     (heml.terminfo:tputs
+      (heml.terminfo:tparm heml.terminfo:set-a-background color)))))
 
 (defun enter-bold-mode ()
-  (when hemlock.terminfo:enter-bold-mode
+  (when heml.terminfo:enter-bold-mode
     (tty-write-cmd
-     (hemlock.terminfo:tputs hemlock.terminfo:enter-bold-mode))))
+     (heml.terminfo:tputs heml.terminfo:enter-bold-mode))))
 
 (defun enter-italics-mode ()
-  (when hemlock.terminfo:enter-italics-mode
+  (when heml.terminfo:enter-italics-mode
     (tty-write-cmd
-     (hemlock.terminfo:tputs hemlock.terminfo:enter-italics-mode))))
+     (heml.terminfo:tputs heml.terminfo:enter-italics-mode))))
 
 (defun enter-underline-mode ()
-  (when hemlock.terminfo:enter-underline-mode
+  (when heml.terminfo:enter-underline-mode
     (tty-write-cmd
-     (hemlock.terminfo:tputs hemlock.terminfo:enter-underline-mode))))
+     (heml.terminfo:tputs heml.terminfo:enter-underline-mode))))
 
 (defun exit-attribute-mode ()
   (tty-write-cmd
-   (hemlock.terminfo:tputs hemlock.terminfo:exit-attribute-mode)))
+   (heml.terminfo:tputs heml.terminfo:exit-attribute-mode)))
 
 (defvar *terminal-has-colors* :unknown)
 
@@ -317,9 +317,9 @@
         (let ((new-posn (min stop end)))
           (when (eq *terminal-has-colors* :unknown)
             (setf *terminal-has-colors*
-                  (and hemlock.terminfo:set-a-foreground
-                       hemlock.terminfo:set-a-background
-                       hemlock.terminfo:exit-attribute-mode
+                  (and heml.terminfo:set-a-foreground
+                       heml.terminfo:set-a-background
+                       heml.terminfo:exit-attribute-mode
                        t)))
           (cond (*terminal-has-colors*
                  (unwind-protect

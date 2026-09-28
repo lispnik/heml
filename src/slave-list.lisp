@@ -10,7 +10,7 @@
 ;;; This file contains slave-list-related code.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 

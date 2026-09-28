@@ -7,11 +7,11 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;;                  Hemlock Word Abbreviation Mode
+;;;                  Heml Word Abbreviation Mode
 ;;;                       by Jamie W. Zawinski
 ;;;                        24 September 1985
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 ;;;; These Things are Here:
 
@@ -169,7 +169,7 @@
              :help (list "Define the ~A expansion of ~S." mode abbrev))))
     (setq abbrev (string-downcase abbrev))
     (let* ((table (cond (globalp *global-abbrev-table*)
-                        ((hemlock-bound-p 'mode-abbrev-table :mode mode)
+                        ((heml-bound-p 'mode-abbrev-table :mode mode)
                          (variable-value 'mode-abbrev-table :mode mode))
                         (t
                          (let ((new (make-hash-table :test #'equal)))
@@ -201,7 +201,7 @@
   (declare (ignore p))
   (let* ((word (prev-word 1 (current-point)))
          (glob (gethash (string-downcase word) *global-abbrev-table*))
-         (mode (if (hemlock-bound-p 'mode-abbrev-table)
+         (mode (if (heml-bound-p 'mode-abbrev-table)
                    (gethash (string-downcase word)
                             (value mode-abbrev-table))))
          (end-word (reverse-find-attribute (copy-mark (current-point)
@@ -215,7 +215,7 @@
             ((equal word (string-upcase word))
              (setq result (string-upcase result))))
       (insert-string end-word result)
-      (unless (hemlock-bound-p 'last-expanded)
+      (unless (heml-bound-p 'last-expanded)
         (defhvar "last expanded"
             "Holds a mark, the last expanded abbrev, and its expansion in a list."
             :buffer (current-buffer)))
@@ -223,7 +223,7 @@
             (list (copy-mark (current-point) :right-inserting)
                   word result)))
     (delete-mark end-word))
-  (when (and (hemlock-bound-p 'prefix-mark)
+  (when (and (heml-bound-p 'prefix-mark)
              (value prefix-mark))
     (delete-characters (value prefix-mark) 1)
     (delete-mark (value prefix-mark))
@@ -253,7 +253,7 @@
   "Marks a prefix to be glued to an abbrev following."
   "Marks a prefix to be glued to an abbrev following."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'prefix-mark)
+  (unless (heml-bound-p 'prefix-mark)
     (defhvar "prefix mark"
              "Holds a mark (or not) pointing to the current Prefix Mark."
              :buffer (current-buffer)))
@@ -271,7 +271,7 @@
   Only one abbrev may be undone."
   "Undoes the last abbrev expansion, or undoes \"Unexpand Last Word\"."
   (declare (ignore p))
-  (unless (or (not (hemlock-bound-p 'last-expanded))
+  (unless (or (not (heml-bound-p 'last-expanded))
               (value last-expanded))
     (editor-error "Nothing to Undo."))
   (let ((mark (car (value last-expanded)))
@@ -299,7 +299,7 @@
   If called with a prefix argument, deletes all word abbrevs define in the
   current mode."
   "Deletes Abbrev in Mode, or all abbrevs in Mode if P is true."
-  (let ((boundp (hemlock-bound-p 'mode-abbrev-table :mode mode)))
+  (let ((boundp (heml-bound-p 'mode-abbrev-table :mode mode)))
     (if p
         (when boundp
           (delete-variable 'mode-abbrev-table :mode mode))
@@ -401,7 +401,7 @@
          (mode-tables nil))
     (do-strings (which x *mode-names*)
       (declare (ignore x))
-      (when (hemlock-bound-p 'mode-abbrev-table :mode which)
+      (when (heml-bound-p 'mode-abbrev-table :mode which)
         (let ((table-count (hash-table-count (variable-value 'mode-abbrev-table
                                                              :mode which))))
           (unless (zerop table-count)
@@ -558,7 +558,7 @@
                (setf (gethash abbrev *global-abbrev-table*)
                      expansion))
               (t (setq modename (subseq modename 1 (1- (length modename))))
-                 (unless (hemlock-bound-p 'mode-abbrev-table
+                 (unless (heml-bound-p 'mode-abbrev-table
                                           :mode modename)
                    (defhvar "Mode Abbrev Table"
                             "Hash Table of Mode Abbrevs"

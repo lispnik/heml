@@ -12,7 +12,7 @@ else
 	while test $# -gt 0; do
 		case $1 in
 			tty)
-				backends="$backends :hemlock.$1"
+				backends="$backends :heml.$1"
 				echo backend $1 enabled
 				shift
 				;;
@@ -26,22 +26,25 @@ fi
 
 
 $SBCL <<EOF
-(dolist (system (or '($backends) '(:hemlock.tty)))
+(dolist (system (or '($backends) '(:heml.tty)))
   (asdf:operate 'asdf:load-op system))
 
-(defun hemlock-toplevel ()
-  (let ((argv0 (car (command-line-arguments:get-command-line-arguments)))) 
+(defun heml-toplevel ()
+  ;; The program's own path: GET-COMMAND-LINE-ARGUMENTS leaves it out.
+  (let ((argv0 (car sb-ext:*posix-argv*)))
     (setf hi::*installation-directory*
 	  (concatenate 
 	   'string
 	   (iolib.pathnames:file-path-directory argv0 :namestring t)
 	   "/"))
-    (setf hemlock::*slave-command* (list argv0 "--slave"))
-    (hemlock:main))
+    (setf heml::*slave-command* (list argv0 "--slave"))
+    ;; With the runtime's options saved, SBCL leaves argv alone, and the
+    ;; editor's options are everything after the program's name.
+    (heml:main (rest sb-ext:*posix-argv*)))
   (quit))
 
-(sb-ext:save-lisp-and-die "hemlock"
+(sb-ext:save-lisp-and-die "heml"
                           :save-runtime-options t
-			  :toplevel 'hemlock-toplevel
+			  :toplevel 'heml-toplevel
 			  :executable t)
 EOF

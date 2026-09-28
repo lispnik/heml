@@ -23,7 +23,7 @@
 ;;;      entry3/flag1/flag2/flag3/flag4/flag5.
 ;;; The flags are single letter indicators of legal suffixes for the entry;
 ;;; the available flags and their correct use may be found at the beginning
-;;; of spell-corr.lisp in the Hemlock sources.  There must be exactly one
+;;; of spell-corr.lisp in the Heml sources.  There must be exactly one
 ;;; entry per line, and each line must be flushleft.
 
 ;;; The dictionary is built in system space as three distinct

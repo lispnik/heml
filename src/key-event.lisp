@@ -21,7 +21,7 @@
 ;;; keys to the keysyms defined with DEFINE-KEYSYM.
 ;;;
 
-(in-package :hemlock-ext)
+(in-package :heml-ext)
 
 
 ;;;; Keysym <==> Name translation.
@@ -321,7 +321,7 @@
     (cond ((char= char key-event-escape-char)
            (let ((char (read-char stream t nil t)))
              (values char :escaped)))
-          ;; The table covers Hemlock's CHAR-CODE-LIMIT, 256; every
+          ;; The table covers Heml's CHAR-CODE-LIMIT, 256; every
           ;; character past it is an ordinary one.
           (t (values char (if (< (char-code char) char-code-limit)
                               (svref *key-character-classes* (char-code char))
@@ -523,7 +523,7 @@
   (setf (gethash key-event *key-event-characters*) character))
 
 ;;; This maps characters to key-events.  Users modify this by SETF'ing
-;;; CHAR-KEY-EVENT.  The vector covers Hemlock's CHAR-CODE-LIMIT, 256, and
+;;; CHAR-KEY-EVENT.  The vector covers Heml's CHAR-CODE-LIMIT, 256, and
 ;;; the hash table every character past it.
 ;;;
 (defvar *character-key-events*)

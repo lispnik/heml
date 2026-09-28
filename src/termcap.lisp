@@ -11,7 +11,7 @@
 ;;;
 ;;; Terminal Capability
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;; This stuff used to parse a Termcap file.  Now it's just a
 ;;; compatibility layer over the Terminfo code.  At some point this
@@ -24,7 +24,7 @@
 
 (defmacro deftermcap (name type cl-name terminfo-name)
   (declare (ignore name type))
-  `(progn (push (cons ',cl-name (lambda () ,(intern (symbol-name terminfo-name) :hemlock.terminfo))) *termcaps*)))
+  `(progn (push (cons ',cl-name (lambda () ,(intern (symbol-name terminfo-name) :heml.terminfo))) *termcaps*)))
 
 (deftermcap "is" :string :init-string init-2string)
 (deftermcap "if" :string :init-file init-file)

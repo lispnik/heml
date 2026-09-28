@@ -9,7 +9,7 @@
 ;;;
 ;;; Implementation specific character-hacking macros and constants.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;; This file contains various constants and macros which are implementation or
 ;;; ASCII dependant.  It contains some versions of CHAR-CODE which do not check

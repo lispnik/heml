@@ -9,7 +9,7 @@
 ;;;
 ;;;   This is an italicized comment.
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defun delete-line-italic-marks (line)
   (dolist (m (hi::line-marks line))

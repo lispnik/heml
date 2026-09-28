@@ -1,6 +1,6 @@
 #!/bin/sh
 # scripts/demo/combine.sh -- `make demo-full': the terminal and the Cocoa
-# videos, each after a title card, in build/demo/xoamax.mp4.
+# videos, each after a title card, in build/demo/heml.mp4.
 set -e
 cd "$(dirname "$0")/../.."
 D=build/demo
@@ -23,11 +23,11 @@ fit() {
     -c:v libx264 -an "$2"
 }
 
-card $D/card-title.mp4 3 "Xoamax" "An Emacs-style editor in Common Lisp"
+card $D/card-title.mp4 3 "Heml" "An Emacs-style editor in Common Lisp"
 card $D/card-tty.mp4 2.5 "In a terminal" "SBCL and ECL"
-fit $D/xoamax-tty.mp4 $D/part-tty.mp4
+fit $D/heml-tty.mp4 $D/part-tty.mp4
 card $D/card-cocoa.mp4 2.5 "Native on macOS" "Cocoa, through the objc bridge"
-fit $D/xoamax-cocoa.mp4 $D/part-cocoa.mp4
+fit $D/heml-cocoa.mp4 $D/part-cocoa.mp4
 printf "file '%s'\n" card-title.mp4 card-tty.mp4 part-tty.mp4 card-cocoa.mp4 part-cocoa.mp4 > $D/parts.txt
-ffmpeg -v error -y -f concat -safe 0 -i $D/parts.txt -c:v libx264 -pix_fmt yuv420p $D/xoamax.mp4
-echo "built $D/xoamax.mp4"
+ffmpeg -v error -y -f concat -safe 0 -i $D/parts.txt -c:v libx264 -pix_fmt yuv420p $D/heml.mp4
+echo "built $D/heml.mp4"

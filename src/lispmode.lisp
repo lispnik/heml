@@ -4,12 +4,12 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock LISP Mode commands
+;;; Heml LISP Mode commands
 ;;;
 ;;; Written by Ivan Vazquez and Bill Maddox.
 ;;;
@@ -816,7 +816,7 @@
            (setf (gethash fname *special-forms*) args)))))
 
 
-;;; Hemlock forms.
+;;; Heml forms.
 ;;;
 (defindent "with-mark" 1)
 (defindent "with-random-typeout" 1)
@@ -1613,7 +1613,7 @@
 ;;; FILL-LISP-STRING -- Internal.
 ;;;
 ;;; This fills the Lisp string containing mark as if it had been entered using
-;;; Hemlock's Lisp string indentation, "Indent Function" for "Lisp" mode.  This
+;;; Heml's Lisp string indentation, "Indent Function" for "Lisp" mode.  This
 ;;; assumes the area around mark has already been PRE-COMMAND-PARSE-CHECK'ed,
 ;;; and it ensures the string ends before doing any filling.  This function
 ;;; is undo'able.

@@ -7,14 +7,14 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; More Hemlock Text-Manipulation functions.
+;;; More Heml Text-Manipulation functions.
 ;;; Written by Skef Wholey.
 ;;;
 ;;; The code in this file implements the non-insert/delete functions in the
-;;; "Doing Stuff and Going Places" chapter of the Hemlock Design document.
+;;; "Doing Stuff and Going Places" chapter of the Heml Design document.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 (defun region-to-string (region)
@@ -415,7 +415,7 @@
       (write-string "{deleted mark}" stream)))
 
 (defmethod print-object ((structure line) stream)
-  (write-string "#<Hemlock Line \"" stream)
+  (write-string "#<Heml Line \"" stream)
   (%print-whole-line structure stream)
   (write-string "\">" stream))
 
@@ -432,7 +432,7 @@
 
 (defun %print-hregion (region stream d)
   (declare (ignore d))
-  (write-string "#<Hemlock Region \"" stream)
+  (write-string "#<Heml Region \"" stream)
   (let* ((start (region-start region))
          (end (region-end region))
          (first-line (mark-line start))
@@ -483,6 +483,6 @@
 
 (defun %print-hbuffer (structure stream d)
   (declare (ignore d))
-  (write-string "#<Hemlock Buffer \"" stream)
+  (write-string "#<Heml Buffer \"" stream)
   (write-string (buffer-name structure) stream)
   (write-string "\">" stream))

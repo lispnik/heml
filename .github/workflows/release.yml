@@ -1,4 +1,4 @@
-# A signed, notarised, stapled disk image of Xoamax.app, on a tag.
+# A signed, notarised, stapled disk image of Heml.app, on a tag.
 #
 # Two release blockers, both of which fail slowly and neither obviously:
 #
@@ -219,7 +219,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           # The profile name is the Makefile's NOTARY_PROFILE.
-          xcrun notarytool store-credentials xoamax \
+          xcrun notarytool store-credentials heml \
             --apple-id "$APPLE_ID" \
             --team-id "${{ steps.identity.outputs.team }}" \
             --password "$APPLE_APP_PASSWORD" --keychain build.keychain
@@ -258,7 +258,7 @@ jobs:
       - name: Upload the disk image
         uses: actions/upload-artifact@v4
         with:
-          name: xoamax-${{ matrix.arch }}
+          name: heml-${{ matrix.arch }}
           path: dist/*.dmg
           retention-days: 14
 
@@ -285,7 +285,7 @@ jobs:
           files: dist/*.dmg
           generate_release_notes: true
           body: |
-            Xoamax, an Emacs-style editor in Common Lisp, as a macOS application.
+            Heml, an Emacs-style editor in Common Lisp, as a macOS application.
 
             **One disk image per architecture.** There is no universal SBCL
             core, so `arm64` is for Apple silicon and `x86_64` for Intel Macs.

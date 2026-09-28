@@ -9,7 +9,7 @@
 ;;;
 ;;; This file contains a minimal dylan mode.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 ;;; hack ..
 

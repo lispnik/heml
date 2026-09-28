@@ -9,7 +9,7 @@
 ;; License: Public Domain
 ;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defvar *buffer-package*
   nil

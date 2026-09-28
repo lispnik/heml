@@ -1,14 +1,14 @@
 # -*- eval: (auto-fill-mode 1) -*-
 #+STARTUP: showall
 
-* Xomax Internals
+* Heml Internals
   Currently just some notes on where to find 'top level' objects
 
   - hi::*buffer-list* 
-    all buffers known to Xomax
+    all buffers known to Heml
 
   - hi::*window-list* 
-    all windows known to Xomax
+    all windows known to Heml
 
   - hi::window-dis-line
     structure used by window to display the visible portion of the
@@ -20,7 +20,7 @@
 
 
 ** Modline datastructure
-   Xomax has a concept called the modeline which contains various field
+   Heml has a concept called the modeline which contains various field
    that differ based on mode. The essential function in which they're
    defined is the make-modeline-field. Below is an example of defining
    a default modeline field:
@@ -37,14 +37,14 @@
 			  (name (buffer-name buffer)))
 		      (cond ((not pn)
 			     (format nil "~A: " name))
-			    ((string/= (hemlock::pathname-to-buffer-name pn) name)
+			    ((string/= (heml::pathname-to-buffer-name pn) name)
 			     (format nil "~A: " name))
 			    (t "")))))
    #+END_SRC
 
-** Hemlock-style eval servers
+** Heml-style eval servers
 
-   Hemlock was the originator of Swank. Surely the code has changed a
+   Heml was the originator of Swank. Surely the code has changed a
    lot between the old CMU eval servers and modern-day Swank, but it's
    probable that a careful investigation of both will illuminate
    logical integration points.

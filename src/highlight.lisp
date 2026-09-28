@@ -12,7 +12,7 @@
 ;;; Written by Bill Chiles and Jim Healy.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 

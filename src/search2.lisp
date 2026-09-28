@@ -7,13 +7,13 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;;     More searching function for Hemlock.  This file contains the stuff
+;;;     More searching function for Heml.  This file contains the stuff
 ;;; to implement the various kinds of character searches.
 ;;;
 ;;;    Written by Rob MacLachlan
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;; Character and Not-Character search kinds:
 
@@ -78,7 +78,7 @@
 ;;; character set searches.
 
 (defvar *free-character-sets* ()
-  "A list of unused character-set objects for use by the Hemlock searching
+  "A list of unused character-set objects for use by the Heml searching
   primitives.")
 
 

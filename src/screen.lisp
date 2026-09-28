@@ -12,7 +12,7 @@
 ;;; Device independent screen management functions.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; Screen management initialization.
@@ -21,7 +21,7 @@
 
 ;;; %INIT-SCREEN-MANAGER creates the initial windows and sets up the data
 ;;; structures used by the screen manager.  The "Main" and "Echo Area" buffer
-;;; modelines are set here in case the user modified these Hemlock variables in
+;;; modelines are set here in case the user modified these Heml variables in
 ;;; his init file.  Since these buffers don't have windows yet, these sets
 ;;; won't cause any updates to occur.  This is called from %INIT-REDISPLAY.
 ;;;
@@ -29,9 +29,9 @@
 
 (defmethod %init-screen-manager :before ((backend-type t) (display t))
   (setf (buffer-modeline-fields *current-buffer*)
-        (value hemlock::default-modeline-fields))
+        (value heml::default-modeline-fields))
   (setf (buffer-modeline-fields *echo-area-buffer*)
-        (value hemlock::default-status-line-fields)))
+        (value heml::default-status-line-fields)))
 
 (defmethod %init-screen-manager ((backend-type (eql :tty)) (display t))
   (init-tty-screen-manager (make-tty-device (get-terminal-name))))
@@ -58,27 +58,27 @@
 
    Modelinep specifies whether the window should display buffer modelines.
 
-   Device is the Hemlock device to make the window on.  If it is nil, then
+   Device is the Heml device to make the window on.  If it is nil, then
    the window is made on the same device as CURRENT-WINDOW."
 
   (let* ((device (or device (device-hunk-device (window-hunk (current-window)))))
          (window (device-make-window device start modelinep proportion direction)))
     (unless window (editor-error "Could not make a window."))
-    (invoke-hook hemlock::make-window-hook window)
+    (invoke-hook heml::make-window-hook window)
     window))
 
 (defun delete-window (window)
   "Make Window go away, removing it from the screen."
   (when (<= (length *window-list*) 2)
     (error "Cannot kill the only window."))
-  (invoke-hook hemlock::delete-window-hook window)
+  (invoke-hook heml::delete-window-hook window)
   (setq *window-list* (delq window *window-list*))
   (device-delete-window (device-hunk-device (window-hunk window))
                         window)
   ;;
   ;; Since the programmer's interface fails to allow users to determine if
   ;; they're commands delete the current window, this primitive needs to
-  ;; make sure Hemlock doesn't get screwed.  This inadequacy comes from the
+  ;; make sure Heml doesn't get screwed.  This inadequacy comes from the
   ;; bitmap window groups and the vague descriptions of PREVIOUS-WINDOW and
   ;; NEXT-WINDOW.
   (when (eq window *current-window*)
@@ -127,7 +127,7 @@
 
 ;;; RT-COUNT-LINES computes the correct height for a window.  This includes
 ;;; taking wrapping line characters into account.  Take the MARK-COLUMN at
-;;; the end of each line.  This is how many characters long hemlock thinks
+;;; the end of each line.  This is how many characters long heml thinks
 ;;; the line is.  When it is displayed, however, end of line characters are
 ;;; added to the end of each line that wraps.  The second INCF form adds
 ;;; these to the current line length.  Then INCF the current height by the

@@ -7,26 +7,26 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock initialization code and random debugging stuff.
+;;; Heml initialization code and random debugging stuff.
 ;;;
 ;;; Written by Bill Chiles and Rob MacLachlan
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 #||
 GB
 (in-package :extensions)
-(export '(save-all-buffers *hemlock-version*))
-(in-package :hemlock-internals)
+(export '(save-all-buffers *heml-version*))
+(in-package :heml-internals)
 ||#
 
 
 
-;;;; Definition of *hemlock-version*.
+;;;; Definition of *heml-version*.
 
-(defparameter *hemlock-version*
-  (let* ((system (asdf:find-system :hemlock.base))
+(defparameter *heml-version*
+  (let* ((system (asdf:find-system :heml.base))
          (dir (asdf:component-pathname system))
          (.git (merge-pathnames ".git/" dir))
          (ref (with-open-file (s (merge-pathnames "HEAD" .git)
@@ -38,19 +38,19 @@ GB
         "4.unknown")))
 
 
-;;; (pushnew :hemlock *features*)
+;;; (pushnew :heml *features*)
 
 
-;;;; %INIT-HEMLOCK.
+;;;; %INIT-HEML.
 
-(defvar *hemlock-initialized* nil)
+(defvar *heml-initialized* nil)
 
-(defun %init-hemlock ()
-  "Initialize hemlock's internal data structures."
+(defun %init-heml ()
+  "Initialize heml's internal data structures."
   ;;
   ;; This function is defined in Buffer.Lisp.  It creates fundamental mode
   ;; and the buffer main.  Until this is done it is not possible to define
-  ;; or use Hemlock variables.
+  ;; or use Heml variables.
   (setup-initial-buffer)
   ;;
   ;; Define some of the system variables.
@@ -64,7 +64,7 @@ GB
   ;;
   ;; Define print representations for funny characters.
   (%init-line-image)
-  (setq *hemlock-initialized* t))
+  (setq *heml-initialized* t))
 
 
 ;;;; Define some globals.
@@ -100,30 +100,30 @@ GB
 ;;; beside the other modeline variables.  This DEFVAR would live in
 ;;; Morecoms.Lisp, but it is compiled and loaded after this file.
 ;;;
-(declaim (special hemlock::*recursive-edit-count*))
+(declaim (special heml::*recursive-edit-count*))
 ;;;
 (make-modeline-field
  :name :edit-level :width 15
  :function #'(lambda (buffer window)
                (declare (ignore buffer window))
-               (if (zerop hemlock::*recursive-edit-count*)
+               (if (zerop heml::*recursive-edit-count*)
                    ""
                    (format nil "Edit Level: ~2,'0D "
-                           hemlock::*recursive-edit-count*))))
+                           heml::*recursive-edit-count*))))
 
 ;;; This is necessary to define "Default Status Line Fields" which belongs
 ;;; beside the other modeline variables.  This DEFVAR would live in
 ;;; Completion.Lisp, but it is compiled and loaded after this file.
 ;;;
-(declaim (special hemlock::*completion-mode-possibility*))
+(declaim (special heml::*completion-mode-possibility*))
 ;;; Hack for now until completion mode is added.
-(defvar hemlock::*completion-mode-possibility* "")
+(defvar heml::*completion-mode-possibility* "")
 ;;;
 (make-modeline-field
  :name :completion :width 40
  :function #'(lambda (buffer window)
                (declare (ignore buffer window))
-               hemlock::*completion-mode-possibility*))
+               heml::*completion-mode-possibility*))
 
 
 (defun define-some-variables ()
@@ -200,7 +200,7 @@ GB
     :value 1.0)
   (defhvar "Input Hook"
     "The functions in this variable are invoked each time a character enters
-     Hemlock."
+     Heml."
     :value nil)
   (defhvar "Abort Hook"
     "These functions are invoked when ^G is typed.  No arguments are passed."
@@ -223,11 +223,11 @@ GB
     "This is the default list of modeline-fields for the echo area window's
      modeline which is used for general information."
     :value (list (make-modeline-field
-                  :name :hemlock-banner
+                  :name :heml-banner
                   :function #'(lambda (buffer window)
                                 (declare (ignore buffer window))
-                                (format nil "Hemlock ~A on ~A "
-                                        *hemlock-version*
+                                (format nil "Heml ~A on ~A "
+                                        *heml-version*
                                         (lisp-implementation-type))))
                  (modeline-field :edit-level)
                  (modeline-field :completion)))
@@ -291,7 +291,7 @@ GB
 
 (defun command-line-keys (keys)
   "KEYS, from PROCESS-COMMAND-LINE-OPTIONS, with --backend and the
-   --tty et al. flags folded into :BACKEND-TYPE, the keyword HEMLOCK and
+   --tty et al. flags folded into :BACKEND-TYPE, the keyword HEML and
    START-SLAVE take."
   (let ((backend (or (getf keys :backend)
                      (find-if (lambda (b) (getf keys b)) *backend-options*)))
@@ -303,9 +303,9 @@ GB
         others)))
 
 (defun show-cmd-line-help ()
-  (format t "This is hemlock ~A.~%Usage:~%~%" *hemlock-version*)
+  (format t "This is heml ~A.~%Usage:~%~%" *heml-version*)
   (format t "   ~A [OPTIONS] file...~%~%"
-          (or (uiop:argv0) "hemlock"))
+          (or (uiop:argv0) "heml"))
   (format t "Options are:~%~%")
   (show-option-help *command-line-spec*)  )
 
@@ -359,9 +359,9 @@ GB
         (force-output))
        (slave
         (assert (null rest))
-        (apply #'hemlock:start-slave keys))
+        (apply #'heml:start-slave keys))
        (t
-        (apply #'hemlock rest keys))))))
+        (apply #'heml rest keys))))))
 
 (defmacro with-editor
     ((&key (load-user-init t) backend-type display) &body body)
@@ -370,25 +370,25 @@ GB
                      :backend-type ,backend-type
                      :display ,display))
 
-;;; This function is the user-visible entry point to the Hemlock editor.
+;;; This function is the user-visible entry point to the Heml editor.
 ;;; It calls out to CALL-WITH-EDITOR and COMMAND-LOOP to do the hard work.
 ;;;
 ;;; In addition to those, it runs entry and exit hooks.
 ;;;
 ;;; This function may also be when already in the editor, or when in a slave,
 ;;; and merely processes the command line argument in that case, allowing ED
-;;; to work when already in Hemlock.
+;;; to work when already in Heml.
 ;;;
-(defun hemlock (&optional x
+(defun heml (&optional x
                 &key (load-user-init t)
                      backend-type
                      (display (isys:getenv "DISPLAY")))
-  "Invokes the editor, Hemlock.  If X is supplied and is a symbol, the
+  "Invokes the editor, Heml.  If X is supplied and is a symbol, the
    definition of X is put into a buffer, and that buffer is selected.  If X is
    a pathname, the file specified by X is visited in a new buffer.  If X is not
    supplied or Nil, the editor is entered in the same state as when last
    exited.  When :init is supplied as t (the default), the file
-   \"hemlock-init.lisp\", or \".hemlock-init.lisp\" is loaded from the home
+   \"heml-init.lisp\", or \".heml-init.lisp\" is loaded from the home
    directory, but the Lisp command line switch -hinit can be used to specify a
    different name.  Any compiled version of the source is preferred when
    choosing the file to load.  If the argument is non-nil and not t, then it
@@ -396,18 +396,18 @@ GB
   (cond
     (*in-the-editor*
      (process-command-line-argument x))
-    (*in-hemlock-slave-p*
-     (hemlock.wire:remote-value (hemlock::ts-stream-wire *terminal-io*)
+    (*in-heml-slave-p*
+     (heml.wire:remote-value (heml::ts-stream-wire *terminal-io*)
                                 (process-command-line-argument x)))
     (t
      (with-editor (:load-user-init load-user-init
                    :backend-type backend-type
                    :display display)
        (process-command-line-argument x)
-       (invoke-hook hemlock::entry-hook)
+       (invoke-hook heml::entry-hook)
        (unwind-protect
             (command-loop)
-         (invoke-hook hemlock::exit-hook))))))
+         (invoke-hook heml::exit-hook))))))
 
 (defun command-loop ()
   (let ((*standard-input* *illegal-read-stream*)
@@ -418,7 +418,7 @@ GB
            (handler-bind
                ((error #'(lambda (condition)
                            (lisp-error-error-handler condition :internal))))
-             (invoke-hook hemlock::abort-hook)
+             (invoke-hook heml::abort-hook)
              (%command-loop)))))))
 
 (defvar *main-event-base* nil)
@@ -432,7 +432,7 @@ GB
 (defmethod invoke-with-editor-thread ((backend-type t) fun)
   (funcall fun))
 
-;;; This function does all the hard work for Hemlock initialization, in
+;;; This function does all the hard work for Heml initialization, in
 ;;; particular backend initialization.  It differs from the main function
 ;;; in that it lets the caller take control once initialization is done,
 ;;; instead of entering the command loop.
@@ -461,7 +461,7 @@ GB
                   (make-event-loop *connection-backend*)))
       (let* ((*in-the-editor* t)
              (display (unless *editor-has-been-entered*
-                        (maybe-load-hemlock-init load-user-init)
+                        (maybe-load-heml-init load-user-init)
                         ;; Device dependent initializaiton.
                         (init-raw-io backend-type display))))
         (catch 'editor-top-level-catcher
@@ -473,7 +473,7 @@ GB
               (setq *editor-has-been-entered* t)
               ;; Pick up user initializations to be done after initialization.
               (invoke-hook (reverse *after-editor-initializations-funs*)))
-            (catch 'hemlock-exit
+            (catch 'heml-exit
               (funcall fun))))))))
 
 (defun process-command-line-argument (x)
@@ -495,34 +495,34 @@ GB
            (*standard-output* (buffer-point buffer))
          (eval `(grindef ,x))   ; hackish, I know...
          (terpri)
-         (hemlock::change-to-buffer buffer)
+         (heml::change-to-buffer buffer)
          (buffer-start (buffer-point buffer)))))
     ((or string pathname)
-     (hemlock::find-file-command () x))
+     (heml::find-file-command () x))
     (t
      (error
       "~S is not a symbol or pathname.  I can't edit it!" x))))
 
-(defvar *in-hemlock-slave-p* nil)
+(defvar *in-heml-slave-p* nil)
 
-(defun hemlock-ed-function (&optional x)
-  (hemlock x)
+(defun heml-ed-function (&optional x)
+  (heml x)
   t)
 
-(pushnew 'hemlock-ed-function #+sbcl sb-ext:*ed-functions* #+ecl ext:*ed-functions*)
+(pushnew 'heml-ed-function #+sbcl sb-ext:*ed-functions* #+ecl ext:*ed-functions*)
 
 
-(defun maybe-load-hemlock-init (init)
+(defun maybe-load-heml-init (init)
   (when init
     (let ((names
            (if (typep init '(or string pathname))
                (list init)
                (let ((home (user-homedir-pathname)))
-                 (list (merge-pathnames ".hemlock.lisp" home)
-                       (merge-pathnames ".hemlock/hemlock.lisp" home)
+                 (list (merge-pathnames ".heml.lisp" home)
+                       (merge-pathnames ".heml/heml.lisp" home)
                        ;; Also support one of the traditional pathnames for
                        ;; CMUCL compatibility:
-                       (merge-pathnames ".hemlock-init.lisp" home))))))
+                       (merge-pathnames ".heml-init.lisp" home))))))
       (dolist (name names)
         (when (probe-file name)
           (load name :verbose t)
@@ -575,11 +575,11 @@ GB
 ;; why, and I don't know if we can repair it.
 ;; --GB
 
-(unless *hemlock-initialized*
-  (%init-hemlock))
+(unless *heml-initialized*
+  (%init-heml))
 
 (defvar *installation-directory* nil)
 
 (defun installation-directory ()
   (or *installation-directory*
-      (asdf:component-pathname (asdf:find-system :hemlock.base))))
+      (asdf:component-pathname (asdf:find-system :heml.base))))

@@ -12,7 +12,7 @@
 ;;; This file contains implementation independant functions that
 ;;; build window images from the buffer structure.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defvar the-sentinel
   (list (make-window-dis-line ""))

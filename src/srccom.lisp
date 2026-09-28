@@ -7,12 +7,12 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Source comparison stuff for Hemlock.
+;;; Source comparison stuff for Heml.
 ;;;
 ;;; Written by Skef Wholey and Bill Chiles.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defhvar "Source Compare Ignore Extra Newlines"
   "If T, Source Compare and Source Merge will treat all groups of newlines
@@ -363,7 +363,7 @@
 
 ;;; SRCCOM-CHOOSE-COMPARISON-FUNCTIONS -- Internal.
 ;;;
-;;; This initializes utility functions for comparison commands based on Hemlock
+;;; This initializes utility functions for comparison commands based on Heml
 ;;; variables.
 ;;;
 (defun srccom-choose-comparison-functions ()

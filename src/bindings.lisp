@@ -10,7 +10,7 @@
 ;;; Some bindings:
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -33,13 +33,13 @@
 
 ;;; Self insert letters:
 ;;;
-(hemlock-ext:do-alpha-key-events (key-event :both)
+(heml-ext:do-alpha-key-events (key-event :both)
                                  (bind-key "Self Insert" key-event))
 
 ;;; ... and every other character, as it gets a key-event of its own the
-;;; first time it is typed (HEMLOCK-EXT:CHARACTER-KEY-EVENT).
+;;; first time it is typed (HEML-EXT:CHARACTER-KEY-EVENT).
 ;;;
-(setf hemlock-ext::*new-character-key-event-hook*
+(setf heml-ext::*new-character-key-event-hook*
       (lambda (key-event) (bind-key "Self Insert" key-event)))
 
 (bind-key "Beginning of Line" #k"control-a")
@@ -126,7 +126,7 @@
 (bind-key "Top of Window" #k"meta-,")
 #+nil (bind-key "Bottom of Window" #k"meta-.")
 
-#+nil (bind-key "Exit Hemlock" #k"control-x control-c")
+#+nil (bind-key "Exit Heml" #k"control-x control-c")
 (bind-key "Exit Recursive Edit" #k"control-meta-z")
 (bind-key "Abort Recursive Edit" #k"control-]")
 
@@ -501,7 +501,7 @@
 ;;; Do up the printing characters ...
 (do ((i 33 (1+ i)))
     ((= i 126))
-  (let ((key-event (hemlock-ext:char-key-event (code-char i))))
+  (let ((key-event (heml-ext:char-key-event (code-char i))))
     (bind-key "Self Overwrite" key-event :mode "Overwrite")))
 
 (bind-key "Self Overwrite" #k"space" :mode "Overwrite")
@@ -711,11 +711,11 @@
 
 ;;;; Caps-Lock mode.
 
-(hemlock-ext:do-alpha-key-events (key-event :lower)
+(heml-ext:do-alpha-key-events (key-event :lower)
                                  (bind-key "Self Insert Caps Lock" key-event :mode "CAPS-LOCK"))
 
 
-;;;; phemlock changes
+;;;; pheml changes
 
 (bind-key "Scroll Window Down" #k"pagedown")
 (bind-key "Scroll Window Up"   #k"pageup")

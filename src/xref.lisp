@@ -10,7 +10,7 @@
 ;;; This file contains Xref code, for M-. and other commands.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -122,14 +122,14 @@
       t)))
 
 (defun %find-definitions (label xref-fun name)
-  (let* ((sym (hemlock::resolve-slave-symbol name nil))
+  (let* ((sym (heml::resolve-slave-symbol name nil))
          (data
           (and sym
                (mapcar (lambda (def)
                          (cons (princ-to-string (car def))
                                (cdr def)))
                        (funcall xref-fun sym)))))
-    (hemlock::eval-in-master `(%definitions-found ',label ',name ',data))))
+    (heml::eval-in-master `(%definitions-found ',label ',name ',data))))
 
 (defun %definitions-found (label name data)
   (let ((entries (mapcar #'make-xref-entry data)))
@@ -142,12 +142,12 @@
       (make-xref-buffer entries)))))
 
 (defun find-definitions (name)
-  (hemlock::eval-in-slave
+  (heml::eval-in-slave
    `(%find-definitions "definition" 'conium:find-definitions ',name)))
 
 (defcommand "Find Definitions" (p)
   "" ""
-  (let ((default (hemlock::symbol-string-at-point)))
+  (let ((default (heml::symbol-string-at-point)))
     ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
     ;; will get random forms rather than a symbol.  Let's at least
     ;; catch the case where the result is more than a line long,
@@ -155,9 +155,9 @@
     (when (find #\newline default)
       (setf default nil))
     (find-definitions
-     (hemlock::parse-slave-symbol
+     (heml::parse-slave-symbol
       (if (or p (not default))
-          (hemlock-interface::prompt-for-string
+          (heml-interface::prompt-for-string
            :prompt "Name: "
            :default default)
           default)))))
@@ -167,7 +167,7 @@
        `(progn
           (defcommand ,name (p)
             "" ""
-            (let ((default (hemlock::symbol-string-at-point)))
+            (let ((default (heml::symbol-string-at-point)))
               ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
               ;; will get random forms rather than a symbol.  Let's at least
               ;; catch the case where the result is more than a line long,
@@ -175,14 +175,14 @@
               (when (find #\newline default)
                 (setf default nil))
               (,fun
-               (hemlock::parse-slave-symbol
+               (heml::parse-slave-symbol
                 (if (or p (not default))
-                    (hemlock-interface::prompt-for-string
+                    (heml-interface::prompt-for-string
                      :prompt "Name: "
                      :default default)
                     default)))))
           (defun ,fun (name)
-            (hemlock::eval-in-slave
+            (heml::eval-in-slave
              (list '%find-definitions
                    (list 'quote ',name)
                    (list 'quote ',conium-fun)

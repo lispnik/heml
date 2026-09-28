@@ -11,7 +11,7 @@
 ;;; General idea stolen from Jim Salem's TMC LISPM completion code.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -176,7 +176,7 @@
 
 
 
-;;;; Hemlock interface.
+;;;; Heml interface.
 
 (defmode "Completion" :transparent-p t :precedence 10.0
   :documentation
@@ -218,7 +218,7 @@
    argument insert the character that many times."
   "Implements \"Completion Self Insert\". Calling this function is not
    meaningful."
-  (let ((char (hemlock-ext:key-event-char *last-key-event-typed*)))
+  (let ((char (heml-ext:key-event-char *last-key-event-typed*)))
     (unless char (editor-error "Can't insert that character."))
     (cond ((completion-char-p char)
            ;; If start of word not already in *completion-prefix*, put it
@@ -388,7 +388,7 @@
   :value nil)
 
 (defvar *completion-default-default-database-filename*
-  "hemlock-completions.txt"
+  "heml-completions.txt"
   "The file that will be defaultly written to and read from by \"Save
    Completions\" and \"Read Completions\".")
 
@@ -540,7 +540,7 @@
 (defun %find-symbol-completion/request
        (show-matches-p prefix packname symname)
   (let ((matches (%find-symbol-completion-matches packname symname)))
-    (hemlock::eval-in-master
+    (heml::eval-in-master
      `(%find-symbol-completion/results 
        ',show-matches-p ',prefix ',matches))))
 
@@ -611,7 +611,7 @@
                                      (string-downcase (subseq prefix (1+ p))))
                              (values nil
                                      (string-downcase prefix))))
-    (hemlock::eval-in-slave
+    (heml::eval-in-slave
      `(%find-symbol-completion/request
        ',(and show-matches-p t)
        ',package-prefix

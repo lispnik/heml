@@ -10,9 +10,9 @@
 ;;; Registers for holding text and positions.
 ;;;
 ;;; Written by Dave Touretzky.
-;;; Modified by Bill Chiles for Hemlock consistency.
+;;; Modified by Bill Chiles for Heml consistency.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -132,7 +132,7 @@
   (with-pop-up-display (f :height (* 2 (register-count)))
     (do-registers (name val :sorted)
       (write-string "Reg " f)
-      (hemlock-ext:print-pretty-key-event name f)
+      (heml-ext:print-pretty-key-event name f)
       (write-string ":  " f)
       (etypecase val
         (mark

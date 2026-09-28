@@ -1,8 +1,8 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 ;;;
-;;; Slave Apropos (as opposed to "hemlock com>mand name apropos" aka Apropos)
+;;; Slave Apropos (as opposed to "heml com>mand name apropos" aka Apropos)
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -111,7 +111,7 @@
 
 (defcommand "Slave Apropos Ignoring Point"
             (p &optional (str
-                          (hemlock-interface::prompt-for-string
+                          (heml-interface::prompt-for-string
                            :prompt "Apropos string: ")))
   "" ""
   (declare (ignore p))
@@ -120,7 +120,7 @@
 (defcommand "Slave Apropos" (p)
   "" ""
   (declare (ignore p))
-  (let ((default (hemlock::symbol-string-at-point)))
+  (let ((default (heml::symbol-string-at-point)))
     ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
     ;; will get random forms rather than a symbol.  Let's at least
     ;; catch the case where the result is more than a line long,
@@ -128,12 +128,12 @@
     (when (find #\newline default)
       (setf default nil))
     (slave-apropos
-     (hemlock-interface::prompt-for-string
+     (heml-interface::prompt-for-string
       :prompt "Apropos string: "
       :default default))))
 
 (defun slave-apropos (str)
-  (hemlock::eval-in-slave `(%apropos ',str)))
+  (heml::eval-in-slave `(%apropos ',str)))
 
 (defun %apropos (str)
   (let ((data
@@ -141,7 +141,7 @@
                    (cons (make-slave-symbol sym)
                          (conium:describe-symbol-for-emacs sym)))
                  (apropos-list str))))
-    (hemlock::eval-in-master `(%apropos-results ',data ',str))))
+    (heml::eval-in-master `(%apropos-results ',data ',str))))
 
 (defun %apropos-results (data str)
   (let ((entries (mapcar #'parse-apropos-entry data)))

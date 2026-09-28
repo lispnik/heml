@@ -12,9 +12,9 @@
 ;;; Written by Bill Chiles and Rob MacLachlan.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
-(defvar *kill-ring* (make-ring 10) "The Hemlock kill ring.")
+(defvar *kill-ring* (make-ring 10) "The Heml kill ring.")
 
 ;;; The kill ring and a window system's clipboard, as Emacs joins them.  A
 ;;; backend with a clipboard sets these; the commands that kill or save a

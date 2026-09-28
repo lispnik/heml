@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-;;;; The editor-thread half of the Cocoa backend: Hemlock's device, its
+;;;; The editor-thread half of the Cocoa backend: Heml's device, its
 ;;;; hunks, editor input, and the redisplay methods that copy dis-lines into
 ;;;; the screen.  Window management is the TTY backend's (tty-screen.lisp):
 ;;;; the display is a grid of character cells, just as a terminal's is.
@@ -10,7 +10,7 @@
 ;;;; text line; the text starts at TEXT-POSITION - TEXT-HEIGHT + 1.  COLUMN
 ;;;; and WIDTH say which columns are its.  layout.lisp sets them all.
 
-(in-package :hemlock.cocoa)
+(in-package :heml.cocoa)
 
 (pushnew :cocoa hi::*available-backends*)
 
@@ -43,7 +43,7 @@
 
 (defmethod hi::clear-editor-input ((stream cocoa-editor-input))
   (take-inbox)
-  (hemlock-ext:without-interrupts
+  (heml-ext:without-interrupts
     (let* ((head (hi::editor-input-head stream))
            (next (hi::input-event-next head)))
       (when next
@@ -63,21 +63,21 @@
 
 (defun modifier-bits (names)
   (reduce #'logior names
-          :key #'hemlock-ext::key-event-modifier-mask
+          :key #'heml-ext::key-event-modifier-mask
           :initial-value 0))
 
 (defun descriptor-key-event (descriptor)
   (destructuring-bind (kind thing modifiers) descriptor
     (let ((bits (modifier-bits modifiers)))
       (ecase kind
-        (:named (hemlock-ext::make-key-event thing bits))
-        ;; Any character: one Hemlock has no keysym for gets one, bound to
+        (:named (heml-ext::make-key-event thing bits))
+        ;; Any character: one Heml has no keysym for gets one, bound to
         ;; Self Insert, the first time it is typed.
-        (:char (let ((key-event (hemlock-ext:character-key-event thing)))
+        (:char (let ((key-event (heml-ext:character-key-event thing)))
                  (and key-event
                       (if (zerop bits)
                           key-event
-                          (hemlock-ext:make-key-event key-event bits)))))))))
+                          (heml-ext:make-key-event key-event bits)))))))))
 
 (defvar *menu-commands* '()
   "Menu commands waiting for the command loop, oldest first, each (name
@@ -100,7 +100,7 @@ included."
   (hi::q-event hi::*real-editor-input* key-event))
 
 (defun process-inbox ()
-  "Turn what the main thread has posted into Hemlock input.  Runs as the
+  "Turn what the main thread has posted into Heml input.  Runs as the
 wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
   (dolist (item (take-inbox))
     (handler-case
@@ -108,15 +108,15 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
           ((eq item :quit)
            ;; What C-x C-c does, whatever it is bound to.
            (let ((control (modifier-bits '("Control"))))
-             (queue-key-event (hemlock-ext::make-key-event "x" control))
-             (queue-key-event (hemlock-ext::make-key-event "c" control))))
+             (queue-key-event (heml-ext::make-key-event "x" control))
+             (queue-key-event (heml-ext::make-key-event "c" control))))
           ((eq (car item) :resize)
            (resize-screen (current-device) (second item) (third item)))
           ((eq (car item) :command)
            ;; A menu's command: kept here, and run by the command loop
            ;; when it reads the key that says so.
            (setf *menu-commands* (append *menu-commands* (list (rest item))))
-           (queue-key-event (hemlock-ext:make-key-event "Menucommand" 0)))
+           (queue-key-event (heml-ext:make-key-event "Menucommand" 0)))
           ((eq (car item) :open)
            ;; As a file named on the command line is visited.
            (hi::process-command-line-argument (second item)))
@@ -132,7 +132,7 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
       (error (condition) (log-error "input" condition)))))
 
 ;;; Mouse input is a key-event queued with the position it happened at, the
-;;; way Hemlock's pointer commands expect (LAST-KEY-EVENT-CURSORPOS): X and
+;;; way Heml's pointer commands expect (LAST-KEY-EVENT-CURSORPOS): X and
 ;;; Y within the window's text, Y NIL on its modeline, and the hunk.
 ;;;
 (defun locate-cell (column line)
@@ -218,7 +218,7 @@ that, and should not also reach the editor as a key."
 (defun queue-mouse-event (name modifiers column line)
   (multiple-value-bind (x y hunk) (locate-cell column line)
     (hi::q-event hi::*real-editor-input*
-                 (hemlock-ext:make-key-event name (modifier-bits modifiers))
+                 (heml-ext:make-key-event name (modifier-bits modifiers))
                  x y hunk)))
 
 ;;; What makes the editor behave as a Mac application.  A click moves point
@@ -231,7 +231,7 @@ that, and should not also reach the editor as a key."
 ;;;
 (defun install-mac-bindings ()
   (flet ((key (name &rest modifiers)
-           (hemlock-ext:make-key-event name (modifier-bits modifiers))))
+           (heml-ext:make-key-event name (modifier-bits modifiers))))
     (hi::bind-key "Mouse Set Point" (key "Leftdown"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup"))
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
@@ -241,10 +241,10 @@ that, and should not also reach the editor as a key."
     (hi::bind-key "Mouse Point Unless In Region" (key "Rightdown"))
     (hi::bind-key "Do Nothing" (key "Rightup"))
     (hi::bind-key "Menu Command" (key "Menucommand")))
-  (setf hemlock::*active-region-highlight-font* '(:bg :selection)
-        hemlock::*interprogram-cut-function*
+  (setf heml::*active-region-highlight-font* '(:bg :selection)
+        heml::*interprogram-cut-function*
         (lambda (text) (on-main-thread (write-pasteboard text)))
-        hemlock::*interprogram-paste-function*
+        heml::*interprogram-paste-function*
         (lambda () (call-on-main-thread-and-wait #'read-pasteboard-if-changed))))
 
 (defvar *wakeup-connection* nil)
@@ -272,7 +272,7 @@ that, and should not also reach the editor as a key."
   (let* ((device (make-instance 'cocoa-device :name "Cocoa"))
          (width (screen-columns *screen*))
          (height (screen-lines *screen*))
-         (echo-height (hi::value hemlock::echo-area-height))
+         (echo-height (hi::value heml::echo-area-height))
          (main-lines (- height echo-height 1))
          (main-text-lines (1- main-lines))
          (last-text-line (1- main-text-lines)))

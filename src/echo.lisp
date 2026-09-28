@@ -7,11 +7,11 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock Echo Area stuff.
+;;; Heml Echo Area stuff.
 ;;; Written by Skef Wholey and Rob MacLachlan.
 ;;; Modified by Bill Chiles.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defmode "Echo Area" :major-p t)
 (defvar *echo-area-buffer* (make-buffer "Echo Area" :modes '("Echo Area"))
@@ -19,7 +19,7 @@
 (defvar *echo-area-region* (buffer-region *echo-area-buffer*)
   "Internal thing that's the *echo-area-buffer*'s region.")
 (defvar *echo-area-stream*
-  (make-hemlock-output-stream (region-end *echo-area-region*) :full)
+  (make-heml-output-stream (region-end *echo-area-region*) :full)
   "Buffered stream that prints into the echo area.")
 (defvar *echo-area-window* ()
   "Window used to display stuff in the echo area.")
@@ -370,7 +370,7 @@
     (parse-for-something)))
 
 
-(defvar hemlock-eof '(())
+(defvar heml-eof '(())
   "An object that won't be EQ to anything read.")
 
 (defun prompt-for-expression (&key ((:must-exist *parse-value-must-exist*) t)
@@ -383,11 +383,11 @@
   (let ((*parse-verification-function*
          #'(lambda (string)
              (let ((expr (with-input-from-region (stream *parse-input-region*)
-                           (handler-case (read stream nil hemlock-eof)
-                             (error () hemlock-eof)))))
+                           (handler-case (read stream nil heml-eof)
+                             (error () heml-eof)))))
                (if *parse-value-must-exist*
-                   (if (not (eq expr hemlock-eof)) (values (list expr) t))
-                   (if (eq expr hemlock-eof)
+                   (if (not (eq expr heml-eof)) (values (list expr) t))
+                   (if (eq expr heml-eof)
                        (list string) (values (list expr) t))))))
         (*parse-default* (if defaultp (prin1-to-string default))))
       (parse-for-something)))
@@ -490,7 +490,7 @@
                          (return default)
                          (beep)))
                     ((logical-key-event-p key-event :help)
-                     (hemlock::help-on-parse-command ()))
+                     (heml::help-on-parse-command ()))
                     (t
                      (unless must-exist (return key-event))
                      (beep))))))
@@ -546,13 +546,13 @@
                              (t
                               (go FLAME))))
                       ((logical-key-event-p key-event :help)
-                       (hemlock::help-on-parse-command ())
+                       (heml::help-on-parse-command ())
                        (go TOP)))
                 (vector-push-extend key-event key)
                 (when must-exist
                   (let ((res (get-command key :current)))
                     (cond ((commandp res)
-                           (hemlock-ext:print-pretty-key-event key-event
+                           (heml-ext:print-pretty-key-event key-event
                                                        *echo-area-stream*
                                                        t)
                            (write-char #\space *echo-area-stream*)
@@ -561,7 +561,7 @@
                           ((not (eq res :prefix))
                            (vector-pop key)
                            (go FLAME)))))
-                (hemlock-ext:print-pretty-key key-event *echo-area-stream* t)
+                (heml-ext:print-pretty-key key-event *echo-area-stream* t)
                 (write-char #\space *echo-area-stream*)
                 (force-output *echo-area-stream*)
                 (go TOP)
@@ -699,7 +699,7 @@
                 (logical-key-event-key-events char)
                 (cdr key-events)))
               ((null key-events))
-            (hemlock-ext:print-pretty-key (car key-events) s)
+            (heml-ext:print-pretty-key (car key-events) s)
             (unless (null (cdr key-events))
               (write-string ", " s))))
       (unless (null (cdr chars))

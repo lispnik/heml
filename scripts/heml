@@ -1,11 +1,11 @@
 #!/bin/sh
-# xoamax -- Xoamax from a terminal.  Installed in Xoamax.app as
-# Contents/Resources/bin/xoamax, and linked onto the PATH by
+# heml -- Heml from a terminal.  Installed in Heml.app as
+# Contents/Resources/bin/heml, and linked onto the PATH by
 # `make install-cli`.
 #
-#   xoamax [file ...]         the Cocoa editor, in a window
-#   xoamax --tty [file ...]   the terminal editor, in this terminal
-#   xoamax --help             the editor's options
+#   heml [file ...]         the Cocoa editor, in a window
+#   heml --tty [file ...]   the terminal editor, in this terminal
+#   heml --help             the editor's options
 #
 # The bundle's executable is the SBCL runtime, which reads its own options
 # before it loads the editor's core: it would take --help and --version for
@@ -23,6 +23,6 @@ done
 
 app=$(cd "$(dirname "$self")/../../.." && pwd) || exit 1
 
-exec "$app/Contents/MacOS/xoamax" \
+exec "$app/Contents/MacOS/heml" \
      --core "$app/Contents/Resources/sbcl.core" \
      --noinform --end-runtime-options "$@"

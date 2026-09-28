@@ -13,7 +13,7 @@
 ;;;   paragraph and region filling stuff is here.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;; Fill Mode should be defined with some transparent bindings (linefeed and

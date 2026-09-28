@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;; Use #.*fast* for optimizations.
 
@@ -58,4 +58,4 @@
 
 (declfun window-buffer (window))
 (declfun change-to-buffer (buffer))     ;filecoms.lisp
-(declfun hemlock::to-line-comment (mark start)) ;defined in comments.lisp used in lispbuf.lisp
+(declfun heml::to-line-comment (mark start)) ;defined in comments.lisp used in lispbuf.lisp

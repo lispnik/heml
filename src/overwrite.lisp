@@ -10,7 +10,7 @@
 ;;;    Written by Bill Chiles.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defmode "Overwrite")
 
@@ -30,7 +30,7 @@
   "Replace the next character with the last character typed,
    but insert at end of line.  With prefix argument, do it that many times."
   "Implements ``Self Overwrite'', calling this function is not meaningful."
-  (let ((char (hemlock-ext:key-event-char *last-key-event-typed*))
+  (let ((char (heml-ext:key-event-char *last-key-event-typed*))
         (point (current-point)))
     (unless char (editor-error "Can't insert that character."))
     (do ((n (or p 1) (1- n)))

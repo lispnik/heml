@@ -10,7 +10,7 @@
 ;;; This file contains Bufed (Buffer Editing) code.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 

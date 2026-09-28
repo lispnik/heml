@@ -7,11 +7,11 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock Documentation and Help commands.
+;;; Heml Documentation and Help commands.
 ;;; Written by Rob MacLachlan and Bill Chiles.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -30,7 +30,7 @@
      (apropos-command nil))
     (#\d "Describe a command, given its name."
      (describe-command-command nil))
-    (#\g "Generic describe, any Hemlock thing (e.g., variables, keys, attributes)."
+    (#\g "Generic describe, any Heml thing (e.g., variables, keys, attributes)."
      (generic-describe-command nil))
     (#\v "Describe variable and show its values."
      (describe-and-show-variable-command nil))
@@ -198,19 +198,19 @@
             (let ((key-event (get-key-event hi::*editor-input*)))
               (vector-push-extend key-event hi::*prompt-key*)
               (let ((res (get-command hi::*prompt-key* :current)))
-                (hemlock-ext:print-pretty-key-event key-event *echo-area-stream*)
+                (heml-ext:print-pretty-key-event key-event *echo-area-stream*)
                 (write-char #\space *echo-area-stream*)
                 (finish-output *echo-area-stream*)
                 (cond ((commandp res)
                        (with-pop-up-display (s)
-                         (hemlock-ext:print-pretty-key (copy-seq hi::*prompt-key*) s)
+                         (heml-ext:print-pretty-key (copy-seq hi::*prompt-key*) s)
                          (format s " is bound to ~S.~%" (command-name res))
                          (format s "Documentation for this command:~%   ~A"
                                  (command-documentation res)))
                        (return))
                       ((not (eq res :prefix))
                        (with-pop-up-display (s :height 1)
-                         (hemlock-ext:print-pretty-key (copy-seq hi::*prompt-key*) s)
+                         (heml-ext:print-pretty-key (copy-seq hi::*prompt-key*) s)
                          (write-string " is not bound to anything." s))
                        (return)))))))
       #+echo-area-is-separate-window
@@ -243,7 +243,7 @@
         (let ((key (car b)))
           (declare (simple-vector key))
           (when (dotimes (i (length key) nil)
-                  (when (member (hemlock-ext:make-key-event (svref key i))
+                  (when (member (heml-ext:make-key-event (svref key i))
                                 (list #k"Leftdown" #k"Leftup" #k"Middledown"
                                       #k"Middleup" #k"Rightdown" #k"Rightup"))
                     (push cmd result)
@@ -262,11 +262,11 @@
                              ("Attribute" . :attribute)))))
 
 (defcommand "Generic Describe" (p)
-  "Describe some Hemlock thing.
+  "Describe some Heml thing.
   First prompt for the kind of thing, then prompt for the thing to describe.
   Currently supported kinds of things are variables, commands, keys and
   character attributes."
-  "Prompt for some Hemlock thing to describe."
+  "Prompt for some Heml thing to describe."
   (declare (ignore p))
   (multiple-value-bind (ignore kwd)
                        (prompt-for-keyword *generic-describe-kinds*
@@ -303,8 +303,8 @@
 ;;;; Describing and show variables.
 
 (defcommand "Show Variable" (p)
-  "Display the values of a Hemlock variable."
-  "Display the values of a Hemlock variable."
+  "Display the values of a Heml variable."
+  "Display the values of a Heml variable."
   (declare (ignore p))
   (multiple-value-bind (name var)
                        (prompt-for-variable
@@ -330,16 +330,16 @@
         (show-variable s name var buffer)))))
 
 (defun show-variable (s name var buffer)
-  (when (hemlock-bound-p var :global)
+  (when (heml-bound-p var :global)
     (format s "Global value of ~S:~%  ~S~%"
             name (variable-value var :global)))
-  (when (hemlock-bound-p var :buffer buffer)
+  (when (heml-bound-p var :buffer buffer)
     (format s "Value of ~S in buffer ~A:~%  ~S~%"
             name (buffer-name buffer)
             (variable-value var :buffer buffer)))
   (do-strings (mode-name val *mode-names*)
     (declare (ignore val))
-    (when (hemlock-bound-p var :mode mode-name)
+    (when (heml-bound-p var :mode mode-name)
       (format s "Value of ~S in ~S Mode:~%  ~S~%"
               name mode-name
               (variable-value var :mode mode-name)))))
@@ -388,7 +388,7 @@
 
 (defun key-to-string (key)
   (with-output-to-string (s)
-    (hemlock-ext:print-pretty-key key s)))
+    (heml-ext:print-pretty-key key s)))
 
 
 
@@ -403,7 +403,7 @@
       (format s "The last ~D characters typed:~%" num)
       (do ((i (1- num) (1- i)))
           ((minusp i))
-        (hemlock-ext:print-pretty-key-event (ring-ref *key-event-history* i) s)
+        (heml-ext:print-pretty-key-event (ring-ref *key-event-history* i) s)
         (write-char #\space s)))))
 
 (defun print-command-bindings (bindings stream)
@@ -441,6 +441,6 @@
 (defun print-some-keys (keys stream)
   (do ((key keys (cdr key)))
       ((null (cdr key))
-       (hemlock-ext:print-pretty-key (car key) stream))
-    (hemlock-ext:print-pretty-key (car key) stream)
+       (heml-ext:print-pretty-key (car key) stream))
+    (heml-ext:print-pretty-key (car key) stream)
     (write-string ", " stream)))

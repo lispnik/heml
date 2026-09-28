@@ -13,7 +13,7 @@
 ;;; Written by William Lott and Rob MacLachlan.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;; The note structure holds everything we need to know about an
@@ -89,7 +89,7 @@
       (send-note next))))
 
 (defun send-note (note)
-  (let* ((remote (hemlock.wire:make-remote-object note))
+  (let* ((remote (heml.wire:make-remote-object note))
          (server (note-server note))
          (ts (server-info-slave-info server))
          (bg (server-info-background-info server))
@@ -98,13 +98,13 @@
     (message "Sending ~A." (note-context note))
     (case (note-kind note)
       (:eval
-       (hemlock.wire:remote wire
+       (heml.wire:remote wire
          (server-eval-text remote
                            (note-package note)
                            (note-text note)
                            (and ts (ts-data-stream ts)))))
       (:compile
-       (hemlock.wire:remote wire
+       (heml.wire:remote wire
          (server-compile-text remote
                               (note-package note)
                               (note-text note)
@@ -116,7 +116,7 @@
                     `(if (pathnamep ,x)
                        (namestring ,x)
                        ,x)))
-         (hemlock.wire:remote wire
+         (heml.wire:remote wire
            (server-compile-file remote
                                 (note-package note)
                                 (frob (or (note-net-input-file note)
@@ -130,13 +130,13 @@
                                 (and bg (ts-data-stream bg))))))
       (t
        (error "Unknown note kind ~S" (note-kind note))))
-    (hemlock.wire:wire-force-output wire)))
+    (heml.wire:wire-force-output wire)))
 
 
 ;;;; Server Callbacks.
 
 (defun operation-started (note)
-  (let ((note (hemlock.wire:remote-object-value note)))
+  (let ((note (heml.wire:remote-object-value note)))
     (setf (note-state note) :running)
     (message "The ~A started." (note-context note)))
   (values))
@@ -146,14 +146,14 @@
 
 (defun lisp-error (note start end msg)
   (declare (ignore start end))
-  (let ((note (hemlock.wire:remote-object-value note)))
+  (let ((note (heml.wire:remote-object-value note)))
     (loud-message "During ~A: ~A"
                   (note-context note)
                   msg))
   (values))
 
 (defun compiler-error (note start end function severity)
-  (let* ((note (hemlock.wire:remote-object-value note))
+  (let* ((note (heml.wire:remote-object-value note))
          (server (note-server note))
          (line (mark-line
                 (buffer-end-mark
@@ -202,10 +202,10 @@
   (values))
 
 (defun operation-completed (note abortp)
-  (let* ((note (hemlock.wire:remote-object-value note))
+  (let* ((note (heml.wire:remote-object-value note))
          (server (note-server note))
          (file (note-output-file note)))
-    (hemlock.wire:forget-remote-translation note)
+    (heml.wire:forget-remote-translation note)
     (setf (note-state note) :dead)
     (setf (server-info-notes server)
           (delete note (server-info-notes server)
@@ -269,13 +269,13 @@
 (defun eval-in-master (form)
   (if *synchronous-evaluation-of-slave-requests-in-the-master*
       (eval form)
-      (hemlock.wire:remote hemlock.wire::*current-wire*
+      (heml.wire:remote heml.wire::*current-wire*
         (eval-safely-in-master form))))
 
 (defun eval-in-slave (form)
   (if *synchronous-evaluation-of-slave-requests-in-the-master*
       (eval form)
-      (hemlock.wire:remote (server-info-wire (get-current-eval-server))
+      (heml.wire:remote (server-info-wire (get-current-eval-server))
         (eval-safely-in-slave form))))
 
 ;;; EVAL-FORM-IN-SERVER -- Public.
@@ -295,7 +295,7 @@
     (editor-error "Server ~S is currently busy.  See \"List Operations\"."
                   (server-info-name server-info)))
   (multiple-value-bind (values error)
-                       (hemlock.wire:remote-value (server-info-wire server-info)
+                       (heml.wire:remote-value (server-info-wire server-info)
                          (server-eval-form package form))
     (when error
       (editor-error "The server died before finishing"))
@@ -523,18 +523,18 @@
 (defmacro save-excursion (&body body)
   `(invoke-with-save-excursion (lambda () ,@body)))
 
-(defclass slave-symbol (hemlock.wire::serializable-object)
+(defclass slave-symbol (heml.wire::serializable-object)
   ((package-name :initarg :package-name
                  :accessor slave-symbol-package-name)
    (name :initarg :name
          :accessor slave-symbol-name)))
 
-(defmethod hemlock.wire::serialize ((x slave-symbol))
+(defmethod heml.wire::serialize ((x slave-symbol))
   (values 'slave-symbol
           (list (coerce (slave-symbol-package-name x) 'simple-string)
                 (coerce (slave-symbol-name x) 'simple-string))))
 
-(defmethod hemlock.wire::deserialize-with-type
+(defmethod heml.wire::deserialize-with-type
     ((type (eql 'slave-symbol)) data)
   (destructuring-bind (package-name symbol-name) data
     (make-slave-symbol symbol-name package-name)))
@@ -668,9 +668,9 @@
     (cond ((and info
                 (or (eq (server-info-slave-buffer info) buffer)
                     (eq (server-info-background-buffer info) buffer)))
-           (hemlock.wire:remote (server-info-wire info)
+           (heml.wire:remote (server-info-wire info)
              (server-set-package name))
-           (hemlock.wire:wire-force-output (server-info-wire info)))
+           (heml.wire:wire-force-output (server-info-wire info)))
           #+nil
           ((eq buffer *selected-eval-buffer*)
            (setf *package* (maybe-make-package name)))
@@ -1073,15 +1073,15 @@
     ;; operations.
     (dolist (note (server-info-notes server))
       (setf (note-state note) :aborted))
-    #+NILGB (ext:send-character-out-of-band (hemlock.wire:wire-fd wire) #\N)
-    (hemlock.wire:remote-value wire (server-accept-operations))
+    #+NILGB (ext:send-character-out-of-band (heml.wire:wire-fd wire) #\N)
+    (heml.wire:remote-value wire (server-accept-operations))
     ;; Synch'ing with server here, causes any operations queued at the socket or
     ;; in the server to be ignored, and the last thing evaluated is an
     ;; instruction to go on accepting operations.
-    (hemlock.wire:wire-force-output wire)
+    (heml.wire:wire-force-output wire)
     (dolist (note (server-info-notes server))
       (when (eq (note-state note) :pending)
-        ;; The HEMLOCK.WIRE:REMOTE-VALUE call should have allowed a handshake to
+        ;; The HEML.WIRE:REMOTE-VALUE call should have allowed a handshake to
         ;; tell the editor anything :pending was aborted.
         (error "Operation ~S is still around after we aborted it?" note)))
     ;; Forget anything queued in the editor.
@@ -1147,7 +1147,7 @@
           (with-pop-up-display (s)
             (write-string (eval-form-in-server-1
                            info
-                           (format nil "(hemlock::describe-function-call-aux ~S)"
+                           (format nil "(heml::describe-function-call-aux ~S)"
                                    (region-to-string (region mark1 mark2)))
                            (if (eq package-exists t) package nil))
                            s))))))))
@@ -1188,7 +1188,7 @@
           (with-pop-up-display (s)
             (write-string (eval-form-in-server-1
                            info
-                           (format nil "(hemlock::describe-symbol-aux '~A)"
+                           (format nil "(heml::describe-symbol-aux '~A)"
                                    (region-to-string (region mark1 mark2)))
                            package)
                           s))))))))

@@ -9,10 +9,10 @@
 ;;;
 ;;; Written by Rob MacLachlan
 ;;;
-;;; The file contains the routines which define Hemlock variables.
+;;; The file contains the routines which define Heml variables.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defstruct (binding
             (:type vector)
@@ -27,12 +27,12 @@
 
 ;;; UNDEFINED-VARIABLE-ERROR  --  Internal
 ;;;
-;;;    Complain about an undefined Hemlock variable in a helpful fashion.
+;;;    Complain about an undefined Heml variable in a helpful fashion.
 ;;;
 (defun undefined-variable-error (name)
-  (if (eq (symbol-package name) (find-package :hemlock))
-      (error "Undefined Hemlock variable ~A." name)
-      (error "Hemlock variables must be in the :hemlock package, but~%~
+  (if (eq (symbol-package name) (find-package :heml))
+      (error "Undefined Heml variable ~A." name)
+      (error "Heml variables must be in the :heml package, but~%~
              ~S is in the ~S package."
              name (package-name (symbol-package name)))))
 
@@ -64,38 +64,38 @@
 (defun get-variable-object (name kind where)
   (case kind
     (:current
-     (let ((obj (get name 'hemlock-variable-value)))
+     (let ((obj (get name 'heml-variable-value)))
        (if obj obj (undefined-variable-error name))))
     (:buffer
      (check-type where buffer)
      (let ((binding (find-binding name (buffer-var-values where))))
        (unless binding
-         (error "~S is not a defined Hemlock variable in buffer ~S." name where))
+         (error "~S is not a defined Heml variable in buffer ~S." name where))
        (binding-object binding)))
     (:global
-     (do ((obj (get name 'hemlock-variable-value)
+     (do ((obj (get name 'heml-variable-value)
                (variable-object-down obj))
           (prev nil obj))
          ((symbolp obj)
           (unless prev (undefined-variable-error name))
           (unless (eq obj :global)
-            (error "Hemlock variable ~S is not globally defined." name))
+            (error "Heml variable ~S is not globally defined." name))
           prev)))
     (:mode
      (let ((binding (find-binding name (mode-object-var-values
                                         (get-mode-object where)))))
        (unless binding
-         (error "~S is not a defined Hemlock variable in mode ~S." name where))
+         (error "~S is not a defined Heml variable in mode ~S." name where))
        (binding-object binding)))
     (t
      (error "~S is not a defined value for Kind." kind))))
 
 ;;; VARIABLE-VALUE  --  Public
 ;;;
-;;;    Get the value of the Hemlock variable "name".
+;;;    Get the value of the Heml variable "name".
 ;;;
 (defun variable-value (name &optional (kind :current) where)
-  "Return the value of the Hemlock variable given."
+  "Return the value of the Heml variable given."
   (variable-object-value (get-variable-object name kind where)))
 
 ;;; %VALUE  --  Internal
@@ -104,7 +104,7 @@
 ;;; current buffer is returned.
 ;;;
 (defun %value (name)
-  (let ((obj (get name 'hemlock-variable-value)))
+  (let ((obj (get name 'heml-variable-value)))
     (unless obj (undefined-variable-error name))
     (variable-object-value obj)))
 
@@ -113,14 +113,14 @@
 ;;;    The setf-inverse of Value, set the current value.
 ;;;
 (defun %set-value (var new-value)
-  (let ((obj (get var 'hemlock-variable-value)))
+  (let ((obj (get var 'heml-variable-value)))
     (unless obj (undefined-variable-error var))
     (invoke-hook (variable-object-hooks obj) var :current nil new-value)
     (setf (variable-object-value obj) new-value)))
 
 ;;; %SET-VARIABLE-VALUE  --  Internal
 ;;;
-;;;   Set the Hemlock variable with the symbol name "name".
+;;;   Set the Heml variable with the symbol name "name".
 ;;;
 (defun %set-variable-value (name kind where new-value)
   (let ((obj (get-variable-object name kind where)))
@@ -132,12 +132,12 @@
 ;;;    Return the list of hooks for "name".
 ;;;
 (defun variable-hooks (name &optional (kind :current) where)
-  "Return the list of hook functions for the Hemlock variable given."
+  "Return the list of hook functions for the Heml variable given."
   (variable-object-hooks (get-variable-object name kind where)))
 
 ;;; %SET-VARIABLE-HOOKS --  Internal
 ;;;
-;;;    Set the hook-list for Hemlock variable Name.
+;;;    Set the hook-list for Heml variable Name.
 ;;;
 (defun %set-variable-hooks (name kind where new-value)
   (setf (variable-object-hooks (get-variable-object name kind where)) new-value))
@@ -147,7 +147,7 @@
 ;;;    Return the documentation for "name".
 ;;;
 (defun variable-documentation (name &optional (kind :current) where)
-  "Return the documentation for the Hemlock variable given."
+  "Return the documentation for the Heml variable given."
   (variable-object-documentation (get-variable-object name kind where)))
 
 ;;; %SET-VARIABLE-DOCUMENTATION  --  Internal
@@ -160,24 +160,24 @@
 
 ;;; VARIABLE-NAME  --  Public
 ;;;
-;;;    Return the String Name for a Hemlock variable.
+;;;    Return the String Name for a Heml variable.
 ;;;
 (defun variable-name (name &optional (kind :current) where)
-   "Return the string name of a Hemlock variable."
+   "Return the string name of a Heml variable."
   (variable-object-name (get-variable-object name kind where)))
 
-;;; HEMLOCK-BOUND-P  --  Public
+;;; HEML-BOUND-P  --  Public
 ;;;
-(defun hemlock-bound-p (name &optional (kind :current) where)
-  "Returns T Name is a Hemlock variable defined in the specifed place, or
+(defun heml-bound-p (name &optional (kind :current) where)
+  "Returns T Name is a Heml variable defined in the specifed place, or
   NIL otherwise."
   (case kind
-    (:current (not (null (get name 'hemlock-variable-value))))
+    (:current (not (null (get name 'heml-variable-value))))
     (:buffer
      (check-type where buffer)
      (not (null (find-binding name (buffer-var-values where)))))
     (:global
-     (do ((obj (get name 'hemlock-variable-value)
+     (do ((obj (get name 'heml-variable-value)
                (variable-object-down obj)))
          ((symbolp obj) (eq obj :global))))
     (:mode
@@ -188,16 +188,16 @@
 
 ;;; DEFHVAR  --  Public
 ;;;
-;;;    Define a Hemlock variable somewhere.
+;;;    Define a Heml variable somewhere.
 ;;;
 (defun defhvar (name documentation &key mode buffer (hooks nil hook-p)
                      (value nil value-p))
   (let* ((symbol-name (string-to-variable name))
          (new-binding (make-variable-object documentation name))
          (plist (symbol-plist symbol-name))
-         (prop (cdr (or (member 'hemlock-variable-value plist)
+         (prop (cdr (or (member 'heml-variable-value plist)
                         (setf (symbol-plist symbol-name)
-                              (list* 'hemlock-variable-value nil plist)))))
+                              (list* 'heml-variable-value nil plist)))))
          (kind :global) where string-table)
     (cond
       (mode
@@ -225,7 +225,7 @@
                      (car prop) new-binding))))))
       (t
        (setq string-table *global-variable-names*)
-       (unless (hemlock-bound-p symbol-name :global)
+       (unless (heml-bound-p symbol-name :global)
          (setf (variable-object-down new-binding) :global)
          (let ((l (unwind-bindings nil)))
            (setf (car prop) new-binding)
@@ -253,18 +253,18 @@
 
 ;;; DELETE-VARIABLE  --  Public
 ;;;
-;;; Make a Hemlock variable no longer bound, fixing up the saved
+;;; Make a Heml variable no longer bound, fixing up the saved
 ;;;binding values as necessary.
 ;;;
 (defun delete-variable (name &optional (kind :global) where)
-  "Delete a Hemlock variable somewhere."
+  "Delete a Heml variable somewhere."
   (let* ((obj (get-variable-object name kind where))
          (sname (variable-object-name obj)))
     (case kind
       (:buffer
        (let* ((values (buffer-var-values where))
               (binding (find-binding name values)))
-         (invoke-hook hemlock::delete-variable-hook name :buffer where)
+         (invoke-hook heml::delete-variable-hook name :buffer where)
          (delete-string sname (buffer-variables where))
          (setf (buffer-var-values where) (delete-binding binding values))
          (when (eq where *current-buffer*)
@@ -273,7 +273,7 @@
        (let* ((mode (get-mode-object where))
               (values (mode-object-var-values mode))
               (binding (find-binding name values)))
-         (invoke-hook hemlock::delete-variable-hook name :mode where)
+         (invoke-hook heml::delete-variable-hook name :mode where)
          (delete-string sname (mode-object-variables mode))
          (if (member mode (buffer-mode-objects *current-buffer*))
              (let ((l (unwind-bindings mode)))
@@ -283,10 +283,10 @@
              (setf (mode-object-var-values mode)
                    (delete-binding binding values)))))
       (:global
-       (invoke-hook hemlock::delete-variable-hook name :global nil)
+       (invoke-hook heml::delete-variable-hook name :global nil)
        (delete-string sname *global-variable-names*)
        (let ((l (unwind-bindings nil)))
-         (setf (get name 'hemlock-variable-value) nil)
+         (setf (get name 'heml-variable-value) nil)
          (wind-bindings l)))
       (t (error "Invalid variable kind: ~S" kind)))
     nil))

@@ -7,11 +7,11 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Searching and replacing functions for Hemlock.
+;;; Searching and replacing functions for Heml.
 ;;; Originally written by Skef Wholey, Rewritten by Rob MacLachlan.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;; The search pattern structure is used only by simple searches, more
@@ -26,13 +26,13 @@
   reclaim-function)           ; The function to call to reclaim this pattern.
 
 (setf (documentation 'search-pattern-p 'function)
-  "Returns true if its argument is a Hemlock search-pattern object,
+  "Returns true if its argument is a Heml search-pattern object,
   Nil otherwise.")
 
 (defun %print-search-pattern (object stream depth)
   (let ((*print-level* (and *print-level* (- *print-level* depth)))
         (*print-case* :downcase))
-    (write-string "#<Hemlock " stream)
+    (write-string "#<Heml " stream)
     (princ (search-pattern-direction object) stream)
     (write-char #\space stream)
     (princ (search-pattern-kind object) stream)
@@ -73,7 +73,7 @@
 ;;;
 (defun new-search-pattern (kind direction pattern &optional
                                 result-search-pattern)
-  "Makes a new Hemlock search pattern of kind Kind to search direction
+  "Makes a new Heml search pattern of kind Kind to search direction
   using Pattern.  Direction is either :backward or :forward.
   If supplied, result-search-pattern is a pattern to destroy to make
   the new one.  The variable *search-pattern-documentation* contains

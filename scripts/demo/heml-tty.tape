@@ -1,6 +1,6 @@
-# Xoamax's terminal editor, recorded by `make demo' into build/demo/.
-Output build/demo/xoamax-tty.mp4
-Output build/demo/xoamax-tty.gif
+# Heml's terminal editor, recorded by `make demo' into build/demo/.
+Output build/demo/heml-tty.mp4
+Output build/demo/heml-tty.gif
 
 Set Shell "bash"
 Set FontSize 16
@@ -12,12 +12,12 @@ Set TypingSpeed 40ms
 Hide
 Type "clear" Enter
 Type "sbcl --noinform --load scripts/demo/start.lisp" Enter
-Wait+Screen@120s /Hemlock CL-USER/
+Wait+Screen@120s /Heml CL-USER/
 Show
 Sleep 1s
 
 # Lisp, coloured and indented as it is typed.
-Type ";;; Fibonacci, in Xoamax" Enter
+Type ";;; Fibonacci, in Heml" Enter
 Type "(defun fib (n)" Ctrl+J
 Type `"The Nth Fibonacci number."` Ctrl+J
 Type "(if (< n 2)" Ctrl+J
@@ -89,7 +89,7 @@ Sleep 1s
 Type "y"
 Sleep 1s
 
-# hemlock:repl, whose lines Hemlock edits where they stand.
+# heml:repl, whose lines Heml edits where they stand.
 Hide
 Type "clear" Enter
 Show
@@ -108,7 +108,7 @@ Type "(string-up"
 Sleep 0.5s
 Tab
 Sleep 0.8s
-Type ` "xoamax")` Enter
+Type ` "heml")` Enter
 Sleep 1.2s
 Type "(defun" Enter
 Sleep 1.5s

@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock.wire)
+(in-package :heml.wire)
 
 (defun unix-gethostid ()
   #.(or

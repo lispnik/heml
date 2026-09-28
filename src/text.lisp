@@ -13,7 +13,7 @@
 ;;;    paragraphs, sentences, lines, and words.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 ;;;; -- New Variables --
 

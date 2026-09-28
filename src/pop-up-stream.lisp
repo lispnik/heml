@@ -12,7 +12,7 @@
 ;;; Written by Blaine Burks.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 
@@ -66,7 +66,7 @@
 
 ;;; UPDATE-TTY-LINE-BUFFERED-STREAM is called when anything is written to
 ;;; a line-buffered-random-typeout-stream on the tty.  It just makes sure
-;;; hemlock doesn't choke on extra-long strings.
+;;; heml doesn't choke on extra-long strings.
 ;;;
 (defun update-tty-line-buffered-stream (stream newline-count)
   (let ((window (random-typeout-stream-window stream)))

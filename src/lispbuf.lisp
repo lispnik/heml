@@ -4,7 +4,7 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 ;;;
 ;;; **********************************************************************
@@ -67,7 +67,7 @@
   "Welcome to the low-level Eval buffer.~@
    ~@
    This buffer is useful for debugging purposes, but be careful:~@
-   You are running code directly in Hemlock's event loop.~%~%")
+   You are running code directly in Heml's event loop.~%~%")
 
 (defun setup-eval-mode (buffer)
   (let ((point (buffer-point buffer)))
@@ -81,7 +81,7 @@
        instead."
       :value nil
       :buffer buffer)
-    (unless (hemlock-bound-p 'buffer-input-mark :buffer buffer)
+    (unless (heml-bound-p 'buffer-input-mark :buffer buffer)
       (defhvar "Buffer Input Mark"
         "Mark used for Eval Mode input."
         :buffer buffer
@@ -89,7 +89,7 @@
       (defhvar "Eval Output Stream"
         "Output stream used for Eval Mode output in this buffer."
         :buffer buffer
-        :value (make-hemlock-output-stream point))
+        :value (make-heml-output-stream point))
       (defhvar "Interactive History"
         "A ring of the regions input to an interactive mode (Eval or Typescript)."
         :buffer buffer
@@ -148,7 +148,7 @@
 
 (defhvar "Unwedge Interactive Input Confirm"
   "When set (the default), trying to confirm interactive input when the
-   point is not after the input mark causes Hemlock to ask the user if he
+   point is not after the input mark causes Heml to ask the user if he
    needs to be unwedged.  When not set, an editor error is signaled
    informing the user that the point is before the input mark."
   :value t)
@@ -425,7 +425,7 @@
   "Copies the form to the left of point to be after the interactive buffer's
    input mark.  When the current region is active, it is copied instead."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'buffer-input-mark)
+  (unless (heml-bound-p 'buffer-input-mark)
     (editor-error "Not in an interactive buffer."))
   (let ((point (current-point)))
     (let ((region (if (region-active-p)
@@ -503,7 +503,7 @@
        (with-pop-up-display (*error-output* :height 19)
          ;; JDz: We don't record source locations and what not, but this
          ;; is portable.  CMUCL specific implementation removed because
-         ;; it does not work on HEMLOCK-REGION-STREAM (but it can be
+         ;; it does not work on HEML-REGION-STREAM (but it can be
          ;; added back later if CMUCL starts using user-extensible
          ;; streams internally.)
          (funcall (compile nil `(lambda ()
@@ -799,7 +799,7 @@
 ;;; MARK-SYMBOL moves mark1 and mark2 around the previous or current symbol.
 ;;; However, if the marks are immediately before the first constituent char
 ;;; of the symbol name, we use the next symbol since the marks probably
-;;; correspond to the point, and Hemlock's cursor display makes it look like
+;;; correspond to the point, and Heml's cursor display makes it look like
 ;;; the point is within the symbol name.  This also tries to ignore :prefix
 ;;; characters such as quotes, commas, etc.
 ;;;

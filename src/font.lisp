@@ -13,11 +13,11 @@
 ;;; fonts.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;; Default-font used to be in the above list, but when I cleaned up the way
-;;; Hemlock compiles, a name conflict occurred because "Default Font" is a
-;;; Hemlock variable.  It is now exported by the export list in rompsite.lisp.
+;;; Heml compiles, a name conflict occurred because "Default Font" is a
+;;; Heml variable.  It is now exported by the export list in rompsite.lisp.
 
 (defvar *default-font-family* (make-font-family))
 

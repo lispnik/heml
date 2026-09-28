@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;; Editor input from a tty.
 
@@ -19,7 +19,7 @@
   (un-event key-event stream))
 
 (defmethod clear-editor-input ((stream tty-editor-input))
-  (hemlock-ext:without-interrupts
+  (heml-ext:without-interrupts
    (let* ((head (editor-input-head stream))
           (next (input-event-next head)))
      (when next
@@ -40,7 +40,7 @@
 (defvar *tty-translations* (make-hash-table :test #'equal))
 
 (defun register-tty-translations ()
-  (assert hemlock.terminfo:*terminfo*)
+  (assert heml.terminfo:*terminfo*)
   (flet ((reg (string keysym)
            (let ((string (etypecase string
                            (character (string string))
@@ -56,41 +56,41 @@
     (reg '(#\Esc #\O #\R) #k"F3")
     (reg '(#\Esc #\O #\S) #k"F4")
     ;; Terminfo definitions for F1-F12
-    (reg hemlock.terminfo:key-f1 #k"F1")
-    (reg hemlock.terminfo:key-f2 #k"F2")
-    (reg hemlock.terminfo:key-f3 #k"F3")
-    (reg hemlock.terminfo:key-f4 #k"F4")
-    (reg hemlock.terminfo:key-f5 #k"F5")
-    (reg hemlock.terminfo:key-f6 #k"F6")
-    (reg hemlock.terminfo:key-f7 #k"F7")
-    (reg hemlock.terminfo:key-f8 #k"F8")
-    (reg hemlock.terminfo:key-f9 #k"F9")
-    (reg hemlock.terminfo:key-f10 #k"F10")
-    (reg hemlock.terminfo:key-f11 #k"F11")
-    (reg hemlock.terminfo:key-f12 #k"F12")
+    (reg heml.terminfo:key-f1 #k"F1")
+    (reg heml.terminfo:key-f2 #k"F2")
+    (reg heml.terminfo:key-f3 #k"F3")
+    (reg heml.terminfo:key-f4 #k"F4")
+    (reg heml.terminfo:key-f5 #k"F5")
+    (reg heml.terminfo:key-f6 #k"F6")
+    (reg heml.terminfo:key-f7 #k"F7")
+    (reg heml.terminfo:key-f8 #k"F8")
+    (reg heml.terminfo:key-f9 #k"F9")
+    (reg heml.terminfo:key-f10 #k"F10")
+    (reg heml.terminfo:key-f11 #k"F11")
+    (reg heml.terminfo:key-f12 #k"F12")
     ;; Terminfo definitions for movement keys
-    (reg hemlock.terminfo:key-up #k"Uparrow")
-    (reg hemlock.terminfo:key-down #k"Downarrow")
-    (reg hemlock.terminfo:key-right #k"Rightarrow")
-    (reg hemlock.terminfo:key-left #k"Leftarrow")
-    (reg hemlock.terminfo:key-home #k"Home")
-    (reg hemlock.terminfo:key-end #k"End")
-    (reg hemlock.terminfo:key-ic #k"Insert")
-    (reg hemlock.terminfo:key-dc #k"Delete")
-    (reg hemlock.terminfo:key-ppage #k"Pageup")
-    (reg hemlock.terminfo:key-npage #k"Pagedown")
-    (reg hemlock.terminfo:key-backspace #k"Backspace")
+    (reg heml.terminfo:key-up #k"Uparrow")
+    (reg heml.terminfo:key-down #k"Downarrow")
+    (reg heml.terminfo:key-right #k"Rightarrow")
+    (reg heml.terminfo:key-left #k"Leftarrow")
+    (reg heml.terminfo:key-home #k"Home")
+    (reg heml.terminfo:key-end #k"End")
+    (reg heml.terminfo:key-ic #k"Insert")
+    (reg heml.terminfo:key-dc #k"Delete")
+    (reg heml.terminfo:key-ppage #k"Pageup")
+    (reg heml.terminfo:key-npage #k"Pagedown")
+    (reg heml.terminfo:key-backspace #k"Backspace")
 
-    (reg hemlock.terminfo:key-sr #k"Shift-Uparrow")
-    (reg hemlock.terminfo:key-sf #k"Shift-Downarrow")
-    (reg hemlock.terminfo:key-sright #k"Shift-Rightarrow")
-    (reg hemlock.terminfo:key-sleft #k"Shift-Leftarrow")
-    (reg hemlock.terminfo:key-shome #k"Shift-Home")
-    (reg hemlock.terminfo:key-send #k"Shift-End")
-    (reg hemlock.terminfo:key-sic #k"Shift-Insert")
-    (reg hemlock.terminfo:key-sdc #k"Shift-Delete")
-    (reg hemlock.terminfo:key-sprevious #k"Shift-Pageup")
-    (reg hemlock.terminfo:key-snext #k"Shift-Pagedown")
+    (reg heml.terminfo:key-sr #k"Shift-Uparrow")
+    (reg heml.terminfo:key-sf #k"Shift-Downarrow")
+    (reg heml.terminfo:key-sright #k"Shift-Rightarrow")
+    (reg heml.terminfo:key-sleft #k"Shift-Leftarrow")
+    (reg heml.terminfo:key-shome #k"Shift-Home")
+    (reg heml.terminfo:key-send #k"Shift-End")
+    (reg heml.terminfo:key-sic #k"Shift-Insert")
+    (reg heml.terminfo:key-sdc #k"Shift-Delete")
+    (reg heml.terminfo:key-sprevious #k"Shift-Pageup")
+    (reg heml.terminfo:key-snext #k"Shift-Pagedown")
     
     ;; Xterm definitions, not in terminfo.
 
@@ -174,7 +174,7 @@
 
 ;;; The terminal's erase character is Backspace, whatever terminfo says:
 ;;; kbs is ^H in most entries, but a Mac's terminals, and tmux, send the
-;;; ^? that stty calls erase, which Hemlock would otherwise take for Delete.
+;;; ^? that stty calls erase, which Heml would otherwise take for Delete.
 ;;;
 (defun translate-tty-event (data)
   (let ((string (coerce data 'string)))
@@ -184,7 +184,7 @@
              #k"Backspace")
         (gethash string *tty-translations*)
         (when (= 1 (length string))
-          (hemlock-ext:character-key-event (char string 0))))))
+          (heml-ext:character-key-event (char string 0))))))
 
 (defun tty-key-event (data)
   (loop with start = 0

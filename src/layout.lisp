@@ -15,7 +15,7 @@
 ;;;; walks, which is the tree's order.  A device only has to draw a hunk
 ;;;; where it says it is.
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defstruct (layout-split (:constructor make-layout-split (direction children sizes)))
   direction                             ; :ROWS or :COLUMNS

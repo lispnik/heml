@@ -11,7 +11,7 @@
 ;;;
 ;;; This file contains the implementation of the undo mechanism.
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 

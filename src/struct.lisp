@@ -4,12 +4,12 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Structures and assorted macros for Hemlock.
+;;; Structures and assorted macros for Heml.
 ;;;
 
 
@@ -20,15 +20,15 @@
    (charpos
     :initarg :charpos
     :accessor mark-charpos
-    :documentation "The character position of a Hemlock mark.
+    :documentation "The character position of a Heml mark.
   A mark's character position is the index within the line of the character
   following the mark.")
    (%kind :initarg :%kind :accessor mark-%kind :documentation "type of mark"))
   (:documentation
-   "A Hemlock mark object.  See Hemlock Command Implementor's Manual for details."))
+   "A Heml mark object.  See Heml Command Implementor's Manual for details."))
 
 (defun markp (object)
-  "Returns true if its argument is a Hemlock mark object, false otherwise."
+  "Returns true if its argument is a Heml mark object, false otherwise."
   (typep object 'mark))
 
 (defun internal-make-mark (line charpos %kind)
@@ -55,16 +55,16 @@
                    (:predicate regionp)
                    (:copier nil)
                    (:constructor internal-make-region (start end)))
-  "A Hemlock region object.  See Hemlock Command Implementor's Manual for details."
+  "A Heml region object.  See Heml Command Implementor's Manual for details."
   start                                 ; starting mark
   end)                                  ; ending mark
 
 (setf (documentation 'regionp 'function)
-  "Returns true if its argument is a Hemlock region object, Nil otherwise.")
+  "Returns true if its argument is a Heml region object, Nil otherwise.")
 (setf (documentation 'region-end 'function)
-  "Returns the mark that is the end of a Hemlock region.")
+  "Returns the mark that is the end of a Heml region.")
 (setf (documentation 'region-start 'function)
-  "Returns the mark that is the start of a Hemlock region.")
+  "Returns the mark that is the start of a Heml region.")
 
 
 ;;; The buffer object:
@@ -73,7 +73,7 @@
                    (:print-function %print-hbuffer)
                    (:copier nil)
                    (:predicate bufferp))
-  "A Hemlock buffer object.  See Hemlock Command Implementor's Manual for details."
+  "A Heml buffer object.  See Heml Command Implementor's Manual for details."
   %name                       ; name of the buffer (a string)
   %region                     ; the buffer's region
   %pathname                   ; associated pathname
@@ -110,7 +110,7 @@
    with the buffer.  If the pathname is set, then this should probably
    be as well.  Should be NIL if the date is unknown or there is no file.")
 (setf (documentation 'buffer-delete-hook 'function)
-  "This is the list of buffer specific functions that Hemlock invokes when
+  "This is the list of buffer specific functions that Heml invokes when
    deleting this buffer.")
 
 
@@ -119,7 +119,7 @@
 (defstruct (modeline-field (:print-function print-modeline-field)
                            (:constructor %make-modeline-field
                                          (%name %function %width)))
-  "This is one item displayed in a Hemlock window's modeline."
+  "This is one item displayed in a Heml window's modeline."
   %name         ; EQL name of this field.
   %function     ; Function that returns a string for this field.
   %width)       ; Width to display this field in.
@@ -140,7 +140,7 @@
 
 (defstruct (mode-object (:predicate modep)
                         (:copier nil)
-                        (:print-function %print-hemlock-mode))
+                        (:print-function %print-heml-mode))
   name                   ; name of this mode
   setup-function         ; setup function for this mode
   cleanup-function       ; Cleanup function for this mode
@@ -154,9 +154,9 @@
   var-values             ; Alist for saving mode variables
   documentation)         ; Introductory comments for mode describing commands.
 
-(defun %print-hemlock-mode (object stream depth)
+(defun %print-heml-mode (object stream depth)
   (declare (ignore depth))
-  (write-string "#<Hemlock Mode \"" stream)
+  (write-string "#<Heml Mode \"" stream)
   (write-string (mode-object-name object) stream)
   (write-string "\">" stream))
 
@@ -164,15 +164,15 @@
 
 ;;;; Variables.
 
-;;; This holds information about Hemlock variables, and the system stores
+;;; This holds information about Heml variables, and the system stores
 ;;; these structures on the property list of the variable's symbolic
-;;; representation under the 'hemlock-variable-value property.
+;;; representation under the 'heml-variable-value property.
 ;;;
 (defstruct (variable-object
             (:print-function
              (lambda (object stream depth)
                (declare (ignore depth))
-               (format stream "#<Hemlock Variable-Object ~S>"
+               (format stream "#<Heml Variable-Object ~S>"
                        (variable-object-name object))))
             (:copier nil)
             (:constructor make-variable-object (documentation name)))
@@ -192,7 +192,7 @@
                    (:predicate windowp)
                    (:copier nil)
                    (:print-function %print-hwindow))
-  "This structure implements a Hemlock window."
+  "This structure implements a Heml window."
   %buffer                       ; buffer displayed in this window.
   height                        ; Height of window in lines.
   width                         ; Width of the window in characters.
@@ -211,11 +211,11 @@
                                 ;    regardless of whether it is current.
 
 (setf (documentation 'windowp 'function)
-  "Returns true if its argument is a Hemlock window object, Nil otherwise.")
+  "Returns true if its argument is a Heml window object, Nil otherwise.")
 (setf (documentation 'window-height 'function)
-  "Return the height of a Hemlock window in character positions.")
+  "Return the height of a Heml window in character positions.")
 (setf (documentation 'window-width 'function)
-  "Return the width of a Hemlock window in character positions.")
+  "Return the width of a Heml window in character positions.")
 (setf (documentation 'window-display-start 'function)
   "Return the mark which points before the first character displayed in
    the supplied window.")
@@ -324,7 +324,7 @@
 (defstruct (attribute-descriptor
             (:copier nil)
             (:print-function %print-attribute-descriptor))
-  "This structure is used internally in Hemlock to describe a character
+  "This structure is used internally in Heml to describe a character
   attribute."
   name
   keyword
@@ -348,9 +348,9 @@
   %bindings)                       ;Places where command is bound
 
 (setf (documentation 'commandp 'function)
-  "Returns true if its argument is a Hemlock command object, Nil otherwise.")
+  "Returns true if its argument is a Heml command object, Nil otherwise.")
 (setf (documentation 'command-documentation 'function)
-  "Return the documentation for a Hemlock command, given the command-object.
+  "Return the documentation for a Heml command, given the command-object.
   Command documentation may be either a string or a function.  This may
   be set with Setf.")
 
@@ -369,7 +369,7 @@
    (window       :initarg :window
                  :initform nil
                  :accessor random-typeout-stream-window
-                 :documentation "The hemlock window all this shit is in.")
+                 :documentation "The heml window all this shit is in.")
    (more-mark    :initarg :more-mark
                  :initform nil
                  :accessor random-typeout-stream-more-mark
@@ -389,7 +389,7 @@
                  :mark mark))
 
 (defmethod print-object ((object random-typeout-stream) stream)
-  (format stream "#<Hemlock Random-Typeout-Stream ~S>"
+  (format stream "#<Heml Random-Typeout-Stream ~S>"
           (ignore-errors
             (buffer-name
              (line-buffer (mark-line (random-typeout-stream-mark object)))))))
@@ -595,7 +595,7 @@
 ;;; pieces of the screen.  Window motion primitives and splitting/merging
 ;;; primitives use hunks.  Hunks are somewhat of an interface between the
 ;;; portable and non-portable parts of screen management, between what the
-;;; user sees on the screen and how Hemlock internals deal with window
+;;; user sees on the screen and how Heml internals deal with window
 ;;; sequencing and creation.  Note: the echo area hunk is not hooked into
 ;;; the ring of other hunks via the next and previous fields.
 ;;;
@@ -656,7 +656,7 @@
     :accessor device-hunk-modelinep
     :documentation "Whether the hunk's bottom line is a modeline."))
   (:documentation
-   "This structure is used internally by Hemlock's screen management system."))
+   "This structure is used internally by Heml's screen management system."))
 
 (defmethod print-object ((object device-hunk) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -671,7 +671,7 @@
 ;;;; Some defsetfs:
 
 (define-setf-expander value (var)
-  "Set the value of a Hemlock variable, calling any hooks."
+  "Set the value of a Heml variable, calling any hooks."
   (let ((svar (gensym)))
     (values
      ()
@@ -681,14 +681,14 @@
      `(value ,var))))
 
 (defsetf variable-value (name &optional (kind :current) where) (new-value)
-  "Set the value of a Hemlock variable, calling any hooks."
+  "Set the value of a Heml variable, calling any hooks."
   `(%set-variable-value ,name ,kind ,where ,new-value))
 
 (defsetf variable-hooks (name &optional (kind :current) where) (new-value)
-  "Set the list of hook functions for a Hemlock variable."
+  "Set the list of hook functions for a Heml variable."
   `(%set-variable-hooks ,name ,kind ,where ,new-value))
 
 (defsetf variable-documentation (name &optional (kind :current) where) (new-value)
-  "Set a Hemlock variable's documentation."
+  "Set a Heml variable's documentation."
   `(%set-variable-documentation ,name ,kind ,where ,new-value))
 

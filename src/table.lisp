@@ -15,7 +15,7 @@
 ;;; recognition and completion of these strings.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; Implementation Details
@@ -62,7 +62,7 @@
 (defstruct (string-table
             (:constructor %make-string-table (separator))
             (:print-function print-string-table))
-  "This structure is used to implement the Hemlock string-table type."
+  "This structure is used to implement the Heml string-table type."
   ;; Character used to
   (separator #\Space :type character) ; character used for word separator
   (num-nodes 0 :type fixnum)               ; number of nodes in string table
@@ -74,7 +74,7 @@
   (format stream "#<String Table>"))
 
 (defun make-string-table (&key (separator #\Space) initial-contents)
-  "Creates and returns a Hemlock string-table.  If Intitial-Contents is
+  "Creates and returns a Heml string-table.  If Intitial-Contents is
   supplied in the form of an A-list of string-value pairs, these pairs
   will be used to initialize the table.  If Separator, which must be a
   character, is specified then it will be used to distinguish word
@@ -96,7 +96,7 @@
 
 (defstruct (word-table
             (:print-function print-word-table))
-  "This structure is a word-table which is part of a Hemlock string-table."
+  "This structure is a word-table which is part of a Heml string-table."
   (num-words 0 :type fixnum)               ; Number of words
   (words (make-array initial-word-table-size))) ; Array of WORD-ENTRY's
 
@@ -108,7 +108,7 @@
 (defstruct (word-entry
             (:constructor make-word-entry (folded))
             (:print-function print-word-entry))
-  "This structure is an entry in a word table which is part of a Hemlock
+  "This structure is an entry in a word table which is part of a Heml
   string-table."
   next-table                               ; Pointer to next WORD-TABLE
   folded                                   ; Downcased word
@@ -122,7 +122,7 @@
 (defstruct (value-node
             (:constructor make-value-node (proper folded value))
             (:print-function print-value-node))
-  "This structure is a node containing a value in a Hemlock string-table."
+  "This structure is a node containing a value in a Heml string-table."
   folded                                   ; Downcased copy of string
   proper                                   ; Proper copy of string entry
   value)                                   ; Value of entry

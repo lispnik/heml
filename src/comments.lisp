@@ -11,8 +11,8 @@
 ;;;
 ;;; This file contains the implementation of comment commands.
 
-(in-package :hemlock)                   ;### almost hemlock-user sans requirement that
-                                        ;    hemlock variables should be in the HEMLOCK
+(in-package :heml)                   ;### almost heml-user sans requirement that
+                                        ;    heml variables should be in the HEML
                                         ;    package. --GB
 
 ;;;; -- Variables --

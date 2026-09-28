@@ -1,5 +1,5 @@
 ;;; Copyright (c) 2003, 2004 Nikodemus Siivola, Julian Squires
-;;; Integrated into Hemlock 2010 by David Lichteblau
+;;; Integrated into Heml 2010 by David Lichteblau
 ;;; 
 ;;; Permission is hereby granted, free of charge, to any person obtaining
 ;;; a copy of this software and associated documentation files (the
@@ -59,12 +59,12 @@
 
 (defun ensure-in-cm-mode (device)
   (unless (in-cm-mode-p device)
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:enter-ca-mode))
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:enter-ca-mode))
     (setf (in-cm-mode-p device) t)))
 
 (defun ensure-not-in-cm-mode (device)
   (when (in-cm-mode-p device)
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:exit-ca-mode))
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:exit-ca-mode))
     (setf (in-cm-mode-p device) nil)))
 
 (defun make-linedit-device (name)
@@ -112,9 +112,9 @@
   (ecase *linedit-redisplay-mode*
     (:no-redisplay)
     (:linedit-redisplay
-     ;; In linedit display, we aim to mostly ignore Hemlock's idea of
+     ;; In linedit display, we aim to mostly ignore Heml's idea of
      ;; redisplay.  Instead, we want to render only the linedit buffer,
-     ;; no matter hemlock thinks it needs to be redisplayed, or which
+     ;; no matter heml thinks it needs to be redisplayed, or which
      ;; window we're in.  But we don't want to redraw more than once per
      ;; redisplay cycle.  So what we do is that we run our redisplay only
      ;; for the current window (i.e, only once), but then ignore the
@@ -159,7 +159,7 @@
 ;; black-on-white-by-default terminals look really bad when I try bold
 ;; ("double-bright") or standout mode.
 ;;
-;; Let's use "hemlock blue" for the prompt, too.
+;; Let's use "heml blue" for the prompt, too.
 ;;
 (defparameter *prompt-color* 4)
 (defparameter *prompt-bold* nil)
@@ -189,13 +189,13 @@
          (init-file (termcap :init-file))
          (init-file-string (if init-file (get-init-file-string init-file))))
     (tty-write-cmd
-     (hemlock.terminfo:tputs
+     (heml.terminfo:tputs
       (concatenate 'simple-string
 		   (or init-string "")
 		   (or init-file-string "")
 		   ;; Transmit-mode: this makes arrow-keys give sequences matching
 		   ;; the terminfo db.
-		   hemlock.terminfo:keypad-xmit))))
+		   heml.terminfo:keypad-xmit))))
   (redisplay-all))
 
 (defmethod device-exit ((device linedit-device))
@@ -246,24 +246,24 @@
   (newline (current-device))
   (if *inner-linedit-p*
       (throw 'inner-linedit-result (get-string (current-device)))
-      (hemlock::exit-hemlock)))
+      (heml::exit-heml)))
 
 (defcommand "Illegal Linedit Command" (p) "" ""
   (declare (ignore p))
   (editor-error "Command not available"))
 
 (defun empty-region-p (r)
-  (hemlock::mark= (hemlock::region-start r) (hemlock::region-end r)))
+  (heml::mark= (heml::region-start r) (heml::region-end r)))
 
 (defcommand "Linedit Delete Or Eof" (p) "" ""
   (if (empty-region-p (hi:buffer-region (current-buffer)))
       (progn
-        (hemlock::save-all-files-command nil)
+        (heml::save-all-files-command nil)
         (throw 'linedit-eof nil))
-      (hemlock::delete-next-character-command p)))
+      (heml::delete-next-character-command p)))
 
 (defcommand "Linedit Clear Screen" (p) "" ""
-  (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clear-screen)))
+  (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen)))
 
 (defun install-linedit-mode (buffer)
   (bind-key "Finish Linedit" #k"return" :buffer buffer)
@@ -310,7 +310,7 @@
     :value nil)
   (defhvar "Indent Function" ""
     :buffer buffer
-    :value #'hemlock::indent-to-tab-stop))
+    :value #'heml::indent-to-tab-stop))
 
 
 
@@ -410,7 +410,7 @@
 
 
 (defmethod backend-columns ((backend linedit-device))
-  ;; fixme: as the hemlock backend
+  ;; fixme: as the heml backend
   80)
 
 (defmethod backend-lines ((backend linedit-device))
@@ -418,7 +418,7 @@
 
 (defun read-chord ()
   (let ((*linedit-redisplay-mode* :no-redisplay))
-    (hemlock-ext:key-event-char (get-key-event *editor-input* t))))
+    (heml-ext:key-event-char (get-key-event *editor-input* t))))
 
 (defmethod page ((backend linedit-device))
   (device-write-string "--more--")
@@ -458,7 +458,7 @@
       (newline backend))))
 
 (defmethod print-in-lines ((backend linedit-device) string)
-  (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clr-eos))
+  (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clr-eos))
   (newline backend)
   (do ((i 0 (1+ i))
        (lines 0))
@@ -475,7 +475,7 @@
 
 (defmethod newline ((backend linedit-device))
   (setf (dirty-p backend) t)
-  (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clr-eol))
+  (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clr-eol))
   (device-write-string (string #\newline))
   (device-write-string (string #\return))
   (device-force-output backend))
@@ -505,11 +505,11 @@
   (cond ((< n current)
          (loop repeat (- current n) 
             do (tty-write-cmd
-		(hemlock.terminfo:tputs hemlock.terminfo:cursor-left))))
+		(heml.terminfo:tputs heml.terminfo:cursor-left))))
         ((> n current)
          (loop repeat (- n current) 
             do (tty-write-cmd
-		(hemlock.terminfo:tputs hemlock.terminfo:cursor-right))))))
+		(heml.terminfo:tputs heml.terminfo:cursor-right))))))
 
 (defun find-row-and-col
     (region-string columns &optional (end (length region-string)))
@@ -532,14 +532,14 @@
   (cond
     ((>= vertical 0)
      (loop repeat vertical do (tty-write-cmd
-			       (hemlock.terminfo:tputs hemlock.terminfo:cursor-up)))
+			       (heml.terminfo:tputs heml.terminfo:cursor-up)))
      (set-column-address col current-col))
     (t
      (loop repeat (abs vertical) do (tty-write-cmd
-				     (hemlock.terminfo:tputs hemlock.terminfo:cursor-down)))
+				     (heml.terminfo:tputs heml.terminfo:cursor-down)))
      (set-column-address col 0)))
   (when clear-to-eos
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clr-eos))))
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clr-eos))))
 
 (defun find-col (str columns &optional (end (length str)))
   (nth-value 1 (find-row-and-col str columns end)))
@@ -549,7 +549,7 @@
   ;; will wrap around to the first column on the same line:
   ;; hence move down if so.
   (when (and (< start end) (zerop (find-col str columns end)))
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-down))))
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-down))))
 
 ;;; (defun play ()
 ;;;   (iter
@@ -558,15 +558,15 @@
 ;;; 	((#\x #\y)
 ;;; 	 (write-char char *terminal-io*))
 ;;; 	((#\p #\k)
-;;; 	 (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-up)))
+;;; 	 (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-up)))
 ;;; 	((#\n #\j)
-;;; 	 (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-down)))
+;;; 	 (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-down)))
 ;;; 	((#\f #\l)
-;;; 	 (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-right)))
+;;; 	 (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-right)))
 ;;; 	((#\b #\h)
-;;; 	 (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-left)))
-;;; 	(#\s (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clr-eos)))
-;;; 	(#\e (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clr-eol)))
+;;; 	 (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-left)))
+;;; 	(#\s (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clr-eos)))
+;;; 	(#\e (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clr-eol)))
 ;;; 	(#\q
 ;;; 	 (return)))
 ;;;       (force-output *terminal-io*))))
@@ -598,7 +598,7 @@
           (setaf font))
         (cond
           ((member c '(#\newline #\return))
-           (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-down))
+           (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-down))
            (setf col 0))
           ((< (char-code c) 32)
            (device-write-string (string #\?))
@@ -608,7 +608,7 @@
            (incf col)))))
     (when boldp (exit-attribute-mode))
     (unless (eql font *default-color*) (setaf *default-color*))
-    (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:cursor-visible))
+    (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-visible))
     (rem col width)))
 
 (defun linedit-redisplay (backend &key prompt line point fonts)
@@ -662,7 +662,7 @@
 ;;; offers a simple browsable from of storage.
 ;;;
 ;;; It used to be called BUFFER in linedit, but was renamed to reduce
-;;; confusion with hemlock buffers.
+;;; confusion with heml buffers.
 
 (defclass linedit-history ()
   ((prev :accessor %linedit-history-prev :initform nil)
@@ -856,9 +856,9 @@ empty string."
   "Reads a single line of input with line-editing."
   (let ((editor nil)
         (*linedit-redisplay-mode* :linedit-redisplay)
-        (hemlock::*synchronous-evaluation-of-slave-requests-in-the-master* t)
+        (heml::*synchronous-evaluation-of-slave-requests-in-the-master* t)
         (*linedit-buffers* nil))
-    (hemlock:with-editor (:backend-type :mini :load-user-init nil)
+    (heml:with-editor (:backend-type :mini :load-user-init nil)
       (setf editor (current-device))
       (setf (editor-prompt editor) prompt)
       (initialize-linedit editor initial-string initial-point modes)
@@ -933,7 +933,7 @@ empty string."
     (cond
       (line
        (setf (get-string editor) line)
-       (hemlock::goto-buffer-end))
+       (heml::goto-buffer-end))
       (t
        (beep)))))
 
@@ -1164,26 +1164,26 @@ to the appropriate home directory."
                     eof-value))
 
 (defcommand "Linedit Describe Symbol"
-    (p &optional (sym (hemlock::slave-symbol-at-point)))
+    (p &optional (sym (heml::slave-symbol-at-point)))
     "" ""
   (declare (ignore p))
   (newline (current-device))
   (let* ((marker 'eof)
          (sym (if sym
-                  (hemlock::resolve-slave-symbol sym)
+                  (heml::resolve-slave-symbol sym)
                   (inner-formedit "Describe symbol: " nil marker))))
     (unless (eq sym marker)
       (describe sym)
       (newline (current-device)))))
 
 (defcommand "Linedit Apropos"
-    (p &optional (sym (hemlock::slave-symbol-at-point)))
+    (p &optional (sym (heml::slave-symbol-at-point)))
     "" ""
   (declare (ignore p))
   (newline (current-device))
   (let* ((marker 'eof)
          (sym (if sym
-                  (hemlock::resolve-slave-symbol sym)
+                  (heml::resolve-slave-symbol sym)
                   (inner-formedit "Apropos symbol: " nil marker))))
     (unless (eq sym marker)
       (print-in-lines (current-device)
@@ -1194,7 +1194,7 @@ to the appropriate home directory."
 (defcommand "Linedit Find Definitions" (p)
     "" ""
   (declare (ignore p))
-  (let* ((default (hemlock::symbol-string-at-point))
+  (let* ((default (heml::symbol-string-at-point))
          (default (if (and default
                            ;; Fixme: MARK-SYMBOL isn't very good, meaning that
                            ;; often we will get random forms rather than a
@@ -1209,9 +1209,9 @@ to the appropriate home directory."
                         (force-output)
                         (inner-linedit :prompt "Find definition for: ")))))
     (when (plusp (length default))
-      (let ((slavesym (hemlock::parse-slave-symbol default)))
+      (let ((slavesym (heml::parse-slave-symbol default)))
         (tty-excursion (lambda ()
-                         (hemlock::find-definitions
+                         (heml::find-definitions
                           slavesym))
                        :clear-screen-before-p :prompt
                        :split-screen-p t)))))
@@ -1228,7 +1228,7 @@ to the appropriate home directory."
   (let ((device (current-device))
         (nothing-to-do nil))
     (when clear-screen-before-p
-      (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clear-screen))
+      (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen))
       (when (eq clear-screen-before-p :prompt) (redisplay-all)))
     (ensure-in-cm-mode device)
     (unless keep-current-split-p
@@ -1256,7 +1256,7 @@ to the appropriate home directory."
       (ensure-not-in-cm-mode device)
       (cond
        (clear-screen-after-p
-        (tty-write-cmd (hemlock.terminfo:tputs hemlock.terminfo:clear-screen))
+        (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen))
         (when nothing-to-do
           (print-in-lines (current-device) nothing-to-do-message))
         (redisplay-all))
@@ -1266,22 +1266,22 @@ to the appropriate home directory."
         (newline device))))))
 
 (defcommand "Linedit Test"
-    (p &optional (sym (hemlock::slave-symbol-at-point)))
+    (p &optional (sym (heml::slave-symbol-at-point)))
     "" ""
   (declare (ignore p))
   (tty-excursion (lambda ()
-                   (hemlock::find-file-command nil "/etc/passwd"))))
+                   (heml::find-file-command nil "/etc/passwd"))))
 
 ;; fixme: would be cooler if this didn't clear the screen.
 ;; TTY-EXCURSION would be more effective if Unix terminals weren't that
 ;; useless.  Perhaps we should give up and do without it.
 (defcommand "Linedit Fuzzy Complete"
-    (p &optional (sym (hemlock::slave-symbol-at-point)))
+    (p &optional (sym (heml::slave-symbol-at-point)))
     "" ""
   (declare (ignore p))
   (tty-excursion (lambda ()
-                   (hemlock::fuzzy-complete-symbol-command nil)
-                   (hemlock::refresh-screen-command nil))
+                   (heml::fuzzy-complete-symbol-command nil)
+                   (heml::refresh-screen-command nil))
                  :nothing-to-do-message "No completions."
                  :clear-screen-before-p :prompt
                  :clear-screen-after-p t
@@ -1350,7 +1350,7 @@ to the appropriate home directory."
         (:cancel
          (update-prompt-for-line-isearch string direction failure)
          (unless (zerop (length string))
-           (hemlock::i-search-pattern string direction)))
+           (heml::i-search-pattern string direction)))
         (:return-cancel
          (unless (zerop (length string)) (return :cancel))
          (beep))
@@ -1358,7 +1358,7 @@ to the appropriate home directory."
          (when failure (return :control-g))
          (update-prompt-for-line-isearch string direction nil)
          (unless (zerop (length string))
-           (hemlock::i-search-pattern string direction))))
+           (heml::i-search-pattern string direction))))
       (move-mark point curr-point)
       (move-mark trailer curr-trailer))))
 
@@ -1371,7 +1371,7 @@ to the appropriate home directory."
                                 trailer
                                 direction
                                 failure)
-  (cond ((let ((character (hemlock-ext:key-event-char key-event)))
+  (cond ((let ((character (heml-ext:key-event-char key-event)))
            (and character
                 (or (graphic-char-p character)
                     (char= character #\Newline))))
@@ -1405,14 +1405,14 @@ to the appropriate home directory."
                                      failure))
         ((and (zerop (length string)) (logical-key-event-p key-event :exit))
          (if (eq direction :forward)
-             (hemlock::forward-search-command nil)
-             (hemlock::reverse-search-command nil))
+             (heml::forward-search-command nil)
+             (heml::reverse-search-command nil))
          (throw 'exit-i-search nil))
         (t
          (unless (logical-key-event-p key-event :exit)
            (unget-key-event key-event *editor-input*))
          (unless (zerop (length string))
-           (setf hemlock::*last-search-string* string))
+           (setf heml::*last-search-string* string))
          (throw 'exit-i-search nil))))
 
 (defun %line-isearch-again (direction)
@@ -1466,7 +1466,7 @@ to the appropriate home directory."
           (t
            (let ((new-direction (if forward-character-p :forward :backward)))
              (update-prompt-for-line-isearch string new-direction nil)
-             (hemlock::i-search-pattern string new-direction)
+             (heml::i-search-pattern string new-direction)
              (%line-isearch-find-pattern string point (move-mark trailer point)
                                      new-direction))))))
 
@@ -1482,10 +1482,10 @@ to the appropriate home directory."
          (let ((direction (if forward-character-p :forward :backward)))
            (update-prompt-for-line-isearch "" direction nil)
            (%line-isearch "" point trailer direction nil)))
-        (hemlock::*last-search-string*
-         (update-prompt-for-line-isearch hemlock::*last-search-string* direction nil)
-         (hemlock::i-search-pattern hemlock::*last-search-string* direction)
-         (%line-isearch-find-pattern hemlock::*last-search-string* point trailer direction))
+        (heml::*last-search-string*
+         (update-prompt-for-line-isearch heml::*last-search-string* direction nil)
+         (heml::i-search-pattern heml::*last-search-string* direction)
+         (%line-isearch-find-pattern heml::*last-search-string* point trailer direction))
         (t (beep))))
 
 
@@ -1495,15 +1495,15 @@ to the appropriate home directory."
 ;;; of the search.
 ;;;
 (defun %line-isearch-printed-char (key-event string point trailer direction failure)
-  (let ((tchar (hemlock-ext:key-event-char key-event)))
+  (let ((tchar (heml-ext:key-event-char key-event)))
     (unless tchar (editor-error "Not a text character -- ~S"
-                                (hemlock-ext:key-event-char key-event)))
+                                (heml-ext:key-event-char key-event)))
     (when (interactive)
       (insert-character (buffer-point *echo-area-buffer*) tchar)
       (force-output *echo-area-stream*))
     (let ((new-string (concatenate 'simple-string string (string tchar))))
       (update-prompt-for-line-isearch new-string direction nil)
-      (hemlock::i-search-pattern new-string direction)
+      (heml::i-search-pattern new-string direction)
       (cond (failure (%line-isearch new-string point trailer direction failure))
             ((and (eq direction :backward) (next-character trailer))
              (%line-isearch-find-pattern new-string point (mark-after trailer)
@@ -1520,7 +1520,7 @@ to the appropriate home directory."
   (let ((found-offset (line-isearch-find-pattern
                        direction
                        trailer
-                       hemlock::*last-search-pattern*
+                       heml::*last-search-pattern*
                        string)))
     (cond (found-offset
             (cond ((eq direction :forward)
@@ -1542,8 +1542,8 @@ to the appropriate home directory."
 (defun line-isearch-find-pattern
     (direction
      &optional (trailer (current-point))
-     (pattern (get-search-pattern hemlock::*last-search-string* direction))
-     (string hemlock::*last-search-string*))
+     (pattern (get-search-pattern heml::*last-search-string* direction))
+     (string heml::*last-search-string*))
   (iter
     (let ((found-offset (find-pattern trailer pattern)))
       (when found-offset

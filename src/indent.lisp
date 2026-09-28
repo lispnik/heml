@@ -7,17 +7,17 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock indentation commands
+;;; Heml indentation commands
 ;;;
 ;;; Written by Bill Maddox and Bill Chiles
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 
 
 (defhvar "Spaces per Tab"
   "The number of spaces a tab is equivalent to.  NOTE: This is not incorporated
-   everywhere in Hemlock yet, so do not change it."
+   everywhere in Heml yet, so do not change it."
   :value 8)
 
 (defun indent-using-tabs (mark column)
@@ -100,9 +100,9 @@
 
 
 (defcommand "Indent" (p)
-  "Invokes function held by the Hemlock variable \"Indent Function\",
+  "Invokes function held by the Heml variable \"Indent Function\",
    moving point past region if called with argument."
-  "Invokes function held by the Hemlock variable \"Indent Function\"
+  "Invokes function held by the Heml variable \"Indent Function\"
    moving point past region if called with argument."
   (let ((point (current-point)))
     (with-mark ((mark point :left-inserting))
@@ -118,9 +118,9 @@
              (find-attribute (line-start point) :whitespace #'zerop))))))
 
 (defcommand "Indent Region" (p)
-  "Invokes function held by Hemlock variable \"Indent Function\" on every
+  "Invokes function held by Heml variable \"Indent Function\" on every
    line between point and mark, inclusively."
-  "Invokes function held by Hemlock variable \"Indent Function\" on every
+  "Invokes function held by Heml variable \"Indent Function\" on every
    line between point and mark, inclusively."
   (declare (ignore p))
   (let* ((region (current-region)))
@@ -140,7 +140,7 @@
                       undo-region)))
 
 (defun indent-region (region)
-  "Invokes function held by Hemlock variable \"Indent Function\" on every
+  "Invokes function held by Heml variable \"Indent Function\" on every
    line of region."
   (let ((indent-function (value indent-function)))
     (with-mark ((start (region-start region) :left-inserting)

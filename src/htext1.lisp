@@ -7,15 +7,15 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock Text-Manipulation functions.
+;;; Heml Text-Manipulation functions.
 ;;; Written by Skef Wholey.
 ;;;
 ;;; The code in this file implements the functions in the "Representation
-;;; of Text," "Buffers," and "Predicates" chapters of the Hemlock design
+;;; of Text," "Buffers," and "Predicates" chapters of the Heml design
 ;;; document.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; Representation of Text:
@@ -74,7 +74,7 @@
   "Stuffs the characters in the currently open line back into the line they
   came from, and sets open-line to Nil."
   (when open-line
-    (hemlock-ext:without-interrupts
+    (heml-ext:without-interrupts
       (let* ((length (+ left-open-pos (- line-cache-length right-open-pos)))
              (string (make-string length)))
         (%sp-byte-blt open-chars 0 string 0 left-open-pos)
@@ -161,10 +161,10 @@
         (editor-error "Buffer ~S is read only." (buffer-name buffer)))
       (when (< (buffer-modified-tick buffer)
                (buffer-unmodified-tick buffer))
-        (invoke-hook hemlock::buffer-modified-hook buffer t))
+        (invoke-hook heml::buffer-modified-hook buffer t))
       (setf (buffer-modified-tick buffer) (tick)))
-    ;; FIXME: what is hemlock-ext:without-interrupts for?
-    (hemlock-ext:without-interrupts (funcall fun))))
+    ;; FIXME: what is heml-ext:without-interrupts for?
+    (heml-ext:without-interrupts (funcall fun))))
 
 (defmacro modifying-buffer (buffer &body forms)
   "Does groovy stuff for modifying buffers."

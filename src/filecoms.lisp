@@ -10,7 +10,7 @@
 ;;; This file contains file/buffer manipulating commands.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;;; PROCESS-FILE-OPTIONS.
@@ -374,7 +374,7 @@
    recovery options."
   (let* ((pathname (pathname pathname))
          (trial-pathname (or (probe-file pathname)
-                             (merge-pathnames pathname (hemlock-ext:default-directory))))
+                             (merge-pathnames pathname (heml-ext:default-directory))))
          (found (find trial-pathname (the list *buffer-list*)
                      :key #'buffer-pathname :test #'equal)))
     (cond ((not found)
@@ -428,8 +428,8 @@
  "File has been changed on disk since it was read and you have made changes too!~
  ~%Read in the disk version of ~A? [Y] " (namestring pathname))
                           :help
- "The file in disk has been changed since Hemlock last saved it, meaning that
- someone else has probably overwritten it.  Since the version read into Hemlock
+ "The file in disk has been changed since Heml last saved it, meaning that
+ someone else has probably overwritten it.  Since the version read into Heml
  has been changed as well, the two versions may have inconsistent changes.  If
  this is the case, it would be a good idea to save your changes in another file
  and compare the two versions.
@@ -489,7 +489,7 @@
     (buffer-start (buffer-point buffer))
     (setf (buffer-modified buffer) nil)
     (let ((stored-pathname (or probed-pathname
-                               (merge-pathnames pathname (hemlock-ext:default-directory)))))
+                               (merge-pathnames pathname (heml-ext:default-directory)))))
       (setf (buffer-pathname buffer) stored-pathname)
       (setf (value pathname-defaults) stored-pathname)
       (process-file-options buffer stored-pathname)
@@ -626,11 +626,11 @@
 
 (defcommand "Save All Files and Exit" (p)
   "Save all modified buffers in their associated files and exit;
-  a combination of \"Save All Files\" and \"Exit Hemlock\"."
-  "Do a save-all-files-command and then an exit-hemlock."
+  a combination of \"Save All Files\" and \"Exit Heml\"."
+  "Do a save-all-files-command and then an exit-heml."
   (declare (ignore p))
   (save-all-files-command ())
-  (exit-hemlock))
+  (exit-heml))
 
 (defcommand "Backup File" (p)
   "Write the buffer to a file without changing the associated name."
@@ -808,7 +808,7 @@
     (message "Buffer ~S is now writable." (buffer-name buffer))))
 
 
-;;; TODO: If this is true, it is possible to make Hemlock unusable by
+;;; TODO: If this is true, it is possible to make Heml unusable by
 ;;; killing last buffer and selecting Echo Area as the new buffer.
 (defhvar "Ask for New Buffer"
   "If true, user is prompted for new buffer after current buffer is
@@ -1161,7 +1161,7 @@
   exit."
   "Find the change-log file as specified by \"Log File Name\" and edit it."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'log-file-name)
+  (unless (heml-bound-p 'log-file-name)
     (editor-error "No log file defined."))
   (let* ((buffer (current-buffer))
          (pathname (buffer-pathname buffer)))

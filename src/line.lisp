@@ -4,7 +4,7 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;
 ;;; **********************************************************************
@@ -14,12 +14,12 @@
 ;;;
 
 (setf (documentation 'linep 'function)
-  "Returns true if its argument is a Hemlock line object, Nil otherwise.")
+  "Returns true if its argument is a Heml line object, Nil otherwise.")
 (setf (documentation 'line-previous 'function)
-  "Return the Hemlock line that precedes this one, or Nil if there is no
+  "Return the Heml line that precedes this one, or Nil if there is no
   previous line.")
 (setf (documentation 'line-next 'function)
-  "Return the Hemlock line that follows this one, or Nil if there is no
+  "Return the Heml line that follows this one, or Nil if there is no
   next line.")
 (setf (documentation 'line-plist 'function)
   "Return a line's property list.  This may be manipulated with Setf and Getf.")
@@ -83,7 +83,7 @@
     :documentation "Line tag, which records information available only if all
                     preceding lines have been analyzed yet."))
   (:documentation
-   "A Hemlock line object.  See Hemlock design document for details."))
+   "A Heml line object.  See Heml design document for details."))
 
 (defun make-line (&rest initargs)
   (apply #'make-instance 'line initargs))
@@ -138,7 +138,7 @@
 
 ;; $Log: line.lisp,v $
 ;; Revision 1.2  2004-12-15 12:16:45  crhodes
-;; Make clim-hemlock basically work on sbcl -- mostly build fixes from Hannu
+;; Make clim-heml basically work on sbcl -- mostly build fixes from Hannu
 ;; Koivisto.
 ;;
 ;; * don't declaim or declare stuff in CL special;

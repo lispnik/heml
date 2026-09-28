@@ -1,20 +1,23 @@
 
 
 
-* Xoamax REAME
+* Heml README
 
-** About Xoamax
+** About Heml
 
-   Xoamax is an Emacs-style editor written in Common Lisp.
+   Heml is an Emacs-style editor written in Common Lisp.
 
-   Originally named Hemlock and written as a part of CMUCL, work
-   started in 2002 to make it portable to other Common Lisp
-   implementations, and in 2020 the Xoamax (amicalble) fork was created.
+   It began as Hemlock, the editor written as a part of CMUCL.  Work
+   started in 2002 to make Hemlock portable to other Common Lisp
+   implementations, and in 2020 this (amicable) fork was created, first
+   as Xoamax.  In 2026 it was renamed Heml, code and all, so as not to
+   be confused with the upstream.  The manuals in =doc/= are Hemlock's,
+   and use its names.
 
 
 ** Backends
 
-   This version of Hemlock has two backends, of which you need at least
+   This version of Heml has two backends, of which you need at least
    one:
 
      * The TTY backend doesn't need much, except for a terminal
@@ -40,19 +43,19 @@
      make demo       # a video of the TTY editor in build/demo (needs vhs)
      make demo-full  # that, the Cocoa editor's, and both with titles (needs ffmpeg)
      make run-tty    # the terminal editor, in this terminal (LISP=ecl for ECL)
-     make app        # build/Xoamax.app, signed ad hoc or with SIGN_IDENTITY
-     make install-cli  # link the app's xoamax command into ~/.local/bin
+     make app        # build/Heml.app, signed ad hoc or with SIGN_IDENTITY
+     make install-cli  # link the app's heml command into ~/.local/bin
      make smoke-cli  # check that command from a shell
      make check-app  # its signature, Info.plist, and what it links
-     make dmg        # dist/Xoamax-<version>-<arch>.dmg
+     make dmg        # dist/Heml-<version>-<arch>.dmg
      make release SIGN_IDENTITY=...  # notarise and staple the app and the dmg
    #+END_SRC
 
    From a REPL:
 
    #+BEGIN_SRC lisp  :tangle no
-     (asdf:load-system :hemlock.cocoa)
-     (hemlock:hemlock nil :backend-type :cocoa)
+     (asdf:load-system :heml.cocoa)
+     (heml:heml nil :backend-type :cocoa)
    #+END_SRC
 
    AppKit needs the process's main thread, so call this from the main
@@ -60,9 +63,9 @@
    thread.  Cocoa is chosen whenever it is loaded, so =:backend-type=
    can usually be left out.
 
-   The left Option key is Meta (=hemlock.cocoa:*option-is-meta*=), and
+   The left Option key is Meta (=heml.cocoa:*option-is-meta*=), and
    the right one types what the keyboard layout puts on it, dead keys
-   included (=hemlock.cocoa:*right-option-is-meta*= makes it Meta too).
+   included (=heml.cocoa:*right-option-is-meta*= makes it Meta too).
    Input methods work, their text composed at the cursor.  Wide
    characters -- CJK, fullwidth forms, emoji -- take two columns.
 
@@ -70,15 +73,15 @@
    (C-w, M-w, Cmd-X, Cmd-C) can be pasted in other applications, and
    what they copy is what the next yank (C-y, Cmd-V) inserts.  The Edit
    menu's Undo, Cut, Copy, Paste and Select All are Command keys bound to
-   Hemlock commands, so they can be rebound like any other key.
+   Heml commands, so they can be rebound like any other key.
 
-   Xoamax.app opens files from Finder -- Open With, a drop on its Dock
-   icon, =open -a Xoamax file= -- in the running editor.
+   Heml.app opens files from Finder -- Open With, a drop on its Dock
+   icon, =open -a Heml file= -- in the running editor.
 
    The app is also a command.  =make install-cli= links
-   =Xoamax.app/Contents/Resources/bin/xoamax= into =~/.local/bin=, and
-   then =xoamax file= opens the file in a window, =xoamax --tty file= edits
-   it in the terminal, and =xoamax --help= lists the options.
+   =Heml.app/Contents/Resources/bin/heml= into =~/.local/bin=, and
+   then =heml file= opens the file in a window, =heml --tty file= edits
+   it in the terminal, and =heml --help= lists the options.
 
    View > Show Fonts (Cmd-T) picks the font, and Cmd-+, Cmd-- and Cmd-0
    make it bigger, smaller, or the default size again; the commands
@@ -96,13 +99,13 @@
 
    The menu bar has the File, Edit, View, Buffer, Lisp, Window and Help
    menus a Mac user looks for: Open and Save As use the standard panels,
-   Settings opens the init file, and every other item is a Hemlock
+   Settings opens the init file, and every other item is a Heml
    command (=*menu-bar*= in =src/cocoa-appkit.lisp=).
 
    Shells show their colours, and the escape sequences that are not
    colours are left out of the buffer.
 
-   Xoamax.app is built by [[https://github.com/lispnik/asdf-macos-app][asdf-macos-app]], and signed ad hoc unless
+   Heml.app is built by [[https://github.com/lispnik/asdf-macos-app][asdf-macos-app]], and signed ad hoc unless
    =SIGN_IDENTITY= names a Developer ID.  =RELEASING.md= says how to
    notarise it and make a release.
 
@@ -117,16 +120,16 @@
 **  Building and invocation of a binary
     #+BEGIN_SRC shell  :tangle no
       ./build.sh
-      ./hemlock --help
+      ./heml --help
     #+END_SRC
 
 
 ** Building and invocation from the REPL
    #+BEGIN_SRC lisp  :tangle no
-     (push #p"/path/to/hemlock/" asdf:*central-registry*)
-     (asdf:operate 'asdf:load-op :hemlock.tty)
+     (push #p"/path/to/heml/" asdf:*central-registry*)
+     (asdf:operate 'asdf:load-op :heml.tty)
 
-     (hemlock:hemlock)
+     (heml:heml)
    #+END_SRC
 
  or just
@@ -137,7 +140,7 @@
    
 
 ** Misc issues
-   Note, libfixposix is currently required for running Xomax (through
+   Note, libfixposix is currently required for running Heml (through
    iolib).  upon installation of libfixpostfix, you need to eather
    reboot your machine, so that the library can be found or execute
    the following lisp:

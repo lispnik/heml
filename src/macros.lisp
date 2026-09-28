@@ -8,31 +8,31 @@
 ;;; **********************************************************************
 ;;;
 ;;; This file contains most of the junk that needs to be in the compiler
-;;; to compile Hemlock commands.
+;;; to compile Heml commands.
 ;;;
 ;;; Written by Rob MacLachlin and Bill Chiles.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (declaim (special *editor-input*)) ; defined in input --amb
 
-;;;; Macros used for manipulating Hemlock variables.
+;;;; Macros used for manipulating Heml variables.
 
 (defmacro invoke-hook (place &rest args)
   "Call the functions in place with args.  If place is a symbol, then this
-   interprets it as a Hemlock variable rather than a Lisp variable, using its
+   interprets it as a Heml variable rather than a Lisp variable, using its
    current value as the list of functions."
   (let ((f (gensym)))
     `(dolist (,f ,(if (symbolp place) `(%value ',place) place))
        (funcall ,f ,@args))))
 
 (defmacro value (name)
-  "Return the current value of the Hemlock variable name."
+  "Return the current value of the Heml variable name."
   `(%value ',name))
 
 (defmacro setv (name new-value)
-  "Set the current value of the Hemlock variable name, calling any hook
+  "Set the current value of the Heml variable name, calling any hook
    functions with new-value before setting the value."
   `(%set-value ',name ,new-value))
 
@@ -42,13 +42,13 @@
 ;;; if there is no such variable.
 ;;;
 (defmacro with-variable-object (name &body forms)
-  `(let ((obj (get ,name 'hemlock-variable-value)))
+  `(let ((obj (get ,name 'heml-variable-value)))
      (unless obj (undefined-variable-error ,name))
      ,@forms))
 
 (defmacro hlet (binds &rest forms)
   "Hlet ({Var Value}*) {Form}*
-   Similar to Let, only it creates temporary Hemlock variable bindings.  Each
+   Similar to Let, only it creates temporary Heml variable bindings.  Each
    of the vars have the corresponding value during the evaluation of the
    forms."
   (let ((lets ())
@@ -89,10 +89,10 @@
 ;;;    Return the symbol which corresponds to the string name
 ;;; "string".
 (defun string-to-variable (string)
-  "Returns the symbol name of a Hemlock variable from the corresponding string
+  "Returns the symbol name of a Heml variable from the corresponding string
    name."
   (intern (nsubstitute #\- #\space (canonical-case string))
-          (find-package :hemlock)))
+          (find-package :heml)))
 
 ); eval-when
 
@@ -115,7 +115,7 @@
 (defmacro add-hook (place hook-fun)
   "Add-Hook Place Hook-Fun
   Add Hook-Fun to the list stored in Place.  If place is a symbol then it
-  it is interpreted as a Hemlock variable rather than a Lisp variable."
+  it is interpreted as a Heml variable rather than a Lisp variable."
   (if (symbolp place)
       `(pushnew ,hook-fun (value ,place))
       `(pushnew ,hook-fun ,place)))
@@ -127,7 +127,7 @@
 (defmacro remove-hook (place hook-fun)
   "Remove-Hook Place Hook-Fun
   Remove Hook-Fun from the list in Place.  If place is a symbol then it
-  it is interpreted as a Hemlock variable rather than a Lisp variable."
+  it is interpreted as a Heml variable rather than a Lisp variable."
   (if (symbolp place)
       `(setf (value ,place) (delete ,hook-fun (value ,place)))
       `(setf ,place (delete ,hook-fun ,place))))
@@ -142,7 +142,7 @@
                            &body forms)
   "Defcommand Name Lambda-List Command-Doc Function-Doc {Declaration}* {Form}*
 
-  Define a new Hemlock command named Name.  Lambda-List becomes the
+  Define a new Heml command named Name.  Lambda-List becomes the
   lambda-list, Function-Doc the documentation, and the Forms the
   body of the function which implements the command.  The first
   argument, which must be present, is the prefix argument.  The name
@@ -333,10 +333,10 @@
       "Returns the FORMAT arguments for the given editor-error condition.")
 
 (defun editor-error (&rest args)
-  "This function is called to signal minor errors within Hemlock;
+  "This function is called to signal minor errors within Heml;
    these are errors that a normal user could encounter in the course of editing
    such as a search failing or an attempt to delete past the end of the buffer.
-   This function SIGNAL's an editor-error condition formed from args.  Hemlock
+   This function SIGNAL's an editor-error condition formed from args.  Heml
    invokes commands in a dynamic context with an editor-error condition handler
    bound.  This default handler beeps or flashes (or both) the display.  If
    args were supplied, it also invokes MESSAGE on them.  The command in
@@ -424,13 +424,13 @@
                       `(progn
                          (setf ,',bind
                                (prompt-for-key-event* ,',n-prompt ,',n-change))
-                         (setf ,',bind-char (hemlock-ext:key-event-char ,',bind))
+                         (setf ,',bind-char (heml-ext:key-event-char ,',bind))
                          (go ,',again))))
            (block ,bname
              (let* ((,n-prompt ,prompt)
                     (,n-change ,change-window)
                     (,bind (prompt-for-key-event* ,n-prompt ,n-change))
-                    (,bind-char (hemlock-ext:key-event-char ,bind)))
+                    (,bind-char (heml-ext:key-event-char ,bind)))
                (tagbody
                 ,again
                 (return-from
@@ -481,44 +481,44 @@
 
 ;;;; WITH-INPUT & WITH-OUTPUT macros.
 
-(defvar *free-hemlock-output-streams* ()
-  "This variable contains a list of free Hemlock output streams.")
+(defvar *free-heml-output-streams* ()
+  "This variable contains a list of free Heml output streams.")
 
 (defmacro with-output-to-mark ((var mark &optional (buffered ':line))
                                &body gorms)
   "With-Output-To-Mark (Var Mark [Buffered]) {Declaration}* {Form}*
   During the evaluation of Forms, Var is bound to a stream which inserts
   output at the permanent mark Mark.  Buffered is the same as for
-  Make-Hemlock-Output-Stream."
+  Make-Heml-Output-Stream."
   (parse-forms (decls forms gorms)
-    `(let ((,var (pop *free-hemlock-output-streams*)))
+    `(let ((,var (pop *free-heml-output-streams*)))
        ,@decls
        (if ,var
-           (modify-hemlock-output-stream ,var ,mark ,buffered)
-           (setq ,var (make-hemlock-output-stream ,mark ,buffered)))
+           (modify-heml-output-stream ,var ,mark ,buffered)
+           (setq ,var (make-heml-output-stream ,mark ,buffered)))
        (unwind-protect
          (multiple-value-prog1 ,@forms
            (finish-output ,var))
-         (setf (hemlock-output-stream-mark ,var) nil)
-         (push ,var *free-hemlock-output-streams*)))))
+         (setf (heml-output-stream-mark ,var) nil)
+         (push ,var *free-heml-output-streams*)))))
 
-(defvar *free-hemlock-region-streams* ()
-  "This variable contains a list of free Hemlock input streams.")
+(defvar *free-heml-region-streams* ()
+  "This variable contains a list of free Heml input streams.")
 
 (defmacro with-input-from-region ((var region) &body gorms)
   "With-Input-From-Region (Var Region) {Declaration}* {Form}*
   During the evaluation of Forms, Var is bound to a stream which
   returns input from Region."
   (parse-forms (decls forms gorms)
-    `(let ((,var (pop *free-hemlock-region-streams*)))
+    `(let ((,var (pop *free-heml-region-streams*)))
        ,@decls
        (if ,var
-           (setq ,var (modify-hemlock-region-stream ,var ,region))
-           (setq ,var (make-hemlock-region-stream ,region)))
+           (setq ,var (modify-heml-region-stream ,var ,region))
+           (setq ,var (make-heml-region-stream ,region)))
        (unwind-protect
          (progn ,@forms)
-         (delete-mark (hemlock-region-stream-mark ,var))
-         (push ,var *free-hemlock-region-streams*)))))
+         (delete-mark (heml-region-stream-mark ,var))
+         (push ,var *free-heml-region-streams*)))))
 
 
 (defmacro with-pop-up-display ((var &key height (buffer-name "Random Typeout"))
@@ -550,7 +550,7 @@
 ;;; handling.
 ;;;
 
-;; Diese Logik ist wohl zu clever, als dass sie aktuell in phemlock
+;; Diese Logik ist wohl zu clever, als dass sie aktuell in pheml
 ;; funktionieren koennte.
 #+(or)
 (defun lisp-error-error-handler (condition &optional internalp)
@@ -568,7 +568,7 @@
                              (make-condition
                               'simple-condition
                               :format-control
-                              "Error in error handler; Hemlock broken.")))))
+                              "Error in error handler; Heml broken.")))))
     (princ condition)
     (clear-echo-area)
     (clear-editor-input *editor-input*)
@@ -582,14 +582,14 @@
           (loop
             (command-case (:prompt "Debug: "
                            :help
-                           "Type one of the Hemlock debug command characters:")
+                           "Type one of the Heml debug command characters:")
               (#\d "Enter a break loop."
                (let ((device (device-hunk-device
                               (window-hunk (current-window)))))
                  (device-exit device)
                  (unwind-protect
                      (with-simple-restart
-                         (continue "Return to Hemlock's debug loop.")
+                         (continue "Return to Heml's debug loop.")
                        (invoke-debugger condition))
                     (device-init device))))
               #|| GB
@@ -600,7 +600,7 @@
               (#\e "Show the error."
                (with-pop-up-display (*standard-output*)
                  (princ condition)))
-              ((#\q :exit) "Throw back to Hemlock top-level."
+              ((#\q :exit) "Throw back to Heml top-level."
                (throw 'editor-top-level-catcher nil))
               #||
               (#\r "Try to restart from this error."
@@ -619,13 +619,13 @@
 (defvar *debug-on-error* nil
   "If true, do not attempt to handle errors and go directly to the
    Lisp's low-level debugger.  Note that this variable does not enable
-   Hemlock-specific debugging features.  To debug Hemlock interactively,
+   Heml-specific debugging features.  To debug Heml interactively,
    use slime or slave debugging.")
 
 (defvar *stack-trace-on-error* nil
   "If true (the default), handle errors by showing a stack trace in a buffer.
 
-   Otherwise Hemlock will also attempt to show a stack trace, but will do
+   Otherwise Heml will also attempt to show a stack trace, but will do
    so on standard output.")
 
 (defun simple-print-restarts (&optional (s *standard-output*))
@@ -646,10 +646,10 @@
                 (type-of condition)
                 condition)
         (format s "The stack trace at the time of the error was:~%~%")
-        (hemlock::simple-backtrace s)
+        (heml::simple-backtrace s)
         (format s "~%Restarts would have been:~%~%")
         (simple-print-restarts s)
-        (hemlock::beginning-of-buffer-command nil))
+        (heml::beginning-of-buffer-command nil))
       (throw 'command-loop-catcher nil))
      (message-only-p
       (message "Error: ~A" condition)
@@ -657,7 +657,7 @@
      (t
       (warn "ignoring error: ~A" condition)
       (message "Error: ~A" condition)
-      (hemlock::simple-backtrace *standard-output*)
+      (heml::simple-backtrace *standard-output*)
       (throw 'command-loop-catcher nil)))))
 
 (defmacro handle-lisp-errors (&body body)

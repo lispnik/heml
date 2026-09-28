@@ -58,10 +58,10 @@
 ;; and not just by 20 characters as the [documented] behaviour of
 ;; XEmacs. This also is the observed behavior.
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;; Unfortunately we need numeric buffer positions. (Hmm, maybe after
-;; all RMS has a point?) Anyhow to graft this onto hemlock we define
+;; all RMS has a point?) Anyhow to graft this onto heml we define
 ;; two functions MARK-POSITION and POSTION-MARK to convert and back
 ;; and fro. Further these new kind of buffer positions are passed
 ;; around as (buffer line-number character-position) triples.

@@ -1,12 +1,12 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 ;;; ---------------------------------------------------------------------------
-;;;     Title: Lisp Implementation Dependent Stuff for Hemlock
+;;;     Title: Lisp Implementation Dependent Stuff for Heml
 ;;;   Created: 2002-11-07
 ;;;    Author: Gilbert Baumann <unk6@rz.uni-karlsruhe.de>
 ;;; ---------------------------------------------------------------------------
 ;;;  (c) copyright 2002 by Gilbert Baumann
 
-(in-package :hemlock-ext)
+(in-package :heml-ext)
 
 (defun getenv (name)
   (uiop:getenv name))

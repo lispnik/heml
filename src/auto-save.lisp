@@ -11,7 +11,7 @@
 ;;; Written by Christopher Hoover
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;;; Per Buffer State Information
@@ -44,7 +44,7 @@
 ;;; the buffer is not in "Save" mode then this function returns NIL.
 ;;;
 (defun get-auto-save-state (buffer)
-  (if (hemlock-bound-p 'auto-save-state :buffer buffer)
+  (if (heml-bound-p 'auto-save-state :buffer buffer)
        (variable-value 'auto-save-state :buffer buffer)))
 
 ;;; RESET-AUTO-SAVE-STATE resets the auto-save-state of the buffer making it
@@ -89,7 +89,7 @@
   "Returns a pathname for a non-existing file in DEFAULT-DIRECTORY.  Uses
    GENSYM to for a file name: save-GENSYM.CKP."
   (declare (ignore buffer))
-  (let ((def-dir (hemlock-ext:default-directory)))
+  (let ((def-dir (heml-ext:default-directory)))
     (loop
       (let* ((sym (gensym))
              (f (merge-pathnames (format nil "save-~A.CKP" sym) def-dir)))
@@ -133,7 +133,7 @@
 ;;;
 (defun write-checkpoint-file (pathname buffer)
   (let ((ns (namestring pathname)))
-    (cond ((hemlock-ext:file-writable pathname)
+    (cond ((heml-ext:file-writable pathname)
            (message "Saving ~A" ns)
            (handler-case (progn
                            (write-file (buffer-region buffer) pathname
@@ -310,10 +310,10 @@
 (add-hook input-hook 'auto-save-count-keys)
 
 
-;;;; Save Mode Hemlock Variables
+;;;; Save Mode Heml Variables
 
 ;;;
-;;; Hemlock variables/parameters for Auto-Save Mode
+;;; Heml variables/parameters for Auto-Save Mode
 ;;;
 
 (defhvar "Auto Save Filename Pattern"

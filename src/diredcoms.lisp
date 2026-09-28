@@ -13,7 +13,7 @@
 ;;; Written by Blaine Burks and Bill Chiles.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 (defmode "Dired" :major-p t
@@ -69,7 +69,7 @@
   "Prompts for a directory and edits it.  If a dired for that directory already
    exists, go to that buffer, otherwise create one.  With an argument, include
    UNIX dot files."
-  (let ((info (if (hemlock-bound-p 'dired-information)
+  (let ((info (if (heml-bound-p 'dired-information)
                   (value dired-information))))
     (dired-guts nil
                 ;; Propagate dot-files property to subdirectory edits.
@@ -234,7 +234,7 @@
 ;;; an error.
 ;;;
 (defun dired-frob-deletion (patternp deletep)
-  (unless (hemlock-bound-p 'dired-information)
+  (unless (heml-bound-p 'dired-information)
     (editor-error "Not in Dired buffer."))
   (with-mark ((mark (current-point) :left-inserting))
     (let* ((dir-info (value dired-information))
@@ -327,7 +327,7 @@
   "Invokes \"Dired\" on the directory up one level from the current Dired
    buffer."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'dired-information)
+  (unless (heml-bound-p 'dired-information)
     (editor-error "Not in Dired buffer."))
   (let ((dirs (or (pathname-directory
                    (dired-info-pathname (value dired-information)))
@@ -345,7 +345,7 @@
   "Recompute the contents of a dired buffer.
    This maintains delete flags for files that have not been modified."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'dired-information)
+  (unless (heml-bound-p 'dired-information)
     (editor-error "Not in Dired buffer."))
   (let ((buffer (current-buffer))
         (dir-info (value dired-information)))
@@ -840,7 +840,7 @@
 ;;; view-return-function.  If there is one, it calls it and returns t.
 ;;;
 (defun call-view-return-fun ()
-  (if (hemlock-bound-p 'view-return-function)
+  (if (heml-bound-p 'view-return-function)
       (let ((fun (value view-return-function)))
         (cond (fun
                (funcall fun)

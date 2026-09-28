@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock-ext)
+(in-package :heml-ext)
 
 (defconstant hi::char-code-limit 256)
 (defconstant char-code-limit 256)
@@ -20,7 +20,7 @@
   "vt100")
 
 (defun default-directory ()
-  (let* ((p (hemlock::buffer-default-directory (current-buffer)))
+  (let* ((p (heml::buffer-default-directory (current-buffer)))
          (p (and p (namestring p))))
     (if (and p
              (handler-case

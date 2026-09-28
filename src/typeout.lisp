@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defun make-unique-buffer (base-name &rest keys)
   (loop
@@ -16,8 +16,8 @@
 (defcommand "Dismiss Typeout" (p)
   "Close the Typeout Buffer" ""
   (declare (ignore p))
-  (hlet ((hemlock::ask-for-new-buffer nil))
-    (hemlock::kill-buffer-command nil (buffer-name *current-buffer*))))
+  (hlet ((heml::ask-for-new-buffer nil))
+    (heml::kill-buffer-command nil (buffer-name *current-buffer*))))
 
 (bind-key "Dismiss Typeout" #k"q" :mode "Typeout")
 

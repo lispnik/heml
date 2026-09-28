@@ -14,7 +14,7 @@
 ;;; Terminal device screen management functions.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 
@@ -43,7 +43,7 @@
                      nil))))
   (let* ((width (tty-device-columns device))
          (height (tty-device-lines device))
-         (echo-height (value hemlock::echo-area-height))
+         (echo-height (value heml::echo-area-height))
          (main-lines (- height echo-height 1)) ;-1 for echo modeline.
          (main-text-lines (1- main-lines)) ;also main-modeline-pos.
          (last-text-line (1- main-text-lines)))
@@ -88,7 +88,7 @@
 ;;; on available capability.
 ;;;
 (defun make-tty-device (name)
-  (hemlock.terminfo:set-terminal)
+  (heml.terminfo:set-terminal)
   (register-tty-translations)
   (let ((device (%make-tty-device :name name)))
     (when (termcap :overstrikes)
@@ -100,7 +100,7 @@
       (setf (tty-device-lines device) (or lines (termcap :lines)))
       (let ((cols (or cols (termcap :columns))))
         (setf (tty-device-columns device)
-              (if hemlock.terminfo:auto-right-margin (1- cols) cols)))
+              (if heml.terminfo:auto-right-margin (1- cols) cols)))
       (setf (tty-device-speed device) speed))
     ;;
     ;; Some function slots.
@@ -117,33 +117,33 @@
     ;;
     ;; Some string slots.
     (setf (tty-device-standout-init-string device)
-          (or (hemlock.terminfo:tputs (termcap :init-standout-mode)) ""))
+          (or (heml.terminfo:tputs (termcap :init-standout-mode)) ""))
     (setf (tty-device-standout-end-string device)
-          (or (hemlock.terminfo:tputs (termcap :end-standout-mode)) ""))
+          (or (heml.terminfo:tputs (termcap :end-standout-mode)) ""))
     (setf (tty-device-clear-to-eol-string device)
-          (hemlock.terminfo:tputs (termcap :clear-to-eol)))
+          (heml.terminfo:tputs (termcap :clear-to-eol)))
     (let ((clear-string (termcap :clear-display)))
       (unless clear-string
-        (error "Terminal not sufficiently powerful enough to run Hemlock."))
-      (setf (tty-device-clear-string device) (hemlock.terminfo:tputs clear-string)))
+        (error "Terminal not sufficiently powerful enough to run Heml."))
+      (setf (tty-device-clear-string device) (heml.terminfo:tputs clear-string)))
     (let* ((init-string (termcap :init-string))
            (init-file (termcap :init-file))
            (init-file-string (if init-file (get-init-file-string init-file)))
            (init-cm-string (termcap :init-cursor-motion)))
       (setf (tty-device-init-string device)
-            (hemlock.terminfo:tputs (concatenate 'simple-string
+            (heml.terminfo:tputs (concatenate 'simple-string
                                 (or init-string "")
                                 (or init-file-string "")
                                 (or init-cm-string "")
                                 ;; Transmit-mode: this makes arrow-keys give sequences matching
                                 ;; the terminfo db.
-                                hemlock.terminfo:keypad-xmit))))
+                                heml.terminfo:keypad-xmit))))
     (setf (tty-device-cm-end-string device)
-          (hemlock.terminfo:tputs
+          (heml.terminfo:tputs
            (concatenate 'simple-string
                         (or (termcap :end-cursor-motion) "")
                         ;; Exit transmit-mode.
-                        hemlock.terminfo:keypad-local)))
+                        heml.terminfo:keypad-local)))
     device))
 
 

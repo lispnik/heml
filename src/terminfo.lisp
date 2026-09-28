@@ -23,7 +23,7 @@
 ;;; USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 ;;; DAMAGE.
 
-(in-package :hemlock.terminfo)
+(in-package :heml.terminfo)
 
 (defvar *terminfo-directories* '("/etc/terminfo/"
                                  "/lib/terminfo/"
@@ -997,7 +997,7 @@ either way over any conditional nested inside."
 
 (defun set-terminal (&optional name)
   (setf *terminfo*
-        (let ((name (or name (hemlock-ext:getenv "TERM") "dumb")))
+        (let ((name (or name (heml-ext:getenv "TERM") "dumb")))
           (or (load-terminfo name)
               (error "Failed to load terminfo data for: ~A" name)))))
 

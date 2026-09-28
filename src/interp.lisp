@@ -9,17 +9,17 @@
 ;;;
 ;;; Written by Rob MacLachlan and Blaine Burks.
 ;;;
-;;; This file contains the routines which define hemlock commands and
+;;; This file contains the routines which define heml commands and
 ;;; the command interpreter.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (declaim (special *echo-area-buffer*)) ; defined in echo.lisp --amb
 
 (defun %print-hcommand (obj stream depth)
   (declare (ignore depth))
-  (write-string "#<Hemlock Command \"" stream)
+  (write-string "#<Heml Command \"" stream)
   (write-string (command-name obj) stream)
   (write-string "\">" stream))
 
@@ -93,7 +93,7 @@
       (when (= try-pos key-len) (return))
       (let ((key-event (aref key try-pos)))
         (vector-push-extend
-         (hemlock-ext:make-key-event key-event (logior (hemlock-ext:key-event-bits key-event)
+         (heml-ext:make-key-event key-event (logior (heml-ext:key-event-bits key-event)
                                                prefix))
          temp)
         (setf prefix 0))
@@ -134,7 +134,7 @@
       (hash-table :prefix)
       ((or simple-vector null) entry)
       (integer
-       (cons :bits (hemlock-ext:key-event-bits-modifiers entry))))))
+       (cons :bits (heml-ext:key-event-bits-modifiers entry))))))
 
 ;;; (SETF KEY-TRANSLATION)  --  Internal
 ;;;
@@ -142,7 +142,7 @@
   "Set the key translation for a key.  If set to null, deletes any
    translation."
   (let ((entry (cond ((and (consp new-value) (eq (car new-value) :bits))
-                      (apply #'hemlock-ext:make-key-event-bits (cdr new-value)))
+                      (apply #'heml-ext:make-key-event-bits (cdr new-value)))
                      (new-value (crunch-key new-value))
                      (t new-value))))
     (set-table-entry *key-translations* (crunch-key key) entry)
@@ -182,11 +182,11 @@
 ;;;
 (defun crunch-key (key)
   (typecase key
-    (hemlock-ext:key-event (vector key))
+    (heml-ext:key-event (vector key))
     ((or list vector) ;List thrown in gratuitously.
      (when (zerop (length key))
        (error "A zero length key is illegal."))
-     (unless (every #'hemlock-ext:key-event-p key)
+     (unless (every #'heml-ext:key-event-p key)
        (error "A Key ~S must contain only key-events." key))
      (coerce key 'simple-vector))
     (t
@@ -201,8 +201,8 @@
 ;;; BIND-KEY  --  Public.
 ;;;
 (defun bind-key (name key &optional (kind :global) where)
-  "Bind a Hemlock command to some key somewhere.  Name is the string name
-   of a Hemlock command, Key is either a key-event or a vector of key-events.
+  "Bind a Heml command to some key somewhere.  Name is the string name
+   of a Heml command, Key is either a key-event or a vector of key-events.
    Kind is one of :Global, :Mode or :Buffer, and where is the mode name or
    buffer concerned.  Kind defaults to :Global."
   ;;(with-simple-restart (continue "Go on, ignoring binding attempt."))
@@ -228,7 +228,7 @@
 ;;;    Stick NIL in the key table specified.
 ;;;
 (defun delete-key-binding (key &optional (kind :global) where)
-  "Remove a Hemlock key binding somewhere.  Key is either a key-event or a
+  "Remove a Heml key binding somewhere.  Key is either a key-event or a
    vector of key-events.  Kind is one of :Global, :Mode or :Buffer, andl where
    is the mode name or buffer concerned.  Kind defaults to :Global."
   (set-table-entry (get-right-table kind where)
@@ -297,7 +297,7 @@
 ;;; otherwise, make a new command object and enter it into the *command-names*.
 ;;;
 (defun make-command (name documentation function)
-  "Create a new Hemlock command with Name and Documentation which is
+  "Create a new Heml command with Name and Documentation which is
    implemented by calling the function-value of the symbol Function"
   (let ((entry (getstring name *command-names*)))
     (cond
@@ -317,7 +317,7 @@
   (command-%name command))
 ;;;
 (defun (setf command-name) (new-name command)
-  "Change a Hemlock command's name."
+  "Change a Heml command's name."
   (check-type command command)
   (check-type new-name string)
   (setq new-name (coerce new-name 'simple-string))
@@ -438,11 +438,11 @@
         (unless (eq *current-buffer* *echo-area-buffer*)
           (when (buffer-modified *echo-area-buffer*) (clear-echo-area))
           (unless (or (zerop (length cmd))
-                      #+nil (not (value hemlock::key-echo-delay)))
+                      #+nil (not (value heml::key-echo-delay)))
             (unless (listen-editor-input *editor-input*)
               (clear-echo-area)
               (dotimes (i (length cmd))
-                (hemlock-ext:print-pretty-key (aref cmd i) *echo-area-stream*)
+                (heml-ext:print-pretty-key (aref cmd i) *echo-area-stream*)
                 (write-char #\space *echo-area-stream*)))))
         (vector-push-extend (get-key-event *editor-input*) cmd)
         (multiple-value-bind (trans-result prefix-p)
@@ -453,13 +453,13 @@
               (command
                (let ((punt t))
                  (with-simple-restart (abort
-                                       "Abort to Hemlock command loop")
+                                       "Abort to Heml command loop")
                    (catch 'command-loop-catcher
                      (dolist (c t-bindings)
                        (funcall *invoke-hook* c *prefix-argument*))
                      (funcall *invoke-hook* res *prefix-argument*)
                      (setf punt nil)))
-                 (when punt (invoke-hook hemlock::command-abort-hook)))
+                 (when punt (invoke-hook heml::command-abort-hook)))
                (update-modelines-for-buffer *current-buffer*)
                (if *command-type-set*
                    (setq *command-type-set* nil)
@@ -481,8 +481,8 @@
               (hash-table))))))))
 
 
-;;; EXIT-HEMLOCK  --  Public
+;;; EXIT-HEML  --  Public
 ;;;
-(defun exit-hemlock (&optional (value t))
+(defun exit-heml (&optional (value t))
   "Exit from ED, returning the specified value."
-  (throw 'hemlock-exit value))
+  (throw 'heml-exit value))

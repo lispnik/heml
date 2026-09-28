@@ -7,13 +7,13 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; File group stuff for Hemlock.
+;;; File group stuff for Heml.
 ;;; Written by Skef Wholey and Rob MacLachlan.
 ;;;
 ;;;    The "Compile Group" and "List Compile Group" commands in lispeval
 ;;;    also know about groups.
 ;;;
-;;; This file provides Hemlock commands for manipulating groups of files
+;;; This file provides Heml commands for manipulating groups of files
 ;;; that make up a larger system.  A file group is a set of files whose
 ;;; names are listed in some other file.  At any given time one group of
 ;;; files is the Active group.  The Select Group command makes a group the
@@ -23,7 +23,7 @@
 ;;; one wishes to change the name of the definition file after a group has
 ;;; been selected, one should call Select Group with a prefix argument.
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defvar *file-groups* (make-string-table)
   "A string table of file groups.")

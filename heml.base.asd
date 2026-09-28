@@ -1,13 +1,13 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage #:hemlock-system
+(defpackage #:heml-system
   (:use #:cl)
-  (:export #:*hemlock-base-directory*))
+  (:export #:*heml-base-directory*))
 
-(in-package #:hemlock-system)
+(in-package #:heml-system)
 
-(defvar *modern-hemlock* nil)
-(setf *modern-hemlock* t)
+(defvar *modern-heml* nil)
+(setf *modern-heml* t)
 
 (pushnew :command-bits *features*)
 
@@ -27,28 +27,28 @@
   (setf c:*user-cc-flags*
         (concatenate 'string c:*user-cc-flags* " -Decl_to_cl_index=ecl_to_index")))
 
-(defparameter *hemlock-base-directory*
+(defparameter *heml-base-directory*
   (make-pathname :name nil :type nil :version nil
                  :defaults (parse-namestring *load-truename*)))
 
 ;;; vendor/conium is a submodule: lispnik/conium, branch ecl, whose ECL
 ;;; backend is brought up to date from SLIME's.  The central registry is
 ;;; searched before ocicl, so this copy is the one loaded.
-(pushnew (merge-pathnames "vendor/conium/" *hemlock-base-directory*)
+(pushnew (merge-pathnames "vendor/conium/" *heml-base-directory*)
          asdf:*central-registry* :test #'equal)
 
 (defparameter *binary-pathname*
   (make-pathname :directory
-                 (append (pathname-directory *hemlock-base-directory*)
+                 (append (pathname-directory *heml-base-directory*)
                          (list "bin"
                                (string-downcase (lisp-implementation-type))))
-                 :defaults *hemlock-base-directory*))
+                 :defaults *heml-base-directory*))
 
-(asdf:defsystem :hemlock.base
+(asdf:defsystem :heml.base
      :pathname #.(make-pathname
                         :directory
-                        (pathname-directory *hemlock-base-directory*)
-                        :defaults *hemlock-base-directory*)
+                        (pathname-directory *heml-base-directory*)
+                        :defaults *heml-base-directory*)
      :depends-on (:alexandria
                   :bordeaux-threads
                   :conium
@@ -65,14 +65,14 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (wire)
               :components
               ((:file "package")
                ;; Lisp implementation specific stuff goes into one of the next
                ;; two files.
                (:file "lispdep" :depends-on ("package"))
-               (:file "hemlock-ext" :depends-on ("package"))
+               (:file "heml-ext" :depends-on ("package"))
 
                (:file "decls" :depends-on ("package")) ; early declarations of functions and stuff
                (:file "struct" :depends-on ("package"))
@@ -83,7 +83,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (core-1)
               :components
               ((:file "keysym-defs")))
@@ -91,7 +91,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (keysyms core-1)
               :serial t                 ;...
               :components
@@ -127,7 +127,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (core-2 core-1)
               :components
               ((:file "pop-up-stream")))
@@ -135,7 +135,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (root-1 core-1 wire)
               :components
               ((:file "font")
@@ -147,7 +147,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (keysyms core-1 core-2)
               :components
               ((:file "typeout")))
@@ -155,7 +155,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on ()
               :serial t
               :components
@@ -167,7 +167,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (root-2 core-1 wire)
               :components
               ((:file "echocoms")
@@ -232,7 +232,7 @@
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :depends-on (core-2 root-2 user-1)
               :components
               ((:file "ioconnections")))))

@@ -4,12 +4,12 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; This file contains the code that handles input to Hemlock.
+;;; This file contains the code that handles input to Heml.
 ;;;
 
 
@@ -128,7 +128,7 @@
 ;;; and return the character.  If there is none, return NIL.
 ;;;
 (defun dq-event (stream)
-  (hemlock-ext:without-interrupts
+  (heml-ext:without-interrupts
    (let* ((head (editor-input-head stream))
           (next (input-event-next head)))
      (if next
@@ -145,14 +145,14 @@
 ;;; editor stream.
 ;;;
 (defun q-event (stream key-event &optional x y hunk)
-  (hemlock-ext:without-interrupts
+  (heml-ext:without-interrupts
    (let ((new (new-event key-event x y hunk nil))
          (tail (editor-input-tail stream)))
      (setf (input-event-next tail) new)
      (setf (editor-input-tail stream) new))))
 
 (defun un-event (key-event stream)
-  (hemlock-ext:without-interrupts
+  (heml-ext:without-interrupts
    (let* ((head (editor-input-head stream))
           (next (input-event-next head))
           (new (new-event key-event (input-event-x head) (input-event-y head)
@@ -185,8 +185,8 @@
 
 ;;;; Input method macro.
 
-(defvar *in-hemlock-stream-input-method* nil
-  "This keeps us from undefined nasties like re-entering Hemlock stream
+(defvar *in-heml-stream-input-method* nil
+  "This keeps us from undefined nasties like re-entering Heml stream
    input methods from input hooks and scheduled events.")
 
 (declaim (special *screen-image-trashed* *redisplay-interval*))
@@ -202,7 +202,7 @@
 ;;; EDITOR-INPUT-METHOD-MACRO  --  Internal.
 ;;;
 ;;; WINDOWED-GET-KEY-EVENT and TTY-GET-KEY-EVENT use this.  Somewhat odd stuff
-;;; goes on here because this is the place where Hemlock waits, so this is
+;;; goes on here because this is the place where Heml waits, so this is
 ;;; where we redisplay, check the time for scheduled events, etc.  In the loop,
 ;;; we call the input hook when we get a character and leave the loop.  If
 ;;; there isn't any input, invoke any scheduled events whose time is up.
@@ -211,19 +211,19 @@
 ;;; SERVE-EVENT with a wait or infinite timeout.  Upon exiting the loop, turn
 ;;; off the read wait note and check for the abort character.  Return the
 ;;; key-event we got.  We bind an error condition handler here because the
-;;; default Hemlock error handler goes into a little debugging prompt loop, but
+;;; default Heml error handler goes into a little debugging prompt loop, but
 ;;; if we got an error in getting input, we should prompt the user using the
 ;;; input method (recursively even).
 ;;;
 (defgeneric %editor-input-method (editor-input ignore-abort-attempts-p))
 (defmethod %editor-input-method
     ((editor-input editor-input) ignore-abort-attempts-p)
-  (let ((*in-hemlock-stream-input-method* t)
+  (let ((*in-heml-stream-input-method* t)
         (device (device-hunk-device (window-hunk (current-window))))
         key-event)
     (loop
      (when (setf key-event (dq-event editor-input))
-       (dolist (f (variable-value 'hemlock::input-hook)) (funcall f))
+       (dolist (f (variable-value 'heml::input-hook)) (funcall f))
        (return))
      (invoke-scheduled-events)
      (cond
@@ -338,7 +338,7 @@
   (let ((key-event (loop
                      (let ((key-event (dq-event *editor-input*)))
                        (when key-event (return key-event))
-                       (hemlock-ext:serve-event)))))
+                       (heml-ext:serve-event)))))
     (when (abort-key-event-p key-event)
       (beep)
       (throw 'editor-top-level-catcher nil))

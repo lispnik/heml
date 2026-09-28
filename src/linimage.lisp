@@ -4,7 +4,7 @@
 ;;; This code was written as part of the CMU Common Lisp project at
 ;;; Carnegie Mellon University, and has been placed in the public domain.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;;
 ;;; **********************************************************************
@@ -102,7 +102,7 @@
   (setf (attribute-descriptor-char-set
          (gethash :print-representation *character-attributes*))
         *print-representation-char-set*)
-  (add-hook hemlock::character-attribute-hook
+  (add-hook heml::character-attribute-hook
             #'redis-set-char-attribute-hook-fun)
   (do ((i (1- (char-code #\space)) (1- i)) str)
       ((minusp i))

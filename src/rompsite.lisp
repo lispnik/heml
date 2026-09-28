@@ -11,14 +11,14 @@
 
 (in-package :hi)
 
-;;; WITHOUT-HEMLOCK -- Public.
+;;; WITHOUT-HEML -- Public.
 ;;;
 ;;; Code:lispinit.lisp uses this for a couple interrupt handlers, and
 ;;; eval-server.lisp.
 ;;;
 
-(defmacro without-hemlock (&body body)
-  "When in the editor and not in the debugger, call the exit method of Hemlock's
+(defmacro without-heml (&body body)
+  "When in the editor and not in the debugger, call the exit method of Heml's
    device, so we can type.  Do the same thing on exit but call the init method."
   `(progn
     (when (and *in-the-editor* )
@@ -102,7 +102,7 @@
     (cond
       ((validate-backend-type want))
       ((car *available-backends*))
-      (t (error "no Hemlock backends loaded, giving up")))))
+      (t (error "no Heml backends loaded, giving up")))))
 
 (defgeneric backend-init-raw-io (backend-type display))
 
@@ -132,22 +132,22 @@
 (defconstant font-map-size 16)
 
 
-;;;; HEMLOCK-BEEP.
+;;;; HEML-BEEP.
 
 (defvar *editor-bell* (make-string 1 :initial-element #\bell))
 
-;;; TTY-BEEP is used in Hemlock for beeping when running under a terminal.
+;;; TTY-BEEP is used in Heml for beeping when running under a terminal.
 ;;; Send a #\bell to unix standard output.
 ;;;
 #+NIL
 (defun tty-beep (&optional device stream)
   (declare (ignore device stream))
-  (when (variable-value 'hemlock::bell-style)
+  (when (variable-value 'heml::bell-style)
     (unix:unix-write 1 *editor-bell* 0 1)))
 
 (declaim (special *current-window*))
 
-(defun hemlock-beep (stream)
+(defun heml-beep (stream)
   "Using the current window, calls the device's beep function on stream."
   (let ((device (device-hunk-device (window-hunk (current-window)))))
     (device-beep device stream)))
@@ -166,15 +166,15 @@
 
 ;;;; GC messages.
 
-;;; HEMLOCK-GC-NOTIFY-BEFORE and HEMLOCK-GC-NOTIFY-AFTER beep for GC
+;;; HEML-GC-NOTIFY-BEFORE and HEML-GC-NOTIFY-AFTER beep for GC
 ;;; notifications.
 ;;;
 
-(defun hemlock-gc-notify-before (bytes-in-use)
+(defun heml-gc-notify-before (bytes-in-use)
   (declare (ignore bytes-in-use))
   (beep))
 
-(defun hemlock-gc-notify-after (bytes-retained bytes-freed trigger)
+(defun heml-gc-notify-after (bytes-retained bytes-freed trigger)
   (declare (ignore bytes-retained bytes-freed trigger))
   (beep))
 
@@ -182,9 +182,9 @@
 
 ;;;; Site-Wrapper-Macro and standard device init/exit functions.
 
-(defun in-hemlock-standard-input-read (stream &rest ignore)
+(defun in-heml-standard-input-read (stream &rest ignore)
   (declare (ignore ignore))
-  (error "You cannot read off this stream while in Hemlock -- ~S"
+  (error "You cannot read off this stream while in Heml -- ~S"
          stream))
 
 (defvar *illegal-read-stream*
@@ -200,9 +200,9 @@
        (when *editor-has-been-entered*
          (let ((device (device-hunk-device (window-hunk (current-window)))))
             (device-init device)))
-       (let ((*beep-function* #'hemlock-beep)
-             (*gc-notify-before* #'hemlock-gc-notify-before)
-             (*gc-notify-after* #'hemlock-gc-notify-after))
+       (let ((*beep-function* #'heml-beep)
+             (*gc-notify-before* #'heml-gc-notify-before)
+             (*gc-notify-after* #'heml-gc-notify-after))
          ,@body))
      (let ((device (device-hunk-device (window-hunk (current-window)))))
        (device-exit device))))
@@ -244,7 +244,7 @@
   (format stream "#<Tq-Event ~S>" (tq-event-function obj)))
 
 (defvar *time-queue* nil
-  "This is the time priority queue used in Hemlock input streams for event
+  "This is the time priority queue used in Heml input streams for event
    scheduling.")
 
 ;;; QUEUE-TIME-EVENT inserts event into the time priority queue *time-queue*.
@@ -294,7 +294,7 @@
                  (funcall (tq-event-function event)
                           (round (- time (tq-event-last-time event))
                                  internal-time-units-per-second)))
-               (hemlock-ext:without-interrupts
+               (heml-ext:without-interrupts
                 (let ((interval (tq-event-interval event)))
                   (when interval
                     (setf (tq-event-time event) (+ time interval))
@@ -395,7 +395,7 @@
 
 
 
-;;;; Some hacks for supporting Hemlock under Mach.
+;;;; Some hacks for supporting Heml under Mach.
 
 (defun process-editor-tty-input (&optional fd)
   (declare (ignore fd))
@@ -433,7 +433,7 @@
 ;;;; PREPL-integration
 ;;;;
 
-(defun prepl-hemlock-command-integration-hook (cmd override)
+(defun prepl-heml-command-integration-hook (cmd override)
   (multiple-value-bind (fun parsing)
                        (find-override-for-prepl cmd (or override t))
     (cond
@@ -442,26 +442,26 @@
      (nil))))
 
 (defparameter *prepl-command-overrides*
-  ;; List of (prepl-command-name hemlock-command-name)
-  ;;      or (prepl-command-name hemlock-function-name)
+  ;; List of (prepl-command-name heml-command-name)
+  ;;      or (prepl-command-name heml-function-name)
   ;;
-  ;; Hemlock commands (first form) are run in the master.
-  ;; Hemlock functions (second form) are called directly in the slave (!).
+  ;; Heml commands (first form) are run in the master.
+  ;; Heml functions (second form) are called directly in the slave (!).
   ;;
   '(("apropos" "Slave Apropos Ignoring Point")
-    ("bt" hemlock::debug-using-master)
-    ("zoom" hemlock::debug-using-master)
+    ("bt" heml::debug-using-master)
+    ("zoom" heml::debug-using-master)
     ("help" call-command-with-redirection)))
 
 (defun call-with-typeout-pop-up-in-master (fun buffer-name)
   (let* ((buffer-name (or buffer-name "Unnamed typescript"))
          (ts-data
-          (hemlock.wire:remote-value
-           hemlock.wire::*current-wire*
-           (hemlock::%make-extra-typescript-buffer buffer-name)))
+          (heml.wire:remote-value
+           heml.wire::*current-wire*
+           (heml::%make-extra-typescript-buffer buffer-name)))
          (stream
-          ;; (hemlock::make-ts-stream hemlock.wire::*current-wire* ts-data)
-          (hemlock::connect-stream ts-data)))
+          ;; (heml::make-ts-stream heml.wire::*current-wire* ts-data)
+          (heml::connect-stream ts-data)))
     (funcall fun stream)))
 
 (defmacro with-typeout-pop-up-in-master
@@ -494,7 +494,7 @@
              (let ((sym (command-function cmd)))
                (check-type sym symbol)
                (values (lambda (&rest args)
-                         (hemlock::eval-in-master `(,sym nil ,@args)))
+                         (heml::eval-in-master `(,sym nil ,@args)))
                        override)))))))))
 
 (defun find-command-for-prepl-normally (cmd)
@@ -506,11 +506,11 @@
   (let* ((sym (find-symbol (concatenate 'string
                                         (canonical-case cmd)
                                         (symbol-name '#:-command))
-                           :hemlock))
+                           :heml))
          (fun (and sym (fdefinition sym))))
     (when fun
       (values (lambda (&rest args)
-                (hemlock::eval-in-master `(funcall ',sym nil ,@args)))
+                (heml::eval-in-master `(funcall ',sym nil ,@args)))
               t))))
 
-(push 'prepl-hemlock-command-integration-hook prepl:*command-parser-hooks*)
+(push 'prepl-heml-command-integration-hook prepl:*command-parser-hooks*)

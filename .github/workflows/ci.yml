@@ -1,5 +1,5 @@
-# Builds Xoamax on GitHub's macOS runner, drives both of its macOS
-# frontends end to end, and builds Xoamax.app and its disk image, signed ad
+# Builds Heml on GitHub's macOS runner, drives both of its macOS
+# frontends end to end, and builds Heml.app and its disk image, signed ad
 # hoc.  Signed, notarised releases are release.yml's job.
 #
 # The runner has a window server -- GitHub's macOS images come with a
@@ -96,7 +96,7 @@ jobs:
           sbcl --version
           sw_vers
           sbcl --noinform --non-interactive \
-            --eval '(asdf:load-system :hemlock.cocoa)' \
+            --eval '(asdf:load-system :heml.cocoa)' \
             --eval '(format t "~&window server: ~A~%" (objc.runloop:window-server-p))'
 
       - name: Drive the Cocoa editor (make smoke)
@@ -108,7 +108,7 @@ jobs:
       - name: Drive the TTY editor under ECL (make smoke-tty-ecl)
         run: make smoke-tty-ecl
 
-      - name: Build Xoamax.app and check it
+      - name: Build Heml.app and check it
         run: make check-app
 
       - name: Run the app's command from a shell (make smoke-cli)
@@ -117,33 +117,33 @@ jobs:
       - name: Build the disk image
         run: make dmg
 
-      - name: Start Xoamax.app and quit it
+      - name: Start Heml.app and quit it
         run: |
-          open build/Xoamax.app
+          open build/Heml.app
           for i in $(seq 1 60); do
-            pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null && break
+            pgrep -f "Heml.app/Contents/MacOS/heml" >/dev/null && break
             sleep 1
           done
-          pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null || { echo "::error::Xoamax.app did not start"; exit 1; }
+          pgrep -f "Heml.app/Contents/MacOS/heml" >/dev/null || { echo "::error::Heml.app did not start"; exit 1; }
           sleep 5
           # Quit asks the editor, which exits as C-x C-c does; AppKit's own
           # terminate is cancelled, so osascript reports "User canceled".
-          osascript -e 'tell application id "org.lispnik.xoamax" to quit' || true
+          osascript -e 'tell application id "org.lispnik.heml" to quit' || true
           for i in $(seq 1 30); do
-            pgrep -f "Xoamax.app/Contents/MacOS/xoamax" >/dev/null || exit 0
+            pgrep -f "Heml.app/Contents/MacOS/heml" >/dev/null || exit 0
             sleep 1
           done
-          echo "::error::Xoamax.app did not quit"; exit 1
+          echo "::error::Heml.app did not quit"; exit 1
 
       - name: Verify the disk image
-        run: hdiutil verify dist/Xoamax-*.dmg
+        run: hdiutil verify dist/Heml-*.dmg
 
       - name: Keep the pictures and the disk image
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xoamax-${{ github.sha }}
+          name: heml-${{ github.sha }}
           path: |
             build/smoke/*.png
-            dist/Xoamax-*.dmg
+            dist/Heml-*.dmg
           if-no-files-found: warn

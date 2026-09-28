@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defmode "Grep" :major-p t
   :documentation

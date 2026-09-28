@@ -9,7 +9,7 @@
 ;;;
 ;;; This file contains definitions of various character attributes.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 (defattribute "Whitespace"
   "A value of 1 for this attribute indicates that the corresponding character

@@ -6,7 +6,7 @@
 ;; them. In the mean time:
 
 
-(defpackage :hemlock-interface
+(defpackage :heml-interface
     (:use)
   (:export
    ;; Functions from the CIM:
@@ -137,7 +137,7 @@
    #:variable-hooks
    #:variable-name
    #:string-to-variable
-   #:hemlock-bound-p
+   #:heml-bound-p
    #:delete-variable
    #:make-command
    #:commandp
@@ -224,16 +224,16 @@
    #:read-buffer-file
    #:find-file-buffer
    ;;   #:ed
-   #:exit-hemlock
-   #:pause-hemlock
+   #:exit-heml
+   #:pause-heml
    #:get-key-event
    #:unget-key-event
    #:clear-editor-input
    #:listen-editor-input
-   #:make-hemlock-output-stream
-   #:hemlock-output-stream-p
-   #:make-hemlock-region-stream
-   #:hemlock-region-stream-p
+   #:make-heml-output-stream
+   #:heml-output-stream-p
+   #:make-heml-region-stream
+   #:heml-region-stream-p
    #:editor-error-format-string
    #:editor-error-format-arguments
    #:editor-error
@@ -446,12 +446,12 @@
    #:listening-connection
    #:make-tcp-listener
    #:make-connection-device)
-  (:import-from :hemlock.wire #:dispatch-events #:dispatch-events-no-hang)
+  (:import-from :heml.wire #:dispatch-events #:dispatch-events-no-hang)
   (:export #:dispatch-events #:dispatch-events-no-hang))
 
-(defpackage :hemlock-ext
+(defpackage :heml-ext
   (:use :common-lisp
-        :hemlock-interface)
+        :heml-interface)
   (:shadow #:char-code-limit)
   ;;
   (:export
@@ -474,7 +474,7 @@
    #:character-key-event
    #:print-pretty-key #:print-pretty-key-event
 
-   ;; hemlock-ext.lisp
+   ;; heml-ext.lisp
    #:quit
    #:serve-event
    #:sap-ref-8
@@ -485,14 +485,14 @@
    #:print-directory
    ))
 
-(defpackage :hemlock-internals
-  (:use :common-lisp :hemlock-interface
+(defpackage :heml-internals
+  (:use :common-lisp :heml-interface
         :command-line-arguments
         :iterate)
   (:nicknames :hi)
   (:shadow #:char-code-limit #:show-option-help)
   (:use :trivial-gray-streams)
-  (:import-from :hemlock-ext
+  (:import-from :heml-ext
                 #:delq #:memq #:assq #:concat)
   ;;
   (:export
@@ -500,7 +500,7 @@
 
    ;; rompsite.lisp
    #:show-mark #:*input-transcript* #:fun-defined-from-pathname
-   #:editor-describe-function #:pause-hemlock
+   #:editor-describe-function #:pause-heml
    #:schedule-event #:remove-scheduled-event
    #:directoryp #:merge-relative-pathnames
    #:default-font
@@ -613,7 +613,7 @@
    ;; interp.lisp
    #:bind-key #:delete-key-binding #:get-command #:map-bindings
    #:make-command #:command-name #:command-bindings #:last-command-type
-   #:prefix-argument #:exit-hemlock #:*invoke-hook* #:key-translation
+   #:prefix-argument #:exit-heml #:*invoke-hook* #:key-translation
 
 
    ;; main.lisp
@@ -631,10 +631,10 @@
 
 
    ;; streams.lisp
-   #:make-hemlock-output-stream
-   #:hemlock-region-stream #:hemlock-region-stream-p
-   #:hemlock-output-stream #:make-hemlock-region-stream
-   #:hemlock-output-stream-p #:make-kbdmac-stream
+   #:make-heml-output-stream
+   #:heml-region-stream #:heml-region-stream-p
+   #:heml-output-stream #:make-heml-region-stream
+   #:heml-output-stream-p #:make-kbdmac-stream
    #:modify-kbdmac-stream
 
    ;; syntax.lisp
@@ -645,7 +645,7 @@
 
    ;; vars.lisp
    #:variable-value #:variable-hooks #:variable-documentation #:variable-name
-   #:hemlock-bound-p #:defhvar #:delete-variable
+   #:heml-bound-p #:defhvar #:delete-variable
 
    ;; window.lisp
    #:current-window #:window-buffer #:modeline-field-width
@@ -653,8 +653,8 @@
    #:update-modeline-field #:modeline-field-name #:modeline-field
    #:editor-finish-output #:*window-list*
 
-   ;; start hemlock
-   #:hemlock
+   ;; start heml
+   #:heml
    #:main
    #:with-editor
    #:call-with-editor
@@ -665,12 +665,12 @@
    #:concat))
 
 
-(defpackage :hemlock
-  (:use :common-lisp :hemlock-interface :hi :hemlock-ext :iterate)
-;;;  (:import-from :hemlock-ext #:delq #:memq #:assq)
-;;;  (:import-from :hemlock-internals #:*fast*)
-  (:import-from :hemlock-internals #:hemlock)
-  (:export #:hemlock
+(defpackage :heml
+  (:use :common-lisp :heml-interface :hi :heml-ext :iterate)
+;;;  (:import-from :heml-ext #:delq #:memq #:assq)
+;;;  (:import-from :heml-internals #:*fast*)
+  (:import-from :heml-internals #:heml)
+  (:export #:heml
            #:main
            #:with-editor
            #:call-with-editor
@@ -678,11 +678,11 @@
            #:linedit
            #:formedit
            #:repl)
-  (:shadowing-import-from #:hemlock-ext
+  (:shadowing-import-from #:heml-ext
                           #:char-code-limit)
   ;;  #+cmu
   ;; These are defined in EXTENSONS package in CMUCL
-  (:shadowing-import-from :hemlock-ext
+  (:shadowing-import-from :heml-ext
    #:*all-modifier-names*
    #:assq
    #:char-key-event
@@ -717,10 +717,10 @@
    #:serve-event
    #:without-interrupts))
 
-(defpackage :hemlock-user
-    (:use :common-lisp :hemlock-interface))
+(defpackage :heml-user
+    (:use :common-lisp :heml-interface))
 
-(defpackage :hemlock.terminfo
+(defpackage :heml.terminfo
   (:use :common-lisp)
   (:export #:*terminfo-directories*
            #:*terminfo*
@@ -752,14 +752,14 @@
 ;; Let us see if this works.
 ;;
 ;; Revision 1.9  2003/08/05 19:58:21  gilbert
-;; - we now have a HEMLOCK-INTERFACE package which exports symbols mentioned
+;; - we now have a HEML-INTERFACE package which exports symbols mentioned
 ;;   in the Command Implementors Manual.
 ;;
 ;; Revision 1.8  2003/07/28 20:35:32  jdz
 ;; BEEP function now works.
 ;;
 ;; Revision 1.7  2003/07/27 10:11:06  jdz
-;; HEMLOCK-EXT package is now used by HEMLOCK.  Conflicting symbols from
+;; HEML-EXT package is now used by HEML.  Conflicting symbols from
 ;; EXTENSIONS package in CMUCL are shadowed.
 ;;
 ;; Revision 1.6  2003/05/12 11:01:48  gbyers
@@ -770,6 +770,6 @@
 ;;
 ;; Revision 1.4  2003/03/06 21:38:58  gilbert
 ;; The symbol *FAST* is now exported from HI (no idea if that is the
-;; right thing to do) and imported into HEMLOCK. Fixes bug:
+;; right thing to do) and imported into HEML. Fixes bug:
 ;; auto-save.lisp was not compiling.
 ;;

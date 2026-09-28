@@ -11,11 +11,11 @@
 ;;;
 ;;;  This file defines a ring-buffer type and access functions.
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (defun %print-hring (obj stream depth)
   (declare (ignore depth obj))
-  (write-string "#<Hemlock Ring>" stream))
+  (write-string "#<Heml Ring>" stream))
 
 (defun required-argument ()
   "Portable surrogate of cmucl ext:required-argument. --amb"
@@ -44,7 +44,7 @@
   "Make a ring-buffer which can hold up to Size objects.  Delete-Function
   is a function which is called with each object that falls off the
   end."
-  (unless (and (hemlock-ext:fixnump size) (> size 0))
+  (unless (and (heml-ext:fixnump size) (> size 0))
     (error "Ring size, ~S is not a positive fixnum." size))
   (internal-make-ring :delete-function delete-function
                       :vector (make-array size)

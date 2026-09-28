@@ -7,7 +7,7 @@
 ;; License: Public Domain
 ;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 (defun %fuzzy-complete-symbol (prefix)
   (multiple-value-bind (packname symname)
@@ -16,13 +16,13 @@
                              (values (subseq prefix 0 p)
                                      (string-downcase (subseq prefix (1+ p))))
                              (values nil (string-downcase prefix))))
-    (hemlock::eval-in-slave
+    (heml::eval-in-slave
      `(%fuzzy-complete-symbol/request
        ,(or packname (package-at-point) :cl)
        ,symname))))
 
 (defun %fuzzy-complete-symbol/request (packname symname)
-  (hemlock::eval-in-master
+  (heml::eval-in-master
    `(%fuzzy-complete-symbol/results 
      ',(let ((*buffer-package* packname))
          (fuzzy-completions symname packname)))))

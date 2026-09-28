@@ -1,21 +1,21 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defparameter *hemlock-base-directory*
+(defparameter *heml-base-directory*
   (make-pathname :name nil :type nil :version nil
                  :defaults (parse-namestring *load-truename*)))
 
-(asdf:defsystem :hemlock.tty
+(asdf:defsystem :heml.tty
      :pathname #.(make-pathname
                         :directory
-                        (pathname-directory *hemlock-base-directory*)
-                        :defaults *hemlock-base-directory*)
-     :depends-on (:hemlock.base)
+                        (pathname-directory *heml-base-directory*)
+                        :defaults *heml-base-directory*)
+     :depends-on (:heml.base)
     :components
     ((:module tty-1
               :pathname #.(merge-pathnames
                            (make-pathname
                             :directory '(:relative "src"))
-                           *hemlock-base-directory*)
+                           *heml-base-directory*)
               :components
               ((:file "terminfo")
                (:file "termcap" :depends-on ("terminfo"))

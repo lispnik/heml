@@ -11,8 +11,8 @@ the **app** is what the notary service inspects; stapling the **disk image** is
 what makes the file a user actually downloads recognisable to Gatekeeper. Doing
 only the first leaves the download itself unrecognised.
 
-The disk image is `dist/Xoamax-<version>-<arch>.dmg`, where the version is the
-`:version` in `xoamax-app.asd`.
+The disk image is `dist/Heml-<version>-<arch>.dmg`, where the version is the
+`:version` in `heml-app.asd`.
 
 ## Locally
 
@@ -23,7 +23,7 @@ to launch on a Mac without Homebrew. `make notarize` checks for that and stops.
 ```sh
 # Once.  Asks for an app-specific password from appleid.apple.com, not your
 # Apple ID password.
-xcrun notarytool store-credentials xoamax \
+xcrun notarytool store-credentials heml \
   --apple-id you@example.com --team-id TEAMID
 
 # Per release:

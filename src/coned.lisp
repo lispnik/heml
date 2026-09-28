@@ -10,7 +10,7 @@
 ;;; This file contains Coned (Connection Editing) code.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 

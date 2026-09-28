@@ -7,12 +7,12 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; Hemlock File manipulation functions.
+;;; Heml File manipulation functions.
 ;;; Written by Skef Wholey, Horribly Hacked by Rob MacLachlan.
 ;;; Unhacked by Gilbert Baumann.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; Utility functions.
@@ -38,7 +38,7 @@
 ;;; Write-File:
 
 (defun write-file (region pathname &key append
-                          (keep-backup (value hemlock::keep-backup-files))
+                          (keep-backup (value heml::keep-backup-files))
                           access)
   "Writes the characters in region to the file named by pathname.  This writes
    region using a stream opened with :if-exists :rename-and-delete, unless
@@ -60,7 +60,7 @@
                           :if-exists if-exists-action)
       (close-line)
       (fast-write-file region file))
-    (hemlock-ext:set-file-permissions pathname access)))
+    (heml-ext:set-file-permissions pathname access)))
 
 (defun fast-write-file (region file)
   (let* ((start (region-start region))

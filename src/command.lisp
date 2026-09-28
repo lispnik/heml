@@ -7,10 +7,10 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; This file contains the definitions for the basic Hemlock commands.
+;;; This file contains the definitions for the basic Heml commands.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;; Make a mark for buffers as they're consed:
@@ -26,19 +26,19 @@
 (add-hook make-buffer-hook #'hcmd-new-buffer-hook-fun)
 (dolist (buff *buffer-list*) (hcmd-new-buffer-hook-fun buff))
 
-(defcommand "Exit Hemlock" (p)
-  "Exit hemlock returning to the Lisp top-level read-eval-print loop."
-  "Exit hemlock returning to the Lisp top-level read-eval-print loop."
+(defcommand "Exit Heml" (p)
+  "Exit heml returning to the Lisp top-level read-eval-print loop."
+  "Exit heml returning to the Lisp top-level read-eval-print loop."
   (declare (ignore p))
-  (exit-hemlock))
+  (exit-heml))
 
-(defcommand "Pause Hemlock" (p)
-  "Pause the Hemlock/Lisp process returning to the process that invoked the
+(defcommand "Pause Heml" (p)
+  "Pause the Heml/Lisp process returning to the process that invoked the
    Lisp."
-  "Pause the Hemlock/Lisp process returning to the process that invoked the
+  "Pause the Heml/Lisp process returning to the process that invoked the
    Lisp."
   (declare (ignore p))
-  #+nilamb(pause-hemlock))
+  #+nilamb(pause-heml))
 
 
 
@@ -48,7 +48,7 @@
   "Insert the last character typed.
   With prefix argument insert the character that many times."
   "Implements ``Self Insert'', calling this function is not meaningful."
-  (let ((char (hemlock-ext:key-event-char *last-key-event-typed*)))
+  (let ((char (heml-ext:key-event-char *last-key-event-typed*)))
     (unless char (editor-error "Can't insert that character."))
     (if (and p (> p 1))
         (insert-string
@@ -60,7 +60,7 @@
   "Read a character from the terminal and insert it.
   With prefix argument, insert the character that many times."
   "Reads a key-event from *editor-input* and inserts it at the point."
-  (let ((char (hemlock-ext:key-event-char (get-key-event *editor-input* t)))
+  (let ((char (heml-ext:key-event-char (get-key-event *editor-input* t)))
         (point (current-point)))
     (unless char (editor-error "Can't insert that character."))
     (if (and p (> p 1))
@@ -368,7 +368,7 @@
 
 (defcommand "Track Buffer Point" (p)
   "Make the current window track the buffer's point.
-   This means that each time Hemlock redisplays, it will make sure the buffer's
+   This means that each time Heml redisplays, it will make sure the buffer's
    point is visible in the window.  This is useful for windows into buffer's
    that receive output from streams coming from other processes."
   "Make the current window track the buffer's point."
@@ -388,7 +388,7 @@
   passed to the command."
   (let* ((name (prompt-for-keyword (list *command-names*)
                                    :prompt "Extended Command: "
-                                   :help "Name of a Hemlock command"))
+                                   :help "Name of a Heml command"))
          (function (command-function (getstring name *command-names*))))
     (funcall function p)))
 
@@ -415,7 +415,7 @@
   (write-string "C-U " *echo-area-stream*)
   (finish-output *echo-area-stream*)
   (let* ((key-event (get-key-event *editor-input*))
-         (char (hemlock-ext:key-event-char key-event)))
+         (char (heml-ext:key-event-char key-event)))
     (if char
         (case char
           (#\-
@@ -460,8 +460,8 @@
               (if read-some-digit-p
                   result
                   (value universal-argument-default)))))
-    (let* ((stripped-key-event (if key-event (hemlock-ext:make-key-event key-event)))
-           (char (hemlock-ext:key-event-char stripped-key-event))
+    (let* ((stripped-key-event (if key-event (heml-ext:make-key-event key-event)))
+           (char (heml-ext:key-event-char stripped-key-event))
            (digit (if char (digit-char-p char)))
            (result 0)
            (read-some-digit-p nil))
@@ -473,8 +473,8 @@
                (setf result (+ digit (* 10 result)))
                (setf key-event (get-key-event *editor-input*))
                (setf stripped-key-event (if key-event
-                                            (hemlock-ext:make-key-event key-event)))
-               (setf char (hemlock-ext:key-event-char stripped-key-event))
+                                            (heml-ext:make-key-event key-event)))
+               (setf char (heml-ext:key-event-char stripped-key-event))
                (setf digit (if char (digit-char-p char))))
               ((or (eq key-event #k"C-u") (eq key-event #k"C-U"))
                (write-string " C-U " *echo-area-stream*)

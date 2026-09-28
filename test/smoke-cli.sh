@@ -1,19 +1,19 @@
 #!/bin/sh
-# test/smoke-cli.sh -- `make smoke-cli`: Xoamax.app's command, bin/xoamax,
+# test/smoke-cli.sh -- `make smoke-cli`: Heml.app's command, bin/heml,
 # run from a shell as a person would run it.
 #
 # The bundle's executable is the SBCL runtime, which would take --help for
 # itself and print its banner; the launcher must get the editor's options
 # to the editor, and --tty must run the terminal editor from the app.
-# APP names the bundle, build/Xoamax.app by default.  Exits 0 when every
+# APP names the bundle, build/Heml.app by default.  Exits 0 when every
 # check passes, 1 otherwise.
 
 set -u
 
 cd "$(dirname "$0")/.." || exit 1
-APP=${APP:-build/Xoamax.app}
-xoamax=$PWD/$APP/Contents/Resources/bin/xoamax
-session=xoamax-smoke-cli-$$
+APP=${APP:-build/Heml.app}
+heml=$PWD/$APP/Contents/Resources/bin/heml
+session=heml-smoke-cli-$$
 failures=0
 checks=0
 
@@ -42,10 +42,10 @@ cleanup() { tmux kill-session -t "$session" 2>/dev/null; rm -rf "$scratch"; }
 scratch=$(mktemp -d)
 trap cleanup EXIT
 
-if [ -x "$xoamax" ]; then ok "the bundle has an executable bin/xoamax"
-else fail "the bundle has an executable bin/xoamax ($xoamax)"; fi
+if [ -x "$heml" ]; then ok "the bundle has an executable bin/heml"
+else fail "the bundle has an executable bin/heml ($heml)"; fi
 
-help=$("$xoamax" --help 2>&1)
+help=$("$heml" --help 2>&1)
 if echo "$help" | grep -q -- '--tty' && ! echo "$help" | grep -q 'This is SBCL'; then
     ok "--help reaches the editor, with no SBCL banner"
 else
@@ -57,7 +57,7 @@ fi
 # with an SBCL_HOME that would load another core if the launcher let it.
 echo "cli-smoke-file-contents" > "$scratch/relative.txt"
 tmux new-session -d -s "$session" -x 100 -y 30 -c "$scratch" \
-     "SBCL_HOME=/nonexistent/sbcl '$xoamax' --tty relative.txt; echo CLI-EXITED=\$?; sleep 30"
+     "SBCL_HOME=/nonexistent/sbcl '$heml' --tty relative.txt; echo CLI-EXITED=\$?; sleep 30"
 expect 'cli-smoke-file-contents' "--tty edits a file named from the shell's directory" 60
 expect 'relative.txt' "its name is in the modeline"
 tmux send-keys -t "$session" C-x C-c

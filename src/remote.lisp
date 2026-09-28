@@ -12,7 +12,7 @@
 ;;; Written by William Lott.
 ;;;
 
-(in-package :hemlock.wire)
+(in-package :heml.wire)
 
 (defstruct remote-wait
   value1 value2 value3 value4 value5

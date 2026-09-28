@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(defpackage :hemlock.wire
+(defpackage :heml.wire
   (:use :common-lisp)
   (:nicknames :wire)
   (:export

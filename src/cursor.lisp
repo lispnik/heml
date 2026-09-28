@@ -11,7 +11,7 @@
 ;;;
 ;;; Cursor: Routines for cursor positioning and recentering
 ;;;
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; Mark-To-Cursorpos

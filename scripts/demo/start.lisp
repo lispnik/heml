@@ -4,13 +4,13 @@
 ;;;; build/demo/files/.
 
 (handler-bind ((warning #'muffle-warning))
-  (asdf:load-system :hemlock.tty))
+  (asdf:load-system :heml.tty))
 
 (defparameter *files* (merge-pathnames "build/demo/files/" (uiop:getcwd)))
 (ensure-directories-exist *files*)
 
 ;; A plain shell in the Shell buffer, without anyone's startup files.
-(setf (hemlock::variable-value 'hemlock::shell-utility-switches :global)
+(setf (heml::variable-value 'heml::shell-utility-switches :global)
       "--norc --noprofile")
 
 ;; A real source file to page through.
@@ -24,6 +24,6 @@
 (format t "~C[2J~C[H" (code-char 27) (code-char 27))
 (finish-output)
 
-(hemlock:hemlock (merge-pathnames "fib.lisp" *files*)
+(heml:heml (merge-pathnames "fib.lisp" *files*)
                  :backend-type :tty :load-user-init nil)
 (uiop:quit)

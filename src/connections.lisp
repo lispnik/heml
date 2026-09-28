@@ -488,7 +488,7 @@
 ;;; wire interaction
 
 (defstruct (connection-device
-             (:include hemlock.wire:device)
+             (:include heml.wire:device)
            (:conc-name device-)
            (:constructor %make-connection-device (connection)))
   (connection (error "missing argument") :type connection)
@@ -517,9 +517,9 @@
   (setf bytes (copy-seq bytes))
   (later
    (incf (device-filter-counter device))
-   (hemlock.wire:device-append-to-input-buffer device bytes)
+   (heml.wire:device-append-to-input-buffer device bytes)
    (when (zerop (device-reading device))
-     (hemlock.wire:device-serve-requests device t)))
+     (heml.wire:device-serve-requests device t)))
   nil)
 
 (defun connection-device-sentinel (device connection event)
@@ -528,15 +528,15 @@
   ;; fixme: anything else to do here?
   )
 
-(defmethod hemlock.wire:device-listen
+(defmethod heml.wire:device-listen
     ((device connection-device))
   (connection-listen (device-connection device)))
 
-(defmethod hemlock.wire:device-write
+(defmethod heml.wire:device-write
     ((device connection-device) buffer &optional (end (length buffer)))
   (connection-write (subseq buffer 0 end) (device-connection device)))
 
-(defmethod hemlock.wire:device-read
+(defmethod heml.wire:device-read
     ((device connection-device) buffer)
   (declare (ignore buffer))
   (unwind-protect

@@ -8,13 +8,13 @@ deps:
 # The editor in a window, from a fresh SBCL.  AppKit needs the main thread,
 # so this runs from the terminal's REPL rather than from SLIME's.
 run:
-	sbcl --noinform --eval '(asdf:load-system :hemlock.cocoa)' \
-	     --eval '(hemlock:hemlock nil :backend-type :cocoa)' --eval '(uiop:quit)'
+	sbcl --noinform --eval '(asdf:load-system :heml.cocoa)' \
+	     --eval '(heml:heml nil :backend-type :cocoa)' --eval '(uiop:quit)'
 
 # The terminal editor, in this terminal.  LISP=ecl runs it under ECL.
 run-tty:
-	$(or $(LISP),sbcl) --eval '(asdf:load-system :hemlock.tty)' \
-	     --eval '(uiop:symbol-call :hemlock :hemlock nil :backend-type :tty)' \
+	$(or $(LISP),sbcl) --eval '(asdf:load-system :heml.tty)' \
+	     --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty)' \
 	     --eval '(uiop:quit)'
 
 # The Cocoa editor driven end to end, with checks, and a picture of each
@@ -30,29 +30,29 @@ smoke-tty:
 
 # The same under ECL.  Built first: ECL compiles through C, and a first
 # build takes longer than the checks wait for the editor to start.
-# The app's command, bin/xoamax, from a shell.  Builds the app first.
+# The app's command, bin/heml, from a shell.  Builds the app first.
 smoke-cli: app
 	test/smoke-cli.sh
 
 smoke-tty-ecl:
-	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
+	ecl --eval '(asdf:load-system :heml.tty)' --eval '(ext:quit)'
 	LISP=ecl test/smoke-tty.sh
 
-# A video of the TTY editor: build/demo/xoamax-tty.mp4 and .gif.  Needs vhs.
+# A video of the TTY editor: build/demo/heml-tty.mp4 and .gif.  Needs vhs.
 demo:
 	@mkdir -p build/demo
-	$(LISP) --eval '(asdf:load-system :hemlock.tty)'
-	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
-	vhs scripts/demo/xoamax-tty.tape
+	$(LISP) --eval '(asdf:load-system :heml.tty)'
+	ecl --eval '(asdf:load-system :heml.tty)' --eval '(ext:quit)'
+	vhs scripts/demo/heml-tty.tape
 
-# A video of the Cocoa editor: build/demo/xoamax-cocoa.mp4.  Needs ffmpeg.
+# A video of the Cocoa editor: build/demo/heml-cocoa.mp4.  Needs ffmpeg.
 demo-cocoa:
 	@mkdir -p build/demo
 	$(LISP) --load scripts/demo/cocoa.lisp
 	ffmpeg -v error -y -framerate 10 -i build/demo/cocoa-frames/%05d.png \
-	  -c:v libx264 -pix_fmt yuv420p build/demo/xoamax-cocoa.mp4
+	  -c:v libx264 -pix_fmt yuv420p build/demo/heml-cocoa.mp4
 
-# Both, after title cards: build/demo/xoamax.mp4.
+# Both, after title cards: build/demo/heml.mp4.
 demo-full: demo demo-cocoa
 	scripts/demo/combine.sh
 
@@ -64,24 +64,24 @@ demo-full: demo demo-cocoa
 #
 # RELEASING.md has the whole procedure.
 
-APP       = build/Xoamax.app
+APP       = build/Heml.app
 APP_STAMP = build/.app-stamp
 DIST      = dist
-VERSION   = $(shell sed -n 's/.*:version "\(.*\)".*/\1/p' xoamax-app.asd | head -1)
+VERSION   = $(shell sed -n 's/.*:version "\(.*\)".*/\1/p' heml-app.asd | head -1)
 ARCH      = $(shell uname -m)
-DMG       = $(DIST)/Xoamax-$(VERSION)-$(ARCH).dmg
+DMG       = $(DIST)/Heml-$(VERSION)-$(ARCH).dmg
 
-# The codesigning identity.  Empty means ad hoc.  It reaches xoamax-app.asd
+# The codesigning identity.  Empty means ad hoc.  It reaches heml-app.asd
 # through the environment.
 SIGN_IDENTITY ?=
-export XOAMAX_SIGN_IDENTITY = $(SIGN_IDENTITY)
+export HEML_SIGN_IDENTITY = $(SIGN_IDENTITY)
 
 # The notarytool keychain profile, stored once with
 #   xcrun notarytool store-credentials $(NOTARY_PROFILE) \
 #     --apple-id <you> --team-id <your team>
 # which prompts for an app-specific password from appleid.apple.com, not
 # your Apple ID password.
-NOTARY_PROFILE ?= xoamax
+NOTARY_PROFILE ?= heml
 
 app: $(APP_STAMP)
 
@@ -96,29 +96,29 @@ $(SIGN_RECORD): FORCE
 	@printf '%s' '$(SIGN_IDENTITY)' | cmp -s - $@ 2>/dev/null \
 	  || printf '%s' '$(SIGN_IDENTITY)' > $@
 
-$(APP_STAMP): $(wildcard *.asd src/*.lisp vendor/conium/*.lisp) resources/xoamax.png $(SIGN_RECORD)
-	$(LISP) --eval '(asdf:make "xoamax-app")'
+$(APP_STAMP): $(wildcard *.asd src/*.lisp vendor/conium/*.lisp) resources/heml.png $(SIGN_RECORD)
+	$(LISP) --eval '(asdf:make "heml-app")'
 	@# asdf-macos-app copies resources without their mode.  Permissions
 	@# are not part of the seal, so the signature stands.
-	chmod 755 "$(APP)/Contents/Resources/bin/xoamax"
+	chmod 755 "$(APP)/Contents/Resources/bin/heml"
 	@touch $(APP_STAMP)
 	@echo "built $(APP)$(if $(SIGN_IDENTITY), signed by $(SIGN_IDENTITY), (ad hoc))"
 
 run-app: app
-	"$(APP)/Contents/MacOS/xoamax"
+	"$(APP)/Contents/MacOS/heml"
 
-# The xoamax command, linked onto the PATH from the installed app.
+# The heml command, linked onto the PATH from the installed app.
 CLI_DIR ?= $(HOME)/.local/bin
 install-cli:
 	@mkdir -p "$(CLI_DIR)"
-	ln -sf "$(HOME)/Applications/Xoamax.app/Contents/Resources/bin/xoamax" "$(CLI_DIR)/xoamax"
-	@echo "linked $(CLI_DIR)/xoamax"
+	ln -sf "$(HOME)/Applications/Heml.app/Contents/Resources/bin/heml" "$(CLI_DIR)/heml"
+	@echo "linked $(CLI_DIR)/heml"
 
 install-app: app
 	@mkdir -p $(HOME)/Applications
-	rm -rf "$(HOME)/Applications/Xoamax.app"
+	rm -rf "$(HOME)/Applications/Heml.app"
 	cp -R "$(APP)" "$(HOME)/Applications/"
-	@echo "installed $(HOME)/Applications/Xoamax.app"
+	@echo "installed $(HOME)/Applications/Heml.app"
 
 # Everything the bundle loads must be inside it.  The executable is only the
 # SBCL runtime; libfixposix and libosicat are opened by CFFI and live in
@@ -200,7 +200,7 @@ $(DMG): $(APP_STAMP)
 	mkdir -p "$(DIST)/stage"
 	cp -R "$(APP)" "$(DIST)/stage/"
 	ln -s /Applications "$(DIST)/stage/Applications"
-	hdiutil create -volname "Xoamax" -srcfolder "$(DIST)/stage" \
+	hdiutil create -volname "Heml" -srcfolder "$(DIST)/stage" \
 	  -ov -format UDZO "$(DMG)"
 	rm -rf "$(DIST)/stage"
 	@if [ -n "$(SIGN_IDENTITY)" ]; then \

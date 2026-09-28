@@ -10,7 +10,7 @@
 ;;; This file contains searching and replacing commands.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -272,7 +272,7 @@
 ;;; of the search.
 ;;;
 (defun %i-search-printed-char (key-event string point trailer direction failure)
-  (let ((tchar (hemlock-ext:key-event-char key-event)))
+  (let ((tchar (heml-ext:key-event-char key-event)))
     (unless tchar (editor-error "Not a text character -- ~S" (key-event-char
                                                               key-event)))
     (when (interactive)

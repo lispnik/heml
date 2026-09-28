@@ -8,23 +8,23 @@
 ;;; **********************************************************************
 ;;;
 ;;;    This file contains definitions of various types of streams used
-;;; in Hemlock.  They are implementation dependant, but should be
+;;; in Heml.  They are implementation dependant, but should be
 ;;; portable to all implementations based on Spice Lisp with little
 ;;; difficulty.
 ;;;
 ;;; Written by Skef Wholey and Rob MacLachlan.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 ;;; Note: although this stream is intended for output only it also supports
 ;;; input to help if the debugger is called.
-(defclass hemlock-output-stream (hi::trivial-gray-stream-mixin
+(defclass heml-output-stream (hi::trivial-gray-stream-mixin
                                  hi::fundamental-character-output-stream
                                  hi::fundamental-character-input-stream)
   ((mark
     :initform nil
-    :accessor hemlock-output-stream-mark
+    :accessor heml-output-stream-mark
     :documentation "The mark we insert at.")
    (input-string
     :initform nil)
@@ -35,66 +35,66 @@
    (sout
     :accessor old-lisp-stream-sout)))
 
-(defun hemlock-output-stream-p (x)
-  (typep x 'hemlock-output-stream))
+(defun heml-output-stream-p (x)
+  (typep x 'heml-output-stream))
 
-(defmethod hi::stream-write-char ((stream hemlock-output-stream) char)
+(defmethod hi::stream-write-char ((stream heml-output-stream) char)
   (funcall (old-lisp-stream-out stream) stream char))
 
 (defmethod hi::stream-write-sequence
-    ((stream hemlock-output-stream) seq start end &key)
+    ((stream heml-output-stream) seq start end &key)
   (check-type seq string)
-  (hemlock-output-buffered-sout stream seq start end))
+  (heml-output-buffered-sout stream seq start end))
 
 
-(defmethod hi::stream-line-column ((stream hemlock-output-stream))
-  (mark-charpos (hemlock-output-stream-mark stream)))
+(defmethod hi::stream-line-column ((stream heml-output-stream))
+  (mark-charpos (heml-output-stream-mark stream)))
 
-(defmethod hi::stream-line-length ((stream hemlock-output-stream))
-  (mark-charpos (hemlock-output-stream-mark stream))
+(defmethod hi::stream-line-length ((stream heml-output-stream))
+  (mark-charpos (heml-output-stream-mark stream))
   (let* ((buffer
-          (line-buffer (mark-line (hemlock-output-stream-mark stream)))))
+          (line-buffer (mark-line (heml-output-stream-mark stream)))))
     (when buffer
       (do ((w (buffer-windows buffer) (cdr w))
            (min most-positive-fixnum (min (window-width (car w)) min)))
           ((null w)
            (if (/= min most-positive-fixnum) min))))))
 
-(defmethod print-object ((object hemlock-output-stream) stream)
-  (write-string "#<Hemlock output stream>" stream))
+(defmethod print-object ((object heml-output-stream) stream)
+  (write-string "#<Heml output stream>" stream))
 
-(defun make-hemlock-output-stream (mark &optional (buffered :line))
+(defun make-heml-output-stream (mark &optional (buffered :line))
   "Returns an output stream whose output will be inserted at the Mark.
   Buffered, which indicates to what extent the stream may be buffered
   is one of the following:
    :None  -- The screen is brought up to date after each stream operation.
    :Line  -- The screen is brought up to date when a newline is written.
    :Full  -- The screen is not updated except explicitly via Force-Output."
-  (modify-hemlock-output-stream (make-instance 'hemlock-output-stream)
+  (modify-heml-output-stream (make-instance 'heml-output-stream)
                                 mark
                                 buffered))
 
 
 ;;; Note: this is called when re-using a stream and is expected to
 ;;; re-initialize the stream.
-(defun modify-hemlock-output-stream (stream mark buffered)
+(defun modify-heml-output-stream (stream mark buffered)
   (unless (and (markp mark)
                (member (mark-kind mark) '(:right-inserting :left-inserting)))
     (error "~S is not a permanent mark." mark))
-  (setf (hemlock-output-stream-mark stream) mark)
+  (setf (heml-output-stream-mark stream) mark)
   ;;
   ;; Free the current stream buffers, resetting the buffer pointers.
   ;;
   (case buffered
     (:none
-     (setf (old-lisp-stream-out stream) #'hemlock-output-unbuffered-out
-           (old-lisp-stream-sout stream) #'hemlock-output-unbuffered-sout))
+     (setf (old-lisp-stream-out stream) #'heml-output-unbuffered-out
+           (old-lisp-stream-sout stream) #'heml-output-unbuffered-sout))
     (:line
-     (setf (old-lisp-stream-out stream) #'hemlock-output-line-buffered-out
-           (old-lisp-stream-sout stream) #'hemlock-output-line-buffered-sout))
+     (setf (old-lisp-stream-out stream) #'heml-output-line-buffered-out
+           (old-lisp-stream-sout stream) #'heml-output-line-buffered-sout))
     (:full
-     (setf (old-lisp-stream-out stream) #'hemlock-output-buffered-out
-           (old-lisp-stream-sout stream) #'hemlock-output-buffered-sout))
+     (setf (old-lisp-stream-out stream) #'heml-output-buffered-out
+           (old-lisp-stream-sout stream) #'heml-output-buffered-sout))
     (t
      (error "~S is a losing value for Buffered." buffered)))
   stream)
@@ -111,52 +111,52 @@
          (when ,change
            (setf (mark-kind ,var) :right-inserting))))))
 
-(defun hemlock-output-unbuffered-out (stream character)
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+(defun heml-output-unbuffered-out (stream character)
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-character mark character)
     (redisplay-windows-from-mark mark t)))
 
-(defun hemlock-output-unbuffered-sout (stream string start end)
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+(defun heml-output-unbuffered-sout (stream string start end)
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-string mark string start end)
     (redisplay-windows-from-mark mark t)))
 
-(defun hemlock-output-buffered-out (stream character)
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+(defun heml-output-buffered-out (stream character)
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-character mark character)))
 
-(defun hemlock-output-buffered-sout (stream string start end)
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+(defun heml-output-buffered-sout (stream string start end)
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-string mark string start end)))
 
-(defun hemlock-output-line-buffered-out (stream character)
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+(defun heml-output-line-buffered-out (stream character)
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-character mark character)
     (when (char= character #\newline)
       (redisplay-windows-from-mark mark t))))
 
-(defun hemlock-output-line-buffered-sout (stream string start end)
+(defun heml-output-line-buffered-sout (stream string start end)
   (declare (simple-string string))
-  (with-left-inserting-mark (mark (hemlock-output-stream-mark stream))
+  (with-left-inserting-mark (mark (heml-output-stream-mark stream))
     (insert-string mark string start end)
     (when (find #\newline string :start start :end end)
       (redisplay-windows-from-mark mark t))))
 
-(defmethod stream-finish-output ((stream hemlock-output-stream))
-  (redisplay-windows-from-mark (hemlock-output-stream-mark stream)))
+(defmethod stream-finish-output ((stream heml-output-stream))
+  (redisplay-windows-from-mark (heml-output-stream-mark stream)))
 
-(defmethod stream-force-output ((stream hemlock-output-stream))
-  (redisplay-windows-from-mark (hemlock-output-stream-mark stream)))
+(defmethod stream-force-output ((stream heml-output-stream))
+  (redisplay-windows-from-mark (heml-output-stream-mark stream)))
 
-(defmethod close ((stream hemlock-output-stream) &key abort)
+(defmethod close ((stream heml-output-stream) &key abort)
   (declare (ignore abort))
-  (setf (hemlock-output-stream-mark stream) nil))
+  (setf (heml-output-stream-mark stream) nil))
 
-(defmethod stream-line-column ((stream hemlock-output-stream))
-  (mark-charpos (hemlock-output-stream-mark stream)))
+(defmethod stream-line-column ((stream heml-output-stream))
+  (mark-charpos (heml-output-stream-mark stream)))
 
 
-;;; Input methods: although called HEMLOCK-OUTPUT-STREAM, the following
+;;; Input methods: although called HEML-OUTPUT-STREAM, the following
 ;;; methods allow the stream to used for input, too.  Don't do this
 ;;; at home, because it enters the command loop recursively in a potentially
 ;;; bad way, but it can be very useful for debugging purposes;
@@ -172,38 +172,38 @@
               (let ((hi::*reading-lispbuf-input* t)
                     (buffer (line-buffer (mark-line mark))))
                 (move-mark
-                 (variable-value 'hemlock::buffer-input-mark :buffer buffer)
+                 (variable-value 'heml::buffer-input-mark :buffer buffer)
                  (buffer-point buffer))
                 (%command-loop))))
       (check-type input-string string)
       (setf input-pos 0))))
 
-(defmethod stream-read-char ((stream hemlock-output-stream))
+(defmethod stream-read-char ((stream heml-output-stream))
   (ensure-output-stream-input stream)
   (with-slots (input-string input-pos) stream
     (prog1
         (elt input-string input-pos)
       (incf input-pos))))
 
-(defmethod stream-read-char-no-hang ((stream hemlock-output-stream))
+(defmethod stream-read-char-no-hang ((stream heml-output-stream))
   (with-slots (input-string input-pos) stream
     (when (and input-string (< input-pos (length input-string)))
       (prog1
           (elt input-string input-pos)
         (incf input-pos)))))
 
-(defmethod stream-listen ((stream hemlock-output-stream))
+(defmethod stream-listen ((stream heml-output-stream))
   (with-slots (input-string input-pos) stream
     (and input-string (< input-pos (length input-string)))))
 
-(defmethod stream-unread-char ((stream hemlock-output-stream) char)
+(defmethod stream-unread-char ((stream heml-output-stream) char)
   (with-slots (input-pos) stream
     (unless (plusp input-pos)
       (error "nothing to unread"))
     (decf input-pos))
   nil)
 
-(defmethod stream-clear-input ((stream hemlock-output-stream))
+(defmethod stream-clear-input ((stream heml-output-stream))
   (with-slots (input-string input-pos) stream
     (unless (and input-string (< input-pos (length input-string)))
       (setf input-string nil)))
@@ -212,32 +212,32 @@
 ;;; end of input methods, back in sane code
 
 
-(defclass hemlock-region-stream (fundamental-character-input-stream)
+(defclass heml-region-stream (fundamental-character-input-stream)
   ;;
   ;; The region we read from.
   ((region :initarg :region
-           :accessor hemlock-region-stream-region)
+           :accessor heml-region-stream-region)
    ;;
    ;; The mark pointing to the next character to read.
    (mark :initarg :mark
-         :accessor hemlock-region-stream-mark)) )
+         :accessor heml-region-stream-mark)) )
 
-(defmethod print-object ((object hemlock-region-stream) stream)
+(defmethod print-object ((object heml-region-stream) stream)
   (declare (ignorable object))
-  (write-string "#<Hemlock region stream>" stream))
+  (write-string "#<Heml region stream>" stream))
 
-(defun make-hemlock-region-stream (region)
+(defun make-heml-region-stream (region)
   "Returns an input stream that will return successive characters from the
   given Region when asked for input."
-  (make-instance 'hemlock-region-stream
+  (make-instance 'heml-region-stream
                  :region region
                  :mark (copy-mark (region-start region) :right-inserting)))
 
 ;;; Note: this is called when re-using a stream and is expected to
 ;;; re-initialize the stream.
-(defun modify-hemlock-region-stream (stream region)
-  (setf (hemlock-region-stream-region stream) region)
-  (let* ((mark (hemlock-region-stream-mark stream))
+(defun modify-heml-region-stream (stream region)
+  (setf (heml-region-stream-region stream) region)
+  (let* ((mark (heml-region-stream-mark stream))
          (start (region-start region))
          (start-line (mark-line start)))
     ;; Make sure it's dead.
@@ -249,51 +249,51 @@
   ;;
   stream)
 
-(defmethod stream-read-char ((stream hemlock-region-stream))
-  (let ((mark (hemlock-region-stream-mark stream)))
+(defmethod stream-read-char ((stream heml-region-stream))
+  (let ((mark (heml-region-stream-mark stream)))
     (cond ((mark< mark
-                  (region-end (hemlock-region-stream-region stream)))
+                  (region-end (heml-region-stream-region stream)))
            (prog1 (next-character mark) (mark-after mark)))
           (t :eof))))
 
-(defmethod stream-listen ((stream hemlock-region-stream))
-  (mark< (hemlock-region-stream-mark stream)
-         (region-end (hemlock-region-stream-region stream))))
+(defmethod stream-listen ((stream heml-region-stream))
+  (mark< (heml-region-stream-mark stream)
+         (region-end (heml-region-stream-region stream))))
 
-(defmethod stream-unread-char ((stream hemlock-region-stream) char)
-  (let ((mark (hemlock-region-stream-mark stream)))
+(defmethod stream-unread-char ((stream heml-region-stream) char)
+  (let ((mark (heml-region-stream-mark stream)))
     (unless (mark> mark
-                   (region-start (hemlock-region-stream-region stream)))
+                   (region-start (heml-region-stream-region stream)))
       (error "Nothing to unread."))
     (unless (char= char (previous-character mark))
       (error "Unreading something not read: ~S" char))
     (mark-before mark))
   nil)
 
-(defmethod stream-clear-input ((stream hemlock-region-stream))
+(defmethod stream-clear-input ((stream heml-region-stream))
   (move-mark
-   (hemlock-region-stream-mark stream)
-   (region-end (hemlock-region-stream-region stream)))
+   (heml-region-stream-mark stream)
+   (region-end (heml-region-stream-region stream)))
   nil)
 
-(defmethod close ((stream hemlock-region-stream) &key abort)
+(defmethod close ((stream heml-region-stream) &key abort)
   (declare (ignorable abort))
-  (delete-mark (hemlock-region-stream-mark stream))
-  (setf (hemlock-region-stream-region stream) nil))
+  (delete-mark (heml-region-stream-mark stream))
+  (setf (heml-region-stream-region stream) nil))
 
 
 #||
-(defmethod excl::stream-file-position ((stream hemlock-output-stream) &optional pos)
+(defmethod excl::stream-file-position ((stream heml-output-stream) &optional pos)
   (assert (null pos))
-  (mark-charpos (hemlock-output-stream-mark stream)))
+  (mark-charpos (heml-output-stream-mark stream)))
 
 (defun region-misc (stream operation &optional arg1 arg2)
   (declare (ignore arg2))
   (case operation
 
     (:file-position
-     (let ((start (region-start (hemlock-region-stream-region stream)))
-           (mark (hemlock-region-stream-mark stream)))
+     (let ((start (region-start (heml-region-stream-region stream)))
+           (mark (heml-region-stream-mark stream)))
        (cond (arg1
               (move-mark mark start)
               (character-offset mark arg1))

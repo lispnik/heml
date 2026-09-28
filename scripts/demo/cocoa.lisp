@@ -3,27 +3,27 @@
 ;;;; Drives the editor the way test/smoke.lisp does -- keys and menu items
 ;;;; posted to it, NSEvents sent to its window -- while a thread has the
 ;;;; view draw itself into a PNG ten times a second.  ffmpeg makes the
-;;;; frames, in build/demo/cocoa-frames/, into build/demo/xoamax-cocoa.mp4.
+;;;; frames, in build/demo/cocoa-frames/, into build/demo/heml-cocoa.mp4.
 ;;;; Like the smoke test, it neither takes the keyboard nor touches the
 ;;;; clipboard, and needs no Screen Recording permission.
 
-(asdf:load-system :hemlock.cocoa)
+(asdf:load-system :heml.cocoa)
 
-(defpackage :xoamax-demo (:use :common-lisp))
-(in-package :xoamax-demo)
+(defpackage :heml-demo (:use :common-lisp))
+(in-package :heml-demo)
 
-(defvar *top* (asdf:system-source-directory :hemlock.cocoa))
+(defvar *top* (asdf:system-source-directory :heml.cocoa))
 (defvar *files* (merge-pathnames "build/demo/files/" *top*))
 (defvar *frames* (merge-pathnames "build/demo/cocoa-frames/" *top*))
 
-(setf hemlock.cocoa::*activate* nil
-      hemlock.cocoa::*pasteboard-name* "org.lispnik.xoamax.demo"
-      hemlock.cocoa::*remember-font* nil
-      hemlock.cocoa:*font-size* 14
-      hemlock.cocoa:*font-name* nil)
+(setf heml.cocoa::*activate* nil
+      heml.cocoa::*pasteboard-name* "org.lispnik.heml.demo"
+      heml.cocoa::*remember-font* nil
+      heml.cocoa:*font-size* 14
+      heml.cocoa:*font-name* nil)
 
 ;; A plain shell, without anyone's startup files.
-(setf (hemlock::variable-value 'hemlock::shell-utility-switches :global)
+(setf (heml::variable-value 'heml::shell-utility-switches :global)
       "--norc --noprofile")
 
 (when (probe-file *frames*)
@@ -39,13 +39,13 @@
 ;;;; Driving the editor, as test/smoke.lisp does
 
 (defmacro main (&body body)
-  `(hemlock.cocoa::call-on-main-thread-and-wait (lambda () ,@body)))
+  `(heml.cocoa::call-on-main-thread-and-wait (lambda () ,@body)))
 
 (defun settle ()
-  (loop repeat 200 until (hemlock.cocoa::inbox-empty-p) do (sleep 0.05))
+  (loop repeat 200 until (heml.cocoa::inbox-empty-p) do (sleep 0.05))
   (sleep 0.3))
 
-(defun post (descriptor) (hemlock.cocoa::post-to-editor descriptor))
+(defun post (descriptor) (heml.cocoa::post-to-editor descriptor))
 (defun post-key (character &rest modifiers) (post (list :char character modifiers)))
 (defun post-named (name) (post (list :named name '())))
 
@@ -62,9 +62,9 @@
   (post-named "Return")
   (settle))
 
-(defun display () hemlock.cocoa::*display*)
-(defun window () (hemlock.cocoa::display-window (display)))
-(defun view () (hemlock.cocoa::display-view (display)))
+(defun display () heml.cocoa::*display*)
+(defun window () (heml.cocoa::display-window (display)))
+(defun view () (heml.cocoa::display-view (display)))
 
 (defconstant +command+ (ash 1 20))
 
@@ -89,11 +89,11 @@
 
 (defun mouse-event (type column line clicks)
   (let* ((display (display))
-         (point (vector (float (+ hemlock.cocoa::*margin*
-                                  (* (+ column 1/2) (hemlock.cocoa::display-char-width display)))
+         (point (vector (float (+ heml.cocoa::*margin*
+                                  (* (+ column 1/2) (heml.cocoa::display-char-width display)))
                                1d0)
-                        (float (+ hemlock.cocoa::*margin*
-                                  (* (+ line 1/2) (hemlock.cocoa::display-char-height display)))
+                        (float (+ heml.cocoa::*margin*
+                                  (* (+ line 1/2) (heml.cocoa::display-char-height display)))
                                1d0))))
     (objc:invoke "NSEvent"
                  "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"
@@ -106,7 +106,7 @@
 
 (defun open-from-finder (file)
   (main (let ((url (objc:invoke "NSURL" "fileURLWithPath:" (namestring file))))
-          (objc:invoke (objc:objc-object-pointer (hemlock.cocoa::display-app-delegate (display)))
+          (objc:invoke (objc:objc-object-pointer (heml.cocoa::display-app-delegate (display)))
                        "application:openURLs:"
                        (objc.runloop:shared-application)
                        (objc:invoke "NSArray" "arrayWithObject:" url)))))
@@ -146,7 +146,7 @@
 (defun pause (seconds) (settle) (sleep seconds))
 
 (defun run ()
-  (loop until hemlock.cocoa::*editor-running-p* do (sleep 0.1))
+  (loop until heml.cocoa::*editor-running-p* do (sleep 0.1))
   (main (objc:invoke (window) "setFrame:display:" (vector 80d0 80d0 1200d0 760d0) t))
   (settle)
   (start-recording)
@@ -155,7 +155,7 @@
   ;; A file opened from Finder, and Lisp typed into it.
   (open-from-finder (merge-pathnames "fib.lisp" *files*))
   (pause 0.8)
-  (type-text ";;; Xoamax, native on macOS.")
+  (type-text ";;; Heml, native on macOS.")
   (post-named "Return")
   (type-text "(defun fib (n)") (post-key #\j "Control")
   (type-text "\"The Nth Fibonacci number.\"") (post-key #\j "Control")
@@ -236,9 +236,9 @@
   (sleep 0.3)
   (post :quit)
   (loop repeat 10
-        while hemlock.cocoa::*editor-running-p*
+        while heml.cocoa::*editor-running-p*
         do (sleep 1)
-           (when hemlock.cocoa::*editor-running-p* (post-key #\n))))
+           (when heml.cocoa::*editor-running-p* (post-key #\n))))
 
 (defvar *driver*
   (bt:make-thread (lambda ()
@@ -251,7 +251,7 @@
 
 (bt:make-thread (lambda () (sleep 300) (format t "~&demo: timed out~%") (sb-ext:exit :code 2 :abort t)))
 
-(hemlock:hemlock nil :backend-type :cocoa :load-user-init nil)
+(heml:heml nil :backend-type :cocoa :load-user-init nil)
 (bt:join-thread *driver*)
 (format t "~&demo: ~D frames in ~A~%" *frame* (namestring *frames*))
 (sb-ext:exit :code 0 :abort t)

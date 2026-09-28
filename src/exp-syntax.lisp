@@ -428,13 +428,13 @@
                     "^\\((?:[a-zA-Z]+:)?in-package (?:[^)]*::?)([^)]*)\\)")
                    (line-string line))
                 (when package
-                  (hemlock::canonicalize-slave-package-name package)))
+                  (heml::canonicalize-slave-package-name package)))
               (cl-ppcre:register-groups-bind
                   (package)
                   ((cache-scanner "^\\(in-package \"([^)]*)\"\\)")
                    (line-string line))
                 (when package
-                  (hemlock::canonicalize-slave-package-name package)))
+                  (heml::canonicalize-slave-package-name package)))
               (tag-package ptag)))))
 
 ;; $Log: exp-syntax.lisp,v $

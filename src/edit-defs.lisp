@@ -11,14 +11,14 @@
 ;;; code for moved and/or different sources.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;; Directory translation for definition editing commands.
 
 (defvar *definition-directory-translation-table*
   (make-string-table)
-  "Hemlock string table for translating directory namestrings to other ones, so
+  "Heml string table for translating directory namestrings to other ones, so
    a function defined in /x/y/z/.../file.ext will actually be looked for in
    /whatever/.../file.ext.")
 
@@ -164,7 +164,7 @@
           (go-to-definition pathname type name))
         (let ((results (eval-form-in-server
                         info
-                        (format nil "(hemlock::definition-editing-info ~S)"
+                        (format nil "(heml::definition-editing-info ~S)"
                                 fun-name))))
           (go-to-definition (read-from-string (first results)) ;file
                             (read-from-string (second results)) ;type

@@ -9,13 +9,13 @@
 ;;; This file implements typescript streams.
 ;;;
 ;;; A typescript stream is a bidirectional stream which uses remote
-;;; function calls to interact with a Hemlock typescript buffer. That
+;;; function calls to interact with a Heml typescript buffer. That
 ;;; is: the code in this file is executed on the slave side.
 ;;;
 ;;; Written by William Lott.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;;; Ts-streams.
@@ -101,7 +101,7 @@
 ;;; the CAR names the command, and the CDR is the arguments.
 ;;;
 (defun ts-stream-accept-input (remote input)
-  (let ((stream (hemlock.wire:remote-object-value remote)))
+  (let ((stream (heml.wire:remote-object-value remote)))
     (setf (ts-stream-current-input stream)
           (nconc (ts-stream-current-input stream)
                  (list (etypecase input
@@ -128,7 +128,7 @@
 ;;; a TS stream should now be Length.
 ;;;
 (defun ts-stream-set-line-length (remote length)
-  (let ((stream (hemlock.wire:remote-object-value remote)))
+  (let ((stream (heml.wire:remote-object-value remote)))
     (setf (ts-stream-line-length stream) length)))
 
 
@@ -239,8 +239,8 @@
           (ts (ts-stream-typescript stream)))
       #+(or)
       (progn
-        (hemlock.wire:remote wire (ts-buffer-ask-for-input ts))
-        (hemlock.wire:wire-force-output wire))
+        (heml.wire:remote wire (ts-buffer-ask-for-input ts))
+        (heml.wire:wire-force-output wire))
       (iter:iter
        (iter:until (%ts-stream-listen stream))
        (dispatch-events)))))
@@ -254,7 +254,7 @@
   (when (and (ts-stream-wire stream)
              (ts-stream-output-buffer stream)
              (not (zerop (ts-stream-output-buffer-index stream))))
-    (hemlock.wire:remote (ts-stream-wire stream)
+    (heml.wire:remote (ts-stream-wire stream)
       (ts-buffer-output-string
        (ts-stream-typescript stream)
        (subseq (the simple-string (ts-stream-output-buffer stream))
@@ -280,7 +280,7 @@
            (char-code #\Newline))
     (%ts-stream-flsbuf stream)
     (setf (ts-stream-char-pos stream) 0)
-    (hemlock.wire:wire-force-output (ts-stream-wire stream)))
+    (heml.wire:wire-force-output (ts-stream-wire stream)))
   char)
 
 ;;; %TS-STREAM-SOUT --- internal.
@@ -300,11 +300,11 @@
         (cond ((> (+ index length)
                   ts-stream-output-buffer-size)
                (%ts-stream-flsbuf stream)
-               (hemlock.wire:remote wire
+               (heml.wire:remote wire
                                     (ts-buffer-output-string (ts-stream-typescript stream)
                                                              (subseq string start end)))
                (when newline
-                 (hemlock.wire:wire-force-output wire)))
+                 (heml.wire:wire-force-output wire)))
               (t
                (replace (the simple-string (ts-stream-output-buffer stream))
                         string
@@ -316,7 +316,7 @@
                      length)
                (when newline
                  (%ts-stream-flsbuf stream)
-                 (hemlock.wire:wire-force-output wire)))))
+                 (heml.wire:wire-force-output wire)))))
       (setf (ts-stream-char-pos stream)
             (if newline
                 (- end newline 1)
@@ -353,7 +353,7 @@
 ;;;
 (defmethod hi::stream-clear-input ((stream ts-stream))
   (when (ts-stream-wire stream)
-    (hemlock.wire:remote-value (ts-stream-wire stream)
+    (heml.wire:remote-value (ts-stream-wire stream)
                                (ts-buffer-clear-input (ts-stream-typescript stream))))
   (setf (ts-stream-current-input stream) nil
         (ts-stream-input-read-index stream) 0))
@@ -364,7 +364,7 @@
     ;; Note: for the return value to come back,
     ;; all pending RPCs must have completed.
     ;; Therefore, we know it has synced.
-    (hemlock.wire:remote-value (ts-stream-wire stream)
+    (heml.wire:remote-value (ts-stream-wire stream)
                                (ts-buffer-finish-output (ts-stream-typescript stream))))
   t)
 

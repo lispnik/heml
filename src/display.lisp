@@ -9,10 +9,10 @@
 ;;;
 ;;; Written by Bill Chiles.
 ;;;
-;;; This is the device independent redisplay entry points for Hemlock.
+;;; This is the device independent redisplay entry points for Heml.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (declaim (special *in-the-editor*)) ; defined in main.lisp --amb
 
@@ -77,12 +77,12 @@
 ;;; Then we check for the after-redisplay method.  Routines such as REDISPLAY
 ;;; and REDISPLAY-ALL want to invoke the after method to make sure we handle
 ;;; any events generated from redisplaying.  There wouldn't be a problem with
-;;; handling these events if we were going in and out of Hemlock's event
+;;; handling these events if we were going in and out of Heml's event
 ;;; handling, but some user may loop over one of these interface functions for
-;;; a long time without going through Hemlock's input loop; when that happens,
+;;; a long time without going through Heml's input loop; when that happens,
 ;;; each call to redisplay may not result in a complete redisplay of the
 ;;; device.  Routines such as INTERNAL-REDISPLAY don't want to worry about this
-;;; since Hemlock calls them while going in and out of the input/event-handling
+;;; since Heml calls them while going in and out of the input/event-handling
 ;;; loop.
 ;;;
 ;;; Around all of this, we establish the 'redisplay-catcher tag.  Some device
@@ -195,11 +195,11 @@
 
 ;;; REDISPLAY-WINDOWS-FROM-MARK -- Internal Interface.
 ;;;
-;;; hemlock-output-stream methods call this to update the screen.  It only
+;;; heml-output-stream methods call this to update the screen.  It only
 ;;; redisplays windows which are displaying the buffer concerned and doesn't
 ;;; deal with making the cursor track the point.  This must call the device
 ;;; after-redisplay method since stream output may occur without ever
-;;; returning to the Hemlock input/event-handling loop.
+;;; returning to the Heml input/event-handling loop.
 ;;;
 ;;; When Throttlep, as it is for ordinary output, nothing is drawn if the
 ;;; screen was drawn less than *redisplay-interval* ago: the next output, or
@@ -268,7 +268,7 @@
 ;;;
 (defun redisplay-window-recentering (window)
   (setup-for-recentering-redisplay window)
-  (invoke-hook hemlock::redisplay-hook window)
+  (invoke-hook heml::redisplay-hook window)
   (setup-for-recentering-redisplay window)
   (device-redisplay (device-hunk-device (window-hunk window)) window)
   nil)

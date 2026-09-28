@@ -12,7 +12,7 @@
 ;;; Written by William Lott.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -76,7 +76,7 @@
 
 
 
-;;;; Hemlock Variables
+;;;; Heml Variables
 
 (defhvar "Current Compile Server"
   "The Server-Info object for the server currently used for compilation
@@ -102,12 +102,12 @@
   :value nil)
 
 (defhvar "Ask About Old Servers"
-  "When set (the default), Hemlock will prompt for an existing server's name
+  "When set (the default), Heml will prompt for an existing server's name
    in preference to prompting for a new slave's name and creating it."
   :value t)
 
 (defhvar "Confirm Slave Creation"
-  "When set, Hemlock always confirms a slave's creation for whatever reason."
+  "When set, Heml always confirms a slave's creation for whatever reason."
   ;; I'm not certain what this reason would be, so I'm disabling it.
   ;; In any case, I think the user should determine interactively whether
   ;; he wants this kind of question or not using the command prefix --
@@ -152,7 +152,7 @@
     (message "Server ~A just died." name))
   (when (server-info-wire server)
     #+NILGB
-    (let ((fd (hemlock.wire:wire-fd (server-info-wire server))))
+    (let ((fd (heml.wire:wire-fd (server-info-wire server))))
       (system:invalidate-descriptor fd)
       (unix:unix-close fd))
     (setf (server-info-wire server) nil))
@@ -169,7 +169,7 @@
     (setf (variable-value 'current-compile-server :global) nil))
   (dolist (buffer *buffer-list*)
     (dolist (var '(current-eval-server current-compile-server server-info))
-      (when (and (hemlock-bound-p var :buffer buffer)
+      (when (and (heml-bound-p var :buffer buffer)
                  (eq (variable-value var :buffer buffer) server))
         (delete-variable var :buffer buffer))))
   (setf *breakpoints* (delete-if #'(lambda (breakpoint)
@@ -184,7 +184,7 @@
 ;;; buffer are finalized.
 ;;;
 (defun server-cleanup (buffer)
-  (let ((info (if (hemlock-bound-p 'server-info :buffer buffer)
+  (let ((info (if (heml-bound-p 'server-info :buffer buffer)
                   (variable-value 'server-info :buffer buffer))))
     (when info
       (when (eq buffer (server-info-slave-buffer info))
@@ -254,7 +254,7 @@
 ;;;
 ;;; Pick a name for the editor.  Names consist of machine-name:port-number.  If
 ;;; in ten tries we can't get an unused port, choak.  We don't save the result
-;;; of HEMLOCK.WIRE:CREATE-REQUEST-SERVER because we don't think the editor needs to
+;;; of HEML.WIRE:CREATE-REQUEST-SERVER because we don't think the editor needs to
 ;;; ever kill the request server, and we can always inhibit connection with
 ;;; "Accept Connections".
 ;;;
@@ -332,8 +332,8 @@
 
 ;;; DEFAULT-SLAVE-COMMAND -- Internal.
 ;;;
-;;; Run this Lisp again as a slave: the same runtime, loading Hemlock from
-;;; source.  hemlock.tty is enough, since a slave draws nothing.
+;;; Run this Lisp again as a slave: the same runtime, loading Heml from
+;;; source.  heml.tty is enough, since a slave draws nothing.
 ;;;
 (defun default-slave-command ()
   (let ((registry
@@ -346,24 +346,24 @@
                     (slave-source-registry))))
         ;; Quietly: a first run compiles, and all of it would land in the
         ;; slave's buffer.
-        (load-hemlock "(let ((*standard-output* (make-broadcast-stream)) (*error-output* (make-broadcast-stream))) (asdf:load-system :hemlock.tty))"))
+        (load-heml "(let ((*standard-output* (make-broadcast-stream)) (*error-output* (make-broadcast-stream))) (asdf:load-system :heml.tty))"))
     #+sbcl
     (list (namestring sb-ext:*runtime-pathname*)
           "--noinform"
           "--eval" registry
-          "--eval" load-hemlock
+          "--eval" load-heml
           ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
-          "--eval" "(progn (hemlock::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
+          "--eval" "(progn (heml::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
           "--end-toplevel-options"
           "--slave")
     ;; ECL reads every --eval before it evaluates any, so nothing here may
-    ;; name a Hemlock symbol.  Its own options end at "--".
+    ;; name a Heml symbol.  Its own options end at "--".
     #+ecl
     (list (si:argv 0)
           "--norc"
           "--eval" registry
-          "--eval" load-hemlock
-          "--eval" "(progn (uiop:symbol-call :hemlock :main (rest (member \"--\" (ext:command-args) :test #'string=))) (uiop:quit))"
+          "--eval" load-heml
+          "--eval" "(progn (uiop:symbol-call :heml :main (rest (member \"--\" (ext:command-args) :test #'string=))) (uiop:quit))"
           "--"
           "--slave")))
 
@@ -544,7 +544,7 @@
 (defun prompt-for-slave-command ()
   (cl-ppcre:split
    " "
-   (hemlock-interface::prompt-for-string
+   (heml-interface::prompt-for-string
     :prompt "Command: "
     :default (format nil "~{~A~^ ~}"
                      (slave-command-with-arguments)))))
@@ -610,9 +610,9 @@
       (declare (ignore name))
       (let ((wire (server-info-wire info)))
         (when wire
-          (ext:send-character-out-of-band (hemlock.wire:wire-fd wire) #\N)
-          (hemlock.wire:remote wire (ext:quit))
-          (hemlock.wire:wire-force-output wire)))
+          (ext:send-character-out-of-band (heml.wire:wire-fd wire) #\N)
+          (heml.wire:remote wire (ext:quit))
+          (heml.wire:wire-force-output wire)))
       (server-died info))))
 
 #+NILGB
@@ -636,9 +636,9 @@
       (declare (ignore name))
       (let ((wire (server-info-wire info)))
         (when wire
-          (ext:send-character-out-of-band (hemlock.wire:wire-fd wire) #\N)
-          (hemlock.wire:remote wire (ext:quit))
-          (hemlock.wire:wire-force-output wire)))
+          (ext:send-character-out-of-band (heml.wire:wire-fd wire) #\N)
+          (heml.wire:remote wire (ext:quit))
+          (heml.wire:wire-force-output wire)))
       (let ((buffer (server-info-slave-buffer info)))
         (when buffer (delete-buffer-if-possible buffer)))
       (let ((buffer (server-info-background-buffer info)))
@@ -647,10 +647,10 @@
 
 #+(or)
 (defcommand "Accept Slave Connections" (p)
-  "This causes Hemlock to accept slave connections and displays the port of
+  "This causes Heml to accept slave connections and displays the port of
    the editor's connections request server.  This is suitable for use with the
    Lisp's -slave switch.  Given an argument, this inhibits slave connections."
-  "This causes Hemlock to accept slave connections and displays the port of
+  "This causes Heml to accept slave connections and displays the port of
    the editor's connections request server.  This is suitable for use with the
    Lisp's -slave switch.  Given an argument, this inhibits slave connections."
   (let ((accept (not p)))
@@ -701,11 +701,11 @@
 ;;; Run in the slave to create a new stream and connect it to the supplied
 ;;; buffer.  Returns the stream.
 ;;;
-(defun connect-stream (remote-buffer &optional (wire hemlock.wire:*current-wire*))
+(defun connect-stream (remote-buffer &optional (wire heml.wire:*current-wire*))
   (let ((stream (make-ts-stream wire remote-buffer)))
-    (hemlock.wire:remote hemlock.wire:*current-wire*
+    (heml.wire:remote heml.wire:*current-wire*
       (ts-buffer-set-stream remote-buffer
-                            (hemlock.wire:make-remote-object stream)))
+                            (heml.wire:make-remote-object stream)))
     stream))
 
 ;;; MADE-BUFFERS-FOR-TYPESCRIPT -- Internal Interface.
@@ -742,7 +742,7 @@
 ;;; These two routines are run in the editor by the slave's gc notify routines.
 ;;;
 (defun slave-gc-notify-before (remote-ts message)
-  (let ((ts (hemlock.wire:remote-object-value remote-ts)))
+  (let ((ts (heml.wire:remote-object-value remote-ts)))
     (ts-buffer-output-string ts message t)
     (when (value slave-gc-alarm)
       (message "~A is GC'ing." (buffer-name (ts-data-buffer ts)))
@@ -750,7 +750,7 @@
         (beep)))))
 
 (defun slave-gc-notify-after (remote-ts message)
-  (let ((ts (hemlock.wire:remote-object-value remote-ts)))
+  (let ((ts (heml.wire:remote-object-value remote-ts)))
     (ts-buffer-output-string ts message t)
     (when (value slave-gc-alarm)
       (message "~A is done GC'ing." (buffer-name (ts-data-buffer ts)))
@@ -833,7 +833,7 @@
     (install-special-variables-for-background-threads)
     (let ((machine (subseq editor 0 seperator))
           (port (parse-integer editor :start (1+ seperator)))
-          (hi::*in-hemlock-slave-p* t)
+          (hi::*in-heml-slave-p* t)
           ;; override --disable-debugger from this point on:
           (*debugger-hook*
            (lambda (c orig)
@@ -847,7 +847,7 @@
       (setf *master-machine-and-port* (list machine port))
       (format t "Connecting to ~A:~D~%" machine port)
       (hi::with-new-event-loop ()
-        (let ((hemlock.wire::*current-wire* :wire-not-yet-known))
+        (let ((heml.wire::*current-wire* :wire-not-yet-known))
           (connect-to-editor machine port slave-buffer background-buffer)
           (dispatch-events-no-hang)
           (iter:iter
@@ -947,8 +947,8 @@
    port
    (lambda (wire)
      (let ()
-       (setf hemlock.wire::*current-wire* wire)
-       (hemlock.wire:remote-value-bind wire
+       (setf heml.wire::*current-wire* wire)
+       (heml.wire:remote-value-bind wire
          (slave background)
          (set-up-buffers-for-slave (lisp-implementation-type)
                                    (lisp-implementation-version))
@@ -956,7 +956,7 @@
    'editor-died))
 
 (defun set-up-buffers-for-slave
-    (type version &optional (wire hemlock.wire:*current-wire*))
+    (type version &optional (wire heml.wire:*current-wire*))
   (let* ((server-info (variable-value 'current-eval-server :global))
          (slave-info (server-info-slave-info server-info))
          (background-info (server-info-background-info server-info)))
@@ -967,9 +967,9 @@
     (setf (server-info-implementation-version server-info) version)
     (let* ((buf (ts-data-buffer slave-info))
            (name (format nil "~A ~A" (buffer-name buf) type)))
-      (hemlock-ext::maybe-rename-buffer buf name))
-    (values (hemlock.wire:make-remote-object slave-info)
-            (hemlock.wire:make-remote-object background-info))))
+      (heml-ext::maybe-rename-buffer buf name))
+    (values (heml.wire:make-remote-object slave-info)
+            (heml.wire:make-remote-object background-info))))
 
 ;;; CONNECT-TO-EDITOR-FOR-BACKGROUND-THREAD -- internal
 ;;;
@@ -980,7 +980,7 @@
    machine
    port
    (lambda (wire)
-     (setf hemlock.wire::*current-wire* wire))
+     (setf heml.wire::*current-wire* wire))
    'editor-died))
 
 
@@ -1006,7 +1006,7 @@
   (declare (type (or string null) package) (simple-string form))
   (handler-bind
       ((error #'(lambda (condition)
-                  (hemlock.wire:remote hemlock.wire:*current-wire*
+                  (heml.wire:remote heml.wire:*current-wire*
                                (eval-form-error (format nil "~A~&" condition)))
                   (return-from server-eval-form nil))))
     (let ((*package* (if package
@@ -1025,7 +1025,7 @@
 (defmacro do-operation ((note package terminal-io) &body body)
   `(let ((aborted t)
          (*terminal-io* (if ,terminal-io
-                          (hemlock.wire:remote-object-value ,terminal-io)
+                          (heml.wire:remote-object-value ,terminal-io)
                           *terminal-io*))
          (*package* (maybe-make-package ,package)))
      (unwind-protect
@@ -1033,17 +1033,17 @@
            (when (eq :was-in-debugger
                      (catch 'abort-operation
                        (let ((*inside-operation* t))
-                         (hemlock.wire:remote hemlock.wire:*current-wire*
+                         (heml.wire:remote heml.wire:*current-wire*
                                       (operation-started ,note))
-                         (hemlock.wire:wire-force-output hemlock.wire:*current-wire*)
+                         (heml.wire:wire-force-output heml.wire:*current-wire*)
                          ,@body
                          (setf aborted nil))))
              (format t
                      "~&[Operation aborted.  ~
                       You are no longer in this instance of the debugger.]~%")))
-       (hemlock.wire:remote hemlock.wire:*current-wire*
+       (heml.wire:remote heml.wire:*current-wire*
          (operation-completed ,note aborted))
-       (hemlock.wire:wire-force-output hemlock.wire:*current-wire*))))
+       (heml.wire:wire-force-output heml.wire:*current-wire*))))
 
 
 ;;; unique-thingie is a unique eof-value for READ'ing.  Its a parameter, so
@@ -1065,7 +1065,7 @@
         (handler-bind
             ((error
               #'(lambda (condition)
-                  (hemlock.wire:remote hemlock.wire:*current-wire*
+                  (heml.wire:remote heml.wire:*current-wire*
                                (lisp-error note last-pos
                                            (file-position stream)
                                            (format nil "~A~&" condition))))))
@@ -1075,7 +1075,7 @@
                 (return nil))
               (let* ((values (stringify-list (multiple-value-list (eval form))))
                      (pos (file-position stream)))
-                (hemlock.wire:remote hemlock.wire:*current-wire*
+                (heml.wire:remote heml.wire:*current-wire*
                   (eval-text-result note last-pos pos values))
                 (setf last-pos pos)))))))))
 
@@ -1103,7 +1103,7 @@
 (defmacro do-compiler-operation ((note package terminal-io error) &body body)
   `(let ((*compiler-note* ,note)
          (*compiler-error-stream* ,error)
-         (*compiler-wire* hemlock.wire:*current-wire*)
+         (*compiler-wire* heml.wire:*current-wire*)
          #+nil
          (c:*compiler-notification-function* #'compiler-note-in-editor))
      (do-operation (*compiler-note* ,package ,terminal-io)
@@ -1128,9 +1128,9 @@
   (declare (ignore name))
   (when *compiler-wire*
     (force-output *compiler-error-stream*)
-    (hemlock.wire:remote *compiler-wire*
+    (heml.wire:remote *compiler-wire*
       (compiler-error *compiler-note* pos pos function severity)))
-    (hemlock.wire:wire-force-output *compiler-wire*))
+    (heml.wire:wire-force-output *compiler-wire*))
 
 
 ;;; COMPILER-ERROR-HANDLER -- Internal.
@@ -1141,7 +1141,7 @@
 ;;;
 (defun compiler-error-handler (condition)
   (when *compiler-wire*
-    (hemlock.wire:remote *compiler-wire*
+    (heml.wire:remote *compiler-wire*
       (lisp-error *compiler-note* nil nil
                   (format nil "~A~&" condition)))))
 
@@ -1155,7 +1155,7 @@
 
 (defun invoke-with-temporary-file-name (fun)
   (multiple-value-bind (fd pathname)
-                       (isys:mkstemp "/tmp/hemlock")
+                       (isys:mkstemp "/tmp/heml")
     (isys:close fd)
     (funcall fun pathname)
     (when (iolib.os::get-file-kind pathname nil)
@@ -1165,7 +1165,7 @@
                             terminal-io error-output)
   (declare (ignore defined-from))
   (let ((error-output (if error-output
-                        (hemlock.wire:remote-object-value error-output))))
+                        (heml.wire:remote-object-value error-output))))
     (do-compiler-operation (note package terminal-io error-output)
       (with-temporary-file-name (tmp)
         (with-open-file (s tmp :direction :output :if-exists :supersede)
@@ -1185,8 +1185,8 @@
                             load terminal background)
   (declare (ignore error load output trace))
   (macrolet ((frob (x)
-               `(if (hemlock.wire:remote-object-p ,x)
-                  (hemlock.wire:remote-object-value ,x)
+               `(if (heml.wire:remote-object-p ,x)
+                  (heml.wire:remote-object-value ,x)
                   ,x)))
     (let ((error-stream (frob background)))
       (do-compiler-operation (note package terminal error-stream)
@@ -1207,7 +1207,7 @@
   (cond ((null name) *package*)
         ((find-package name))
         (t
-         (hemlock.wire:remote-value (ts-stream-wire *terminal-io*)
+         (heml.wire:remote-value (ts-stream-wire *terminal-io*)
            (ts-buffer-output-string
             (ts-stream-typescript *terminal-io*)
             (format nil "~&Creating package ~A.~%" name)
@@ -1242,7 +1242,7 @@
 ;;;;
 
 (defcommand "Start Swank Server"
-    (p &optional (port (hemlock-interface::prompt-for-integer
+    (p &optional (port (heml-interface::prompt-for-integer
                         :prompt "Port: "
                         :default-string "4005")))
   "" ""
@@ -1261,7 +1261,7 @@
     (typescriptify-buffer buffer server-info wire)
     buffer))
 
-(defun wire-to-server-info (&optional (wire hemlock.wire:*current-wire*)
+(defun wire-to-server-info (&optional (wire heml.wire:*current-wire*)
                                       (errorp t)
                                       (error-value nil))
   (or (find wire (list-server-infos) :key #'server-info-wire)
@@ -1270,7 +1270,7 @@
           error-value)))
 
 (defun %make-extra-typescript-buffer (name)
-  (let* ((wire hemlock.wire:*current-wire*)
+  (let* ((wire heml.wire:*current-wire*)
          (info ;; hmm, do we need the server info?
           :server-info-for-extra-buffer-not-set)
          (buffer (make-extra-typescript-buffer
@@ -1279,4 +1279,4 @@
                   wire))
          (ts-data (variable-value 'typescript-data :buffer buffer)))
     (change-to-buffer buffer)
-    (hemlock.wire:make-remote-object ts-data)))
+    (heml.wire:make-remote-object ts-data)))

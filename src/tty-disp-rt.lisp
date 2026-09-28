@@ -10,7 +10,7 @@
 ;;;    Written by Bill Chiles.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (pushnew :tty hi::*available-backends*)
 
@@ -438,8 +438,8 @@
           (osicat-posix::tcsetattr fd osicat-posix::tcsadrain tios))))))
 
 #+(or)
-(defun pause-hemlock ()
-  "Pause hemlock and pop out to the Unix Shell."
-  (without-hemlock
+(defun pause-heml ()
+  "Pause heml and pop out to the Unix Shell."
+  (without-heml
    (unix:unix-kill (unix:unix-getpid) :sigstop))
   t)

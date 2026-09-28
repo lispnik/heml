@@ -6,7 +6,7 @@
 ;;;; thread; the editor thread reaches it only through CALL-ON-MAIN-THREAD
 ;;;; and REQUEST-REDRAW.
 
-(in-package :hemlock.cocoa)
+(in-package :heml.cocoa)
 
 (defvar *font-name* nil
   "A font's PostScript or family name, or NIL for the system monospaced font.")
@@ -23,7 +23,7 @@ types the characters the keyboard layout puts on it, dead keys included.")
 AppKit, so that one Option key is Meta and the other types characters.")
 
 (defvar *activate* t
-  "Whether showing the window makes Xoamax the active application.  The
+  "Whether showing the window makes Heml the active application.  The
 smoke test turns it off, so that a run does not take the keyboard from
 whoever is working while it runs.")
 
@@ -46,7 +46,7 @@ uses so as not to overwrite the user's clipboard.")
 
 (defun log-error (where condition)
   (ignore-errors
-   (format *error-output* "~&;; hemlock.cocoa: ~A: ~A~%" where condition)
+   (format *error-output* "~&;; heml.cocoa: ~A: ~A~%" where condition)
    (force-output *error-output*)))
 
 
@@ -62,11 +62,11 @@ uses so as not to overwrite the user's clipboard.")
 (defstruct (row (:constructor make-row ()))
   (text "" :type simple-string)
   ;; ((start end . font) ...), ascending, non-overlapping.  FONT is what
-  ;; Hemlock's font-changes carry: an ANSI colour index or a property list.
+  ;; Heml's font-changes carry: an ANSI colour index or a property list.
   (runs '() :type list))
 
 (defstruct (screen (:constructor %make-screen (columns lines)))
-  (lock (bt:make-lock "hemlock.cocoa screen"))
+  (lock (bt:make-lock "heml.cocoa screen"))
   (columns 80 :type fixnum)
   (lines 24 :type fixnum)
   (rows #() :type simple-vector)
@@ -105,9 +105,9 @@ uses so as not to overwrite the user's clipboard.")
 ;;; lem-cocoa's main-thread.lisp, for the same reasons.
 
 (defvar *main-thread-queue* '())
-(defvar *main-thread-queue-lock* (bt:make-lock "hemlock.cocoa main-thread queue"))
+(defvar *main-thread-queue-lock* (bt:make-lock "heml.cocoa main-thread queue"))
 (defvar *main-thread-target* nil
-  "The view's pointer: the object whose -xoamaxDrain runs the queue.")
+  "The view's pointer: the object whose -hemlDrain runs the queue.")
 
 (defparameter +run-loop-modes+
   #("NSDefaultRunLoopMode" "NSEventTrackingRunLoopMode" "NSModalPanelRunLoopMode")
@@ -133,7 +133,7 @@ thread it is simply called."
        (push function *main-thread-queue*))
      (objc:invoke *main-thread-target*
                   "performSelectorOnMainThread:withObject:waitUntilDone:modes:"
-                  (objc:coerce-to-selector "xoamaxDrain")
+                  (objc:coerce-to-selector "hemlDrain")
                   nil nil +run-loop-modes+))))
 
 (defmacro on-main-thread (&body body)
@@ -153,7 +153,7 @@ Only from a thread the main thread never waits for -- the editor's."
                 *main-thread-queue*))
         (objc:invoke *main-thread-target*
                      "performSelectorOnMainThread:withObject:waitUntilDone:modes:"
-                     (objc:coerce-to-selector "xoamaxDrain")
+                     (objc:coerce-to-selector "hemlDrain")
                      nil t +run-loop-modes+)
         (when condition (error condition))
         (values-list values))))
@@ -161,7 +161,7 @@ Only from a thread the main thread never waits for -- the editor's."
 
 ;;;; The clipboard
 
-;;; Hemlock's kill ring and the general pasteboard, joined as Emacs joins
+;;; Heml's kill ring and the general pasteboard, joined as Emacs joins
 ;;; them (killcoms.lisp).  The pasteboard's change count says whether
 ;;; anyone has written to it since this process last did, or last read it:
 ;;; only then is its text news to the kill ring.  Main thread only.
@@ -202,7 +202,7 @@ there since it last looked; otherwise NIL."
 ;;; that there is something; the contents travel in the list.
 
 (defvar *inbox* '())
-(defvar *inbox-lock* (bt:make-lock "hemlock.cocoa inbox"))
+(defvar *inbox-lock* (bt:make-lock "heml.cocoa inbox"))
 (defvar *wakeup-read-fd* nil)
 (defvar *wakeup-write-fd* nil)
 
@@ -244,7 +244,7 @@ there since it last looked; otherwise NIL."
 (defclass display ()
   ((window :initform nil :accessor display-window)
    (view :initform nil :accessor display-view
-         :documentation "The XoamaxView, as a pointer.")
+         :documentation "The HemlView, as a pointer.")
    (view-object :initform nil :accessor display-view-object
                 :documentation "The same view as a Lisp object, held so it is not collected.")
    (delegate :initform nil :accessor display-delegate)
@@ -264,7 +264,7 @@ until it is committed or dropped.")
 
 (defvar *editor-running-p* nil
   "True while the editor thread is in the command loop: what decides
-whether Quit asks Hemlock or just ends the application.")
+whether Quit asks Heml or just ends the application.")
 
 (defun null-pointer-p (pointer)
   (or (null pointer) (cffi:null-pointer-p pointer)))
@@ -318,8 +318,8 @@ The text attribute cache goes with the old fonts: its dictionaries name them."
 ;;; The font chosen last is kept in the user defaults: the application's,
 ;;; or the SBCL process's when the editor runs from a REPL.
 
-(defparameter +font-name-key+ "XoamaxFontName")
-(defparameter +font-size-key+ "XoamaxFontSize")
+(defparameter +font-name-key+ "HemlFontName")
+(defparameter +font-size-key+ "HemlFontSize")
 (defparameter +default-font-size+ 13)
 
 (defun user-defaults ()
@@ -382,7 +382,7 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
 
 ;;;; Colours
 
-;;; Hemlock's fonts are ANSI colour indexes, as the TTY backend reads them.
+;;; Heml's fonts are ANSI colour indexes, as the TTY backend reads them.
 ;;; They map onto AppKit's dynamic system colours, so light and dark
 ;;; appearance both come out right without any code here.
 
@@ -623,8 +623,8 @@ again."
 
 ;;; -keyDown: turns the event into descriptors, which are plain data: a
 ;;; descriptor is (:NAMED keysym-name modifiers) or (:CHAR character
-;;; modifiers), with modifiers a list of Hemlock modifier names.  The editor
-;;; thread makes the key-events, since that writes to Hemlock's tables.
+;;; modifiers), with modifiers a list of Heml modifier names.  The editor
+;;; thread makes the key-events, since that writes to Heml's tables.
 
 (defconstant +control-mask+ (ash 1 18))
 (defconstant +option-mask+ (ash 1 19))
@@ -638,7 +638,7 @@ again."
             (#xF72C . "Pageup") (#xF72D . "Pagedown"))
           (loop for n from 1 to 35
                 collect (cons (+ #xF704 (1- n)) (format nil "F~D" n))))
-  "NSEvent's function-key characters to Hemlock's keysym names.")
+  "NSEvent's function-key characters to Heml's keysym names.")
 
 (defparameter *control-keys*
   '((127 . "Backspace") (8 . "Backspace")
@@ -646,7 +646,7 @@ again."
     (9 . "Tab") (25 . "Tab")
     (27 . "Escape"))
   "Control characters that name keys.  The Delete key sends 127, which
-Hemlock calls Rubout and binds to deleting forward, so it is named
+Heml calls Rubout and binds to deleting forward, so it is named
 Backspace here, which is what the key is for.")
 
 (defun key-name-for (character)
@@ -756,9 +756,9 @@ movement in points, a fraction of a line at a time.")
 
 ;;;; The view and the delegates
 
-(objc:define-objc-class xoamax-view ()
+(objc:define-objc-class heml-view ()
   ()
-  (:objc-class-name "XoamaxView")
+  (:objc-class-name "HemlView")
   (:objc-superclass-name "NSView")
   ;; So that AppKit's input context talks to the view: dead keys, input
   ;; methods, and their marked text.  The methods are below.
@@ -766,18 +766,18 @@ movement in points, a fraction of a line at a time.")
 
 (objc:define-objc-class window-delegate ()
   ()
-  (:objc-class-name "XoamaxWindowDelegate"))
+  (:objc-class-name "HemlWindowDelegate"))
 
 (objc:define-objc-class app-delegate ()
   ()
-  (:objc-class-name "XoamaxAppDelegate"))
+  (:objc-class-name "HemlAppDelegate"))
 
-(objc:define-objc-method ("isFlipped" objc:objc-bool) ((self xoamax-view))
+(objc:define-objc-method ("isFlipped" objc:objc-bool) ((self heml-view))
   t)
 
 ;;; Over an edge that resizes windows, the pointer says which way it drags.
 ;;;
-(objc:define-objc-method ("resetCursorRects" :void) ((self xoamax-view pointer))
+(objc:define-objc-method ("resetCursorRects" :void) ((self heml-view pointer))
   (handler-case
       (let ((display *display*)
             (screen *screen*))
@@ -793,38 +793,38 @@ movement in points, a fraction of a line at a time.")
                                                        "resizeUpDownCursor")))))))
     (error (condition) (log-error "resetCursorRects" condition))))
 
-(objc:define-objc-method ("acceptsFirstResponder" objc:objc-bool) ((self xoamax-view))
+(objc:define-objc-method ("acceptsFirstResponder" objc:objc-bool) ((self heml-view))
   t)
 
-(objc:define-objc-method ("isOpaque" objc:objc-bool) ((self xoamax-view))
+(objc:define-objc-method ("isOpaque" objc:objc-bool) ((self heml-view))
   t)
 
 ;;; A click on the window while another application is active both brings
 ;;; it forward and lands, as in Emacs, instead of only activating it.
 (objc:define-objc-method ("acceptsFirstMouse:" objc:objc-bool)
-    ((self xoamax-view) (event objc:objc-object-pointer))
+    ((self heml-view) (event objc:objc-object-pointer))
   (declare (ignore event))
   t)
 
-(objc:define-objc-method ("xoamaxDrain" :void) ((self xoamax-view))
+(objc:define-objc-method ("hemlDrain" :void) ((self heml-view))
   (drain-main-thread-queue))
 
 (objc:define-objc-method ("drawRect:" :void)
-    ((self xoamax-view) (dirty cocoa:ns-rect))
+    ((self heml-view) (dirty cocoa:ns-rect))
   (declare (ignore dirty))
   (handler-case
       (when (and *display* *screen*)
         (draw-screen *display* *screen*))
     (error (condition) (log-error "drawRect:" condition))))
 
-;;; Named keys and keys with Control or Meta are Hemlock's directly.
+;;; Named keys and keys with Control or Meta are Heml's directly.
 ;;; Plain typing goes through AppKit's input context, which composes dead
 ;;; keys and runs input methods, and comes back as -insertText: or
 ;;; -setMarkedText:.  While an input method holds marked text, every key is
 ;;; its to interpret.
 ;;;
 (objc:define-objc-method ("keyDown:" :void)
-    ((self xoamax-view pointer) (event objc:objc-object-pointer))
+    ((self heml-view pointer) (event objc:objc-object-pointer))
   (handler-case
       (multiple-value-bind (descriptors direct) (event-descriptors event)
         (objc:invoke "NSCursor" "setHiddenUntilMouseMoves:" t)
@@ -838,7 +838,7 @@ movement in points, a fraction of a line at a time.")
 
 ;;;; NSTextInputClient
 
-;;; What the input context calls.  The document is Hemlock's, not
+;;; What the input context calls.  The document is Heml's, not
 ;;; AppKit's, so there is no text to hand back and no selection to report:
 ;;; only the marked text, which is shown at the cursor until it is
 ;;; committed, and where the cursor is, for the candidate window.
@@ -855,7 +855,7 @@ movement in points, a fraction of a line at a time.")
   (request-redraw))
 
 (objc:define-objc-method ("insertText:replacementRange:" :void)
-    ((self xoamax-view) (string objc:objc-object-pointer) (range cocoa:ns-range))
+    ((self heml-view) (string objc:objc-object-pointer) (range cocoa:ns-range))
   (declare (ignore range))
   (handler-case
       (progn
@@ -865,40 +865,40 @@ movement in points, a fraction of a line at a time.")
     (error (condition) (log-error "insertText:" condition))))
 
 (objc:define-objc-method ("setMarkedText:selectedRange:replacementRange:" :void)
-    ((self xoamax-view) (string objc:objc-object-pointer)
+    ((self heml-view) (string objc:objc-object-pointer)
      (selected cocoa:ns-range) (replacement cocoa:ns-range))
   (declare (ignore selected replacement))
   (handler-case (set-marked-text (text-of string))
     (error (condition) (log-error "setMarkedText:" condition))))
 
-(objc:define-objc-method ("unmarkText" :void) ((self xoamax-view))
+(objc:define-objc-method ("unmarkText" :void) ((self heml-view))
   (set-marked-text nil))
 
-(objc:define-objc-method ("hasMarkedText" objc:objc-bool) ((self xoamax-view))
+(objc:define-objc-method ("hasMarkedText" objc:objc-bool) ((self heml-view))
   (not (null (display-marked-text *display*))))
 
-(objc:define-objc-method ("markedRange" cocoa:ns-range) ((self xoamax-view))
+(objc:define-objc-method ("markedRange" cocoa:ns-range) ((self heml-view))
   (let ((marked (display-marked-text *display*)))
     (if marked
         (cons 0 (length marked))
         (cons cocoa:ns-not-found 0))))
 
-(objc:define-objc-method ("selectedRange" cocoa:ns-range) ((self xoamax-view))
+(objc:define-objc-method ("selectedRange" cocoa:ns-range) ((self heml-view))
   (let ((marked (display-marked-text *display*)))
     (cons (if marked (length marked) 0) 0)))
 
 (objc:define-objc-method ("attributedSubstringForProposedRange:actualRange:"
                           objc:objc-object-pointer)
-    ((self xoamax-view) (range cocoa:ns-range) (actual (:pointer :void)))
+    ((self heml-view) (range cocoa:ns-range) (actual (:pointer :void)))
   (declare (ignore range actual))
   (cffi:null-pointer))
 
 (objc:define-objc-method ("validAttributesForMarkedText" objc:objc-object-pointer)
-    ((self xoamax-view))
+    ((self heml-view))
   (objc:invoke "NSArray" "array"))
 
 (objc:define-objc-method ("firstRectForCharacterRange:actualRange:" cocoa:ns-rect)
-    ((self xoamax-view pointer) (range cocoa:ns-range) (actual (:pointer :void)))
+    ((self heml-view pointer) (range cocoa:ns-range) (actual (:pointer :void)))
   (declare (ignore range actual))
   ;; Where the candidate window goes: at the cursor, in screen coordinates.
   (let* ((display *display*)
@@ -913,7 +913,7 @@ movement in points, a fraction of a line at a time.")
     (objc:invoke (display-window display) "convertRectToScreen:" in-window)))
 
 (objc:define-objc-method ("characterIndexForPoint:" (:unsigned :long))
-    ((self xoamax-view) (point cocoa:ns-point))
+    ((self heml-view) (point cocoa:ns-point))
   (declare (ignore point))
   0)
 
@@ -929,7 +929,7 @@ movement in points, a fraction of a line at a time.")
 consume, and the keys they are.")
 
 (objc:define-objc-method ("doCommandBySelector:" :void)
-    ((self xoamax-view) (selector objc:sel))
+    ((self heml-view) (selector objc:sel))
   (let ((name (cdr (assoc (objc:selector-name selector) *command-selector-keys*
                           :test #'string=))))
     (when name
@@ -938,9 +938,9 @@ consume, and the keys they are.")
 ;;;; Menu actions
 
 ;;; Every item of the menus, and of the context menu, is the application
-;;; delegate's -xoamaxMenuItem:, and its tag says which action it is:
+;;; delegate's -hemlMenuItem:, and its tag says which action it is:
 ;;;
-;;;   (:command name arg ...)  a Hemlock command, run by the command loop
+;;;   (:command name arg ...)  a Heml command, run by the command loop
 ;;;   (:call function)         a function called on the main thread
 ;;;   (:font-size delta)       bigger, smaller, or with NIL the default size
 ;;;
@@ -959,12 +959,12 @@ consume, and the keys they are.")
     (:call (funcall (second action)))
     (:font-size (change-font-size (second action)))))
 
-(objc:define-objc-method ("xoamaxMenuItem:" :void)
+(objc:define-objc-method ("hemlMenuItem:" :void)
     ((self app-delegate) (sender objc:objc-object-pointer))
   (handler-case
       (when *display*
         (perform-menu-action (aref *menu-actions* (objc:invoke sender "tag"))))
-    (error (condition) (log-error "xoamaxMenuItem:" condition))))
+    (error (condition) (log-error "hemlMenuItem:" condition))))
 
 (defun show-font-panel ()
   (let ((manager (objc:invoke "NSFontManager" "sharedFontManager")))
@@ -972,7 +972,7 @@ consume, and the keys they are.")
     (objc:invoke manager "orderFrontFontPanel:" nil)))
 
 (objc:define-objc-method ("changeFont:" :void)
-    ((self xoamax-view) (sender objc:objc-object-pointer))
+    ((self heml-view) (sender objc:objc-object-pointer))
   (handler-case
       (let ((font (objc:invoke sender "convertFont:" (display-font *display*))))
         (change-font :name (objc:ns-string-to-string (objc:invoke font "fontName"))
@@ -1002,21 +1002,21 @@ consume, and the keys they are.")
              (objc:ns-string-to-string (objc:invoke (objc:invoke panel "URL") "path")))))))
 
 (defun open-settings ()
-  "The init file, which is where Hemlock's settings are: the first that
-exists of those Hemlock loads, or the first of them to create."
+  "The init file, which is where Heml's settings are: the first that
+exists of those Heml loads, or the first of them to create."
   (let* ((home (user-homedir-pathname))
          (names (mapcar (lambda (name) (merge-pathnames name home))
-                        '(".hemlock.lisp" ".hemlock/hemlock.lisp" ".hemlock-init.lisp"))))
+                        '(".heml.lisp" ".heml/heml.lisp" ".heml-init.lisp"))))
     (post-to-editor
      (list :open (namestring (or (find-if #'probe-file names) (first names)))))))
 
 (defun show-about ()
   (let ((options (objc:alloc-init-object "NSMutableDictionary")))
-    (objc:invoke options "setObject:forKey:" "Xoamax" "ApplicationName")
+    (objc:invoke options "setObject:forKey:" "Heml" "ApplicationName")
     (objc:invoke options "setObject:forKey:"
-                 (princ-to-string hi::*hemlock-version*) "ApplicationVersion")
+                 (princ-to-string hi::*heml-version*) "ApplicationVersion")
     (objc:invoke options "setObject:forKey:"
-                 (format nil "Hemlock on ~A ~A" (lisp-implementation-type)
+                 (format nil "Heml on ~A ~A" (lisp-implementation-type)
                          (lisp-implementation-version))
                  "Version")
     (objc:invoke (objc.runloop:shared-application)
@@ -1025,7 +1025,7 @@ exists of those Hemlock loads, or the first of them to create."
 
 (defmacro define-mouse-method (selector &body body)
   `(objc:define-objc-method (,selector :void)
-       ((self xoamax-view) (event objc:objc-object-pointer))
+       ((self heml-view) (event objc:objc-object-pointer))
      (handler-case (when *display* ,@body)
        (error (condition) (log-error ,selector condition)))))
 
@@ -1052,7 +1052,7 @@ exists of those Hemlock loads, or the first of them to create."
 ;;; point moves to it unless it is in the selection.
 ;;;
 (objc:define-objc-method ("menuForEvent:" objc:objc-object-pointer)
-    ((self xoamax-view) (event objc:objc-object-pointer))
+    ((self heml-view) (event objc:objc-object-pointer))
   (handler-case
       (progn
         (when *display* (post-mouse "Rightdown" event))
@@ -1061,7 +1061,7 @@ exists of those Hemlock loads, or the first of them to create."
       (log-error "menuForEvent:" condition)
       (cffi:null-pointer))))
 
-;;; The middle button, and any others, which Hemlock has no names for.
+;;; The middle button, and any others, which Heml has no names for.
 (define-mouse-method "otherMouseDown:"
   (when (= 2 (objc:invoke event "buttonNumber"))
     (post-mouse "Middledown" event)))
@@ -1083,7 +1083,7 @@ exists of those Hemlock loads, or the first of them to create."
 (objc:define-objc-method ("windowShouldClose:" objc:objc-bool)
     ((self window-delegate) (sender objc:objc-object-pointer))
   (declare (ignore sender))
-  ;; Hemlock decides: it may want to save files first.
+  ;; Heml decides: it may want to save files first.
   (post-to-editor :quit)
   nil)
 
@@ -1118,7 +1118,7 @@ exists of those Hemlock loads, or the first of them to create."
 (objc:define-objc-method ("applicationShouldTerminate:" (:unsigned :long))
     ((self app-delegate) (sender objc:objc-object-pointer))
   (declare (ignore sender))
-  ;; Quit asks Hemlock to exit as C-x C-c would, and the application ends
+  ;; Quit asks Heml to exit as C-x C-c would, and the application ends
   ;; when the editor does.
   (cond (*editor-running-p*
          (post-to-editor :quit)
@@ -1135,18 +1135,18 @@ exists of those Hemlock loads, or the first of them to create."
 ;;;; The menus
 
 (defparameter *menu-bar*
-  '(("Xoamax"
-     ("About Xoamax" (:call show-about))
+  '(("Heml"
+     ("About Heml" (:call show-about))
      :separator
      ("Settings…" (:call open-settings) :key ",")
      :separator
      ("Services" :services)
      :separator
-     ("Hide Xoamax" (:selector "hide:") :key "h")
+     ("Hide Heml" (:selector "hide:") :key "h")
      ("Hide Others" (:selector "hideOtherApplications:") :key "h" :modifiers (:option))
      ("Show All" (:selector "unhideAllApplications:"))
      :separator
-     ("Quit Xoamax" (:selector "terminate:") :key "q"))
+     ("Quit Heml" (:selector "terminate:") :key "q"))
     ("File"
      ("New Buffer…" (:command "Select Buffer") :key "n")
      ("Open…" (:call choose-files-to-open) :key "o")
@@ -1214,7 +1214,7 @@ exists of those Hemlock loads, or the first of them to create."
      :separator
      ("Bring All to Front" (:selector "arrangeInFront:")))
     ("Help" :help
-     ("Xoamax Help" (:command "Help") :key "?")
+     ("Heml Help" (:command "Help") :key "?")
      ("Describe Key…" (:command "Describe Key"))
      ("Describe Command…" (:command "Describe Command"))
      ("Apropos…" (:command "Apropos"))))
@@ -1257,7 +1257,7 @@ MODIFIERS any of :SHIFT, :OPTION and :CONTROL besides -- or (title
                 ((eq (first action) :selector)
                  (objc:invoke item "setAction:" (objc:coerce-to-selector (second action))))
                 (t
-                 (objc:invoke item "setAction:" (objc:coerce-to-selector "xoamaxMenuItem:"))
+                 (objc:invoke item "setAction:" (objc:coerce-to-selector "hemlMenuItem:"))
                  (objc:invoke item "setTarget:" target)
                  (objc:invoke item "setTag:" (menu-action-tag action))))
           (when key
@@ -1311,12 +1311,12 @@ from a REPL, or a bundle without a nib, has none."
          (window (objc:invoke (objc:invoke "NSWindow" "alloc")
                               "initWithContentRect:styleMask:backing:defer:"
                               rect +window-style-mask+ +backing-store-buffered+ nil))
-         (view-object (make-instance 'xoamax-view))
+         (view-object (make-instance 'heml-view))
          (view (objc:objc-object-pointer view-object))
          (delegate (make-instance 'window-delegate)))
     ;; Lisp owns the window: closing it must not free it under us.
     (objc:invoke window "setReleasedWhenClosed:" nil)
-    (objc:invoke window "setTitle:" "Xoamax")
+    (objc:invoke window "setTitle:" "Heml")
     (objc:invoke view "setFrame:" rect)
     (objc:invoke window "setContentView:" view)
     (objc:invoke window "setDelegate:" (objc:objc-object-pointer delegate))
@@ -1334,7 +1334,7 @@ from a REPL, or a bundle without a nib, has none."
   "Give a process started from a REPL the application's icon in the Dock.
 A bundle has its own, from its Info.plist."
   (let ((path (ignore-errors
-               (asdf:system-relative-pathname :hemlock.cocoa "resources/xoamax.png"))))
+               (asdf:system-relative-pathname :heml.cocoa "resources/heml.png"))))
     (when (and path (probe-file path)
                (null-pointer-p (objc:invoke (objc:invoke "NSBundle" "mainBundle")
                                             "bundleIdentifier")))

@@ -8,13 +8,13 @@
 ;;; **********************************************************************
 ;;;
 ;;;    This file contains implementation independent code which implements
-;;; the Hemlock window primitives and most of the code which defines
+;;; the Heml window primitives and most of the code which defines
 ;;; other aspects of the interface to redisplay.
 ;;;
 ;;; Written by Bill Chiles and Rob MacLachlan.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (declaim (special *echo-area-buffer* ; defined in echo.lisp --amb
                   *things-to-do-once*)) ; defined in display.lisp --amb
@@ -38,7 +38,7 @@
 
 (defun (setf current-window) (new-window)
   "Set the current window."
-  (invoke-hook hemlock::set-window-hook new-window)
+  (invoke-hook heml::set-window-hook new-window)
   (move-mark (window-point *current-window*)
              (buffer-point (window-buffer *current-window*)))
   (move-mark (buffer-point (window-buffer new-window))
@@ -51,7 +51,7 @@
 
 (defun %print-hwindow (obj stream depth)
   (declare (ignore depth))
-  (write-string "#<Hemlock Window \"" stream)
+  (write-string "#<Heml Window \"" stream)
   (write-string (buffer-name (window-buffer obj)) stream)
   (write-string "\">" stream))
 
@@ -65,7 +65,7 @@
   (unless (bufferp new-buffer) (error "~S is not a buffer." new-buffer))
   (unless (windowp window) (error "~S is not a window." window))
   (unless (eq new-buffer (window-buffer window))
-    (invoke-hook hemlock::window-buffer-hook window new-buffer)
+    (invoke-hook heml::window-buffer-hook window new-buffer)
     ;;
     ;; Move the window's marks to the new start.
     (let ((buffer (window-buffer window)))
@@ -96,12 +96,12 @@
 ;;;
 (defun %init-redisplay (backend-type display)
   (%init-screen-manager backend-type display)
-  (add-hook hemlock::buffer-major-mode-hook 'queue-buffer-change)
-  (add-hook hemlock::buffer-minor-mode-hook 'queue-buffer-change)
-  (add-hook hemlock::buffer-name-hook 'queue-buffer-change)
-  (add-hook hemlock::buffer-pathname-hook 'queue-buffer-change)
-  (add-hook hemlock::buffer-modified-hook 'queue-buffer-change)
-  (add-hook hemlock::window-buffer-hook 'queue-window-change)
+  (add-hook heml::buffer-major-mode-hook 'queue-buffer-change)
+  (add-hook heml::buffer-minor-mode-hook 'queue-buffer-change)
+  (add-hook heml::buffer-name-hook 'queue-buffer-change)
+  (add-hook heml::buffer-pathname-hook 'queue-buffer-change)
+  (add-hook heml::buffer-modified-hook 'queue-buffer-change)
+  (add-hook heml::window-buffer-hook 'queue-window-change)
   (let ((device (device-hunk-device (window-hunk (current-window)))))
     (device-init device))
   (center-window *current-window* (current-point)))
@@ -112,13 +112,13 @@
 
 (defun print-modeline-field (obj stream ignore)
   (declare (ignore ignore))
-  (write-string "#<Hemlock Modeline-field " stream)
+  (write-string "#<Heml Modeline-field " stream)
   (prin1 (modeline-field-%name obj) stream)
   (write-string ">" stream))
 
 (defun print-modeline-field-info (obj stream ignore)
   (declare (ignore ignore))
-  (write-string "#<Hemlock Modeline-field-info " stream)
+  (write-string "#<Heml Modeline-field-info " stream)
   (prin1 (modeline-field-%name (ml-field-info-field obj)) stream)
   (write-string ">" stream))
 
@@ -261,7 +261,7 @@
 
 (defvar *truncated-field-char* #\!)
 
-;;; BLT-MODELINE-FIELD-BUFFER takes a Hemlock buffer, Hemlock window, the
+;;; BLT-MODELINE-FIELD-BUFFER takes a Heml buffer, Heml window, the
 ;;; window's modeline buffer, a modeline-field-info object, a start in the
 ;;; modeline buffer, and an optional indicating whether a variable width field
 ;;; should be handled carefully.  When the field is fixed-width, this is
@@ -342,11 +342,11 @@
 
 ;;;; Default modeline and update hooks.
 
-(make-modeline-field :name :hemlock-literal :width 8
+(make-modeline-field :name :heml-literal :width 5
                      :function #'(lambda (buffer window)
-                                   "Returns \"Hemlock \"."
+                                   "Returns \"Heml \"."
                                    (declare (ignore buffer window))
-                                   "Hemlock "))
+                                   "Heml "))
 
 (make-modeline-field
  :name :package
@@ -354,7 +354,7 @@
                "Returns the value of buffer's \"Current Package\" followed
                 by a colon and two spaces, or a string with one space."
                (declare (ignore window))
-               (let ((package (hemlock::package-at-point)))
+               (let ((package (heml::package-at-point)))
                  (if package
                      (format nil "~A:  " package)
                      " "))))
@@ -387,7 +387,7 @@
                      (name (buffer-name buffer)))
                  (cond ((not pn)
                         (format nil "~A: " name))
-                       ((string/= (hemlock::pathname-to-buffer-name pn) name)
+                       ((string/= (heml::pathname-to-buffer-name pn) name)
                         (format nil "~A: " name))
                        (t "")))))
 
@@ -417,11 +417,11 @@
                ;; Because variables don't work right, blow off looking for
                ;; a value in the buffer's modes.  In the future this will
                ;; be able to get the "current" value as if buffer were current.
-               (max (if (hemlock-bound-p 'hemlock::maximum-modeline-pathname-length
+               (max (if (heml-bound-p 'heml::maximum-modeline-pathname-length
                                           :buffer buffer)
-                         (variable-value 'hemlock::maximum-modeline-pathname-length
+                         (variable-value 'heml::maximum-modeline-pathname-length
                                          :buffer buffer)
-                         (variable-value 'hemlock::maximum-modeline-pathname-length
+                         (variable-value 'heml::maximum-modeline-pathname-length
                                          :global))))
           (declare (simple-string name))
           (if (or (not max) (<= length max))
@@ -443,7 +443,7 @@
 
 
 (defvar *default-modeline-fields*
-  (list (modeline-field :hemlock-literal)
+  (list (modeline-field :heml-literal)
         (modeline-field :package)
         (modeline-field :modes)
         (modeline-field :modifiedp)

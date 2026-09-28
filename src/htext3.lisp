@@ -7,14 +7,14 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; More Hemlock Text-Manipulation functions.
+;;; More Heml Text-Manipulation functions.
 ;;; Written by Skef Wholey.
 ;;;
 ;;; The code in this file implements the insert functions in the
-;;; "Doing Stuff and Going Places" chapter of the Hemlock Design document.
+;;; "Doing Stuff and Going Places" chapter of the Heml Design document.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 (defmethod insert-character (mark character)

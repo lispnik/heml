@@ -8,7 +8,7 @@
 ;;; **********************************************************************
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;;; Variables.
@@ -140,7 +140,7 @@
   "Inserts a the bracket it is bound to and then shows the matching bracket."
   (declare (ignore p))
   (scribe-insert-paren (current-point)
-                       (hemlock-ext:key-event-char *last-key-event-typed*)))
+                       (heml-ext:key-event-char *last-key-event-typed*)))
 
 
 (defhvar "Scribe Command Table"
@@ -179,7 +179,7 @@
         (setf (gethash key-event
                        (cond (mode
                               (variable-value 'scribe-command-table :mode mode))
-                             ((hemlock-bound-p 'scribe-command-table)
+                             ((heml-bound-p 'scribe-command-table)
                               (value scribe-command-table))
                              (t (editor-error
                                  "Could not find \"Scribe Command Table\"."))))
@@ -238,12 +238,12 @@
                (env-name (rest environment)))
           (write-string "  " s)
           (when cmd-char
-            (hemlock-ext:print-pretty-key-event cmd-char s)
+            (heml-ext:print-pretty-key-event cmd-char s)
             (format s "~7T")
             (write-string (or cmd-name "<prompts for command name>") s))
           (when env-char
             (format s "~47T")
-            (hemlock-ext:print-pretty-key-event env-char s)
+            (heml-ext:print-pretty-key-event env-char s)
             (format s "~51T")
             (write-string (or env-name "<prompts for command name>") s))
           (terpri s))))))
@@ -295,7 +295,7 @@
 ;;; INSERT-SCRIBE-DIRECTIVE first looks for the current or previous word at
 ;;; mark.  Word-p says if we found one.  If mark is immediately before a word,
 ;;; we use that word instead of the previous.  This is because if mark
-;;; corresponds to the CURRENT-POINT, the Hemlock cursor is displayed on the
+;;; corresponds to the CURRENT-POINT, the Heml cursor is displayed on the
 ;;; first character of the word making users think the mark is in the word
 ;;; instead of before it.  If we find a word, then we see if it already has
 ;;; the given command-string, and if it does, we extend the use of the command-

@@ -12,7 +12,7 @@
 ;;; This file contains functions for changing modes and buffers.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 (declaim (special *current-buffer* ; because it is defined too late --amb
                   *global-variable-names* ; defined in main.lisp --amb
@@ -27,7 +27,7 @@
 
 (defun (setf buffer-writable) (value buffer)
   "Sets whether the buffer is writable and invokes the Buffer Writable Hook."
-  (invoke-hook hemlock::buffer-writable-hook buffer value)
+  (invoke-hook heml::buffer-writable-hook buffer value)
   (setf (buffer-%writable buffer) value))
 
 ;;; BUFFER-MODIFIED uses the buffer modification tick which is for redisplay.
@@ -43,7 +43,7 @@
 (defun (setf buffer-modified) (sense buffer)
   "If true make the buffer modified, if NIL unmodified."
   (unless (bufferp buffer) (error "~S is not a buffer." buffer))
-  (invoke-hook hemlock::buffer-modified-hook buffer sense)
+  (invoke-hook heml::buffer-modified-hook buffer sense)
   (if sense
       (setf (buffer-modified-tick buffer) (tick))
       (setf (buffer-unmodified-tick buffer) (tick)))
@@ -73,7 +73,7 @@
   "Sets the name of a specified buffer, invoking the Buffer Name Hook."
   (multiple-value-bind (entry foundp) (getstring name *buffer-names*)
     (cond ((or (not foundp) (eq entry buffer))
-           (invoke-hook hemlock::buffer-name-hook buffer name)
+           (invoke-hook heml::buffer-name-hook buffer name)
            (delete-string (buffer-%name buffer) *buffer-names*)
            (setf (getstring name *buffer-names*) buffer)
            (setf (buffer-%name buffer) name))
@@ -88,7 +88,7 @@
 
 (defun (setf buffer-pathname) (pathname buffer)
   "Sets the pathname of a buffer, invoking the Buffer Pathname Hook."
-  (invoke-hook hemlock::buffer-pathname-hook buffer pathname)
+  (invoke-hook heml::buffer-pathname-hook buffer pathname)
   (setf (buffer-%pathname buffer) pathname))
 
 (defun buffer-modeline-fields (window)
@@ -101,7 +101,7 @@
   "Sets the buffer's list of modeline fields causing all windows into buffer
    to be updated for the next redisplay."
   (check-type fields list)
-  (check-type buffer buffer "a Hemlock buffer")
+  (check-type buffer buffer "a Heml buffer")
   (sub-set-buffer-modeline-fields buffer fields)
   (dolist (w (buffer-windows buffer))
     (update-modeline-fields buffer w)))
@@ -214,7 +214,7 @@
 (defun (setf buffer-major-mode) (name buffer)
   "Set the major mode of some buffer to the Name'd mode."
   (with-mode-and-buffer (name t buffer)
-    (invoke-hook hemlock::buffer-major-mode-hook buffer name)
+    (invoke-hook heml::buffer-major-mode-hook buffer name)
     (cond
      ((eq buffer *current-buffer*)
       (let ((old-mode (car (last (buffer-mode-objects buffer)))))
@@ -258,7 +258,7 @@
   "Turn a buffer minor mode on or off."
   (let ((objects (buffer-mode-objects buffer)))
     (with-mode-and-buffer (name nil buffer)
-      (invoke-hook hemlock::buffer-minor-mode-hook buffer name new-value)
+      (invoke-hook heml::buffer-minor-mode-hook buffer name new-value)
       (cond
        ;; Already there or not there, nothing to do.
        ((if (member mode (buffer-mode-objects buffer)) new-value (not new-value)))
@@ -332,7 +332,7 @@
   "Set the current buffer, doing necessary stuff."
   (let ((old-buffer *current-buffer*))
     (check-type buffer buffer)
-    (invoke-hook hemlock::set-buffer-hook buffer)
+    (invoke-hook heml::set-buffer-hook buffer)
     ;; Undo old bindings.
     (setf (buffer-mode-objects *current-buffer*)
           (unwind-bindings nil))
@@ -341,7 +341,7 @@
     (swap-char-attributes (car (buffer-mode-objects *current-buffer*)))
     ;; Make new bindings.
     (wind-bindings (shiftf (buffer-mode-objects *current-buffer*) nil))
-    (invoke-hook hemlock::after-set-buffer-hook old-buffer))
+    (invoke-hook heml::after-set-buffer-hook old-buffer))
   buffer)
 
 ;;; USE-BUFFER-SET-UP  --  Internal
@@ -389,7 +389,7 @@
   "Call the command interpreter recursively.  If Handle-Abort is true
   then an abort caused by a control-g or a lisp error does not cause
   the recursive edit to be aborted."
-  (invoke-hook hemlock::enter-recursive-edit-hook)
+  (invoke-hook heml::enter-recursive-edit-hook)
   (multiple-value-bind (flag args)
                        (let ((*in-a-recursive-edit* t))
                          (catch 'leave-recursive-edit
@@ -411,7 +411,7 @@
    to be the return values from Recursive-Edit."
   (unless *in-a-recursive-edit*
     (error "Not in a recursive edit!"))
-  (invoke-hook hemlock::exit-recursive-edit-hook values)
+  (invoke-hook heml::exit-recursive-edit-hook values)
   (throw 'leave-recursive-edit (values :exit values)))
 
 ;;; ABORT-RECURSIVE-EDIT is intended to be called within the dynamic context
@@ -423,7 +423,7 @@
    the calling context."
   (unless *in-a-recursive-edit*
     (error "Not in a recursive edit!"))
-  (invoke-hook hemlock::abort-recursive-edit-hook args)
+  (invoke-hook heml::abort-recursive-edit-hook args)
   (throw 'leave-recursive-edit (values :abort args)))
 
 
@@ -530,9 +530,9 @@
 (defvar *current-buffer* ()
   "Internal variable which might contain the current buffer." )
 
-(defun make-buffer (name &key (modes (value hemlock::default-modes))
+(defun make-buffer (name &key (modes (value heml::default-modes))
                               (modeline-fields
-                               (value hemlock::default-modeline-fields))
+                               (value heml::default-modeline-fields))
                               delete-hook)
   "Creates and returns a buffer with the given Name if a buffer with Name does
    not already exist, otherwise returns nil.  Modes is a list of mode names,
@@ -562,7 +562,7 @@
              (setf (buffer-major-mode buffer) (car modes))
              (dolist (m (cdr modes))
                (setf (buffer-minor-mode buffer m) t)))
-           (invoke-hook hemlock::make-buffer-hook buffer)
+           (invoke-hook heml::make-buffer-hook buffer)
            buffer))))
 
 (defun delete-buffer (buffer)
@@ -574,7 +574,7 @@
     (error "Cannot delete buffer ~S, which is displayed in ~R window~:P."
            buffer (length (buffer-windows buffer))))
   (invoke-hook (buffer-delete-hook buffer) buffer)
-  (invoke-hook hemlock::delete-buffer-hook buffer)
+  (invoke-hook heml::delete-buffer-hook buffer)
   (setq *buffer-list* (delq buffer *buffer-list*))
   (delete-string (buffer-name buffer) *buffer-names*)
   nil)
@@ -614,12 +614,12 @@
   (setf (getstring "Fundamental" *mode-names*)
         (make-mode-object :major-p t))
   ;; Make it look like there is a make-buffer-hook...
-  (setf (get 'hemlock::make-buffer-hook 'hemlock-variable-value)
+  (setf (get 'heml::make-buffer-hook 'heml-variable-value)
         (make-variable-object "foo" "bar"))
   (setq *current-buffer* (make-buffer "Main" :modes '("Fundamental")
                                       :modeline-fields nil))
   ;; Make the bogus variable go away...
-  (remf (symbol-plist 'hemlock::make-buffer-hook) 'hemlock-variable-value)
+  (remf (symbol-plist 'heml::make-buffer-hook) 'heml-variable-value)
   ;; Make it go away so defmode doesn't die.
   (setf (getstring "Fundamental" *mode-names*) nil)
   (defmode "Fundamental" :major-p t)

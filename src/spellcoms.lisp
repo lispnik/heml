@@ -13,7 +13,7 @@
 ;;; checking/correcting stuff in Spell-Corr.Lisp and the dictionary
 ;;; augmenting stuff in Spell-Augment.Lisp.
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 
@@ -233,7 +233,7 @@
            #\K #\L #\M #\N #\O #\P #\Q #\R #\S #\T
            #\U #\V #\W #\X #\Y #\Z)
         "Choose the labeled word as the correct spelling."
-          (let* ((key (hemlock-ext:key-event-char *last-key-event-typed*))
+          (let* ((key (heml-ext:key-event-char *last-key-event-typed*))
                  (num (digit-char-p key 36))
                  (close-words (spell:spell-collect-close-words folded)))
             (cond ((> num (length close-words))
@@ -268,7 +268,7 @@
   "Undo the last incremental spelling correction, nuking any undesirable
    side-effects."
   (declare (ignore p))
-  (unless (hemlock-bound-p 'last-spelling-correction-mark)
+  (unless (heml-bound-p 'last-spelling-correction-mark)
     (editor-error "No last spelling correction."))
   (let ((mark (value last-spelling-correction-mark))
         (words (value last-spelling-correction-words)))
@@ -331,7 +331,7 @@
           (finish-output s)
           (let* ((key-event (prompt-for-key-event
                              :prompt "Correction choice: "))
-                 (num (digit-char-p (hemlock-ext:key-event-char key-event) 36)))
+                 (num (digit-char-p (heml-ext:key-event-char key-event) 36)))
             (cond ((not num) (return-from get-word-correction nil))
                   ((> num (length close-words))
                    (editor-error "Choice out of range."))
@@ -351,7 +351,7 @@
 ;;; so that "Undo Last Spelling Correction" can undo it.
 ;;;
 (defun undoable-replace-word (mark old new)
-  (unless (hemlock-bound-p 'last-spelling-correction-mark)
+  (unless (heml-bound-p 'last-spelling-correction-mark)
     (let ((buffer (current-buffer)))
       (defhvar "Last Spelling Correction Mark"
         "This variable holds a park pointing to the last spelling correction."
@@ -390,7 +390,7 @@
          (log (or (make-buffer "Spelling Corrections")
                   (getstring "Spelling Corrections" *buffer-names*)))
          (point (buffer-end (buffer-point log)))
-         (*standard-output* (make-hemlock-output-stream point))
+         (*standard-output* (make-heml-output-stream point))
          (window (or (car (buffer-windows log)) (make-window point))))
     (format t "~&Starting spelling checking of buffer ~S.~2%"
             (buffer-name buffer))
@@ -406,7 +406,7 @@
 ;;;
 (defun correct-buffer-spelling (buffer window)
   (do ((line (mark-line (buffer-start-mark buffer)) (line-next line))
-       (info (if (hemlock-bound-p 'spell-information :buffer buffer)
+       (info (if (heml-bound-p 'spell-information :buffer buffer)
                  (variable-value 'spell-information :buffer buffer)
                  (value spell-information)))
        (mask *spell-word-characters*)
@@ -539,7 +539,7 @@
            (write-line "There are no possible corrections.")
            (reprompt))
          (let ((num (if (= close-words-len 1) 0
-                        (digit-char-p (hemlock-ext:key-event-char
+                        (digit-char-p (heml-ext:key-event-char
                                        (prompt-for-key-event
                                         :prompt "Correction choice: "))
                                       36))))
@@ -557,7 +557,7 @@
         #\K #\L #\M #\N #\O #\P #\Q #\R #\S #\T
         #\U #\V #\W #\X #\Y #\Z)
        "Choose this labeled word as the correct spelling."
-         (let* ((key (hemlock-ext:key-event-char *last-key-event-typed*))
+         (let* ((key (heml-ext:key-event-char *last-key-event-typed*))
                 (num (digit-char-p key 36)))
             (cond ((> num close-words-len)
                    (editor-error "Choice out of range."))
@@ -626,7 +626,7 @@
 ;;; the "dictionary" file option.
 ;;;
 (defun save-dictionary-on-write (buffer)
-  (when (hemlock-bound-p 'spell-information :buffer buffer)
+  (when (heml-bound-p 'spell-information :buffer buffer)
     (save-spelling-insertions
      (variable-value 'spell-information :buffer buffer))))
 
@@ -707,7 +707,7 @@
 
    The flags are single letter indicators of legal suffixes for the entry;
    the available flags and their correct use may be found at the beginning
-   of spell-correct.lisp in the Hemlock sources.  There must be exactly one
+   of spell-correct.lisp in the Heml sources.  There must be exactly one
    entry per line, and each line must be flushleft."
   "Add entries to the dictionary from a text file in a specified format."
   (declare (ignore p))
@@ -802,7 +802,7 @@
 ;;;
 ;;; Actually, if mark is between the first character of a word and a
 ;;; non-spell-word characer, it is considered to be in that word even though
-;;; that word is after the mark.  This is because Hemlock's cursor is always
+;;; that word is after the mark.  This is because Heml's cursor is always
 ;;; displayed over the next character, so users tend to think of a cursor
 ;;; displayed on the first character of a word as being in that word instead of
 ;;; before it.

@@ -11,7 +11,7 @@
 ;;; Written by William Lott.
 ;;;
 
-(in-package :hemlock.wire)
+(in-package :heml.wire)
 
 ;;; Stuff that needs to be ported:
 

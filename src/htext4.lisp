@@ -7,15 +7,15 @@
 ;;;
 ;;; **********************************************************************
 ;;;
-;;; More Hemlock Text-Manipulation functions.
+;;; More Heml Text-Manipulation functions.
 ;;; Written by Skef Wholey and Rob MacLachlan.
 ;;; Modified by Bill Chiles.
 ;;;
 ;;; The code in this file implements the delete and copy functions in the
-;;; "Doing Stuff and Going Places" chapter of the Hemlock Design document.
+;;; "Doing Stuff and Going Places" chapter of the Heml Design document.
 ;;;
 
-(in-package :hemlock-internals)
+(in-package :heml-internals)
 
 
 ;;;; DELETE-CHARACTERS.

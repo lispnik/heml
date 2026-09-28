@@ -2,7 +2,7 @@
 ;;;
 ;;; Slave debugging
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 (defvar *slave-stack-frames* nil)
@@ -86,15 +86,15 @@
               (mapcar (lambda (frame)
                         (cons (with-output-to-string (s)
                                 (conium:print-frame frame s))
-                              (hemlock.wire:make-remote-object frame)))
+                              (heml.wire:make-remote-object frame)))
                       (conium:compute-backtrace start end)))
             (context nil
-                     #+nil (hemlock.wire:make-remote-object
+                     #+nil (heml.wire:make-remote-object
                             prepl:*debugging-context*))
             ;; fixme: show the slave name rather than just the impl type
             (impl (lisp-implementation-type))
             (thread (bordeaux-threads:thread-name
                      (bordeaux-threads:current-thread))))
-        (hemlock::eval-in-master
+        (heml::eval-in-master
          `(make-debug-buffer ',context ',frames ',impl ',thread)))
       (prepl:debugger nil nil (lambda () (debug-using-master start end)))))

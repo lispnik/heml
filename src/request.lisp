@@ -1,6 +1,6 @@
 ;;;; -*- Mode: Lisp; indent-tabs-mode: nil -*-
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 ;;; REQUEST-SERVER structure
@@ -40,7 +40,7 @@
           *request-server-interface*
           port
           :acceptor (lambda (connection)
-                      (hemlock.wire:make-wire
+                      (heml.wire:make-wire
                        (make-connection-device connection)))
           :buffer t)))
     (values (make-request-server :listener listener)
@@ -69,7 +69,7 @@
     (flet ((sentinel (connection event)
              (ecase event
                (:initialized
-                (setf wire (hemlock.wire:make-wire
+                (setf wire (heml.wire:make-wire
                             (make-connection-device
                              connection))))
                (:connected

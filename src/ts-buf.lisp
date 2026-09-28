@@ -13,7 +13,7 @@
 ;;; Written by William Lott.
 ;;;
 
-(in-package :hemlock)
+(in-package :heml)
 
 
 (defhvar "Input Wait Alarm"
@@ -52,7 +52,7 @@
 ;;; TS-BUFFER-OUTPUT-STRING --- internal interface.
 ;;;
 ;;; Called by the slave to output stuff in the typescript.  Can also be called
-;;; by other random parts of hemlock when they want to output stuff to the
+;;; by other random parts of heml when they want to output stuff to the
 ;;; buffer.  Since this is called for value from the slave, we have to be
 ;;; careful about what values we return, so the result can be sent back.  It is
 ;;; called for value only as a synchronization thing.
@@ -65,9 +65,9 @@
 (defun ts-buffer-output-string (ts string &optional gratuitous-p)
   "Outputs STRING to the typescript described with TS. The output is inserted
    before the fill-mark and the current input."
-  (when (hemlock.wire:remote-object-p ts)
-    (setf ts (hemlock.wire:remote-object-value ts)))
-  (hemlock-ext:without-interrupts
+  (when (heml.wire:remote-object-p ts)
+    (setf ts (heml.wire:remote-object-value ts)))
+  (heml-ext:without-interrupts
     (let ((mark (ts-data-fill-mark ts)))
       (cond ((and gratuitous-p (not (start-line-p mark)))
              (with-mark ((m mark :left-inserting))
@@ -97,8 +97,8 @@
 ;;; Used by ts-stream in order to find the charpos.
 ;;;
 (defun ts-buffer-charpos (ts)
-  (mark-charpos (ts-data-fill-mark (if (hemlock.wire:remote-object-p ts)
-                                       (hemlock.wire:remote-object-value ts)
+  (mark-charpos (ts-data-fill-mark (if (heml.wire:remote-object-p ts)
+                                       (heml.wire:remote-object-value ts)
                                        ts))))
 
 ;;; TS-BUFFER-LINE-LENGTH --- internal interface.
@@ -107,8 +107,8 @@
 ;;; first window, or 80 if there are no windows.
 ;;;
 (defun ts-buffer-line-length (ts)
-  (let* ((ts (if (hemlock.wire:remote-object-p ts)
-                 (hemlock.wire:remote-object-value ts)
+  (let* ((ts (if (heml.wire:remote-object-p ts)
+                 (heml.wire:remote-object-value ts)
                 ts))
          (window (car (buffer-windows (ts-data-buffer ts)))))
     (if window
@@ -119,11 +119,11 @@
 ;;;; Input routines
 
 (defun ts-buffer-ask-for-input (remote)
-  (let* ((ts (hemlock.wire:remote-object-value remote))
+  (let* ((ts (heml.wire:remote-object-value remote))
          (buffer (ts-data-buffer ts)))
     (unless (buffer-windows buffer)
       (let ((input-wait-alarm
-             (if (hemlock-bound-p 'input-wait-alarm
+             (if (heml-bound-p 'input-wait-alarm
                                   :buffer buffer)
                (variable-value 'input-wait-alarm
                                :buffer buffer)
@@ -137,8 +137,8 @@
   nil)
 
 (defun ts-buffer-clear-input (ts)
-  (let* ((ts (if (hemlock.wire:remote-object-p ts)
-                 (hemlock.wire:remote-object-value ts)
+  (let* ((ts (if (heml.wire:remote-object-p ts)
+                 (heml.wire:remote-object-value ts)
                  ts))
          (buffer (ts-data-buffer ts))
          (mark (ts-data-fill-mark ts)))
@@ -156,11 +156,11 @@
   nil)
 
 (defun ts-buffer-set-stream (ts stream)
-  (let ((ts (if (hemlock.wire:remote-object-p ts)
-                (hemlock.wire:remote-object-value ts)
+  (let ((ts (if (heml.wire:remote-object-p ts)
+                (heml.wire:remote-object-value ts)
                 ts)))
     (setf (ts-data-stream ts) stream)
-    (hemlock.wire:remote (ts-data-wire ts)
+    (heml.wire:remote (ts-data-wire ts)
       (ts-stream-set-line-length stream (ts-buffer-line-length ts))))
   nil)
 
@@ -185,12 +185,12 @@
       :buffer buffer)
 
     (defhvar "Interactive History"
-      "A ring of the regions input to the Hemlock typescript."
+      "A ring of the regions input to the Heml typescript."
       :buffer buffer
       :value (make-ring (value interactive-history-length)))
 
     (defhvar "Interactive Pointer"
-      "Pointer into the Hemlock typescript input history."
+      "Pointer into the Heml typescript input history."
       :buffer buffer
       :value 0)
 
@@ -207,7 +207,7 @@
 ;;; TYPESCRIPTIFY-BUFFER -- Internal interface.
 ;;;
 ;;; Buffer creation code for eval server connections calls this to setup a
-;;; typescript buffer, tie things together, and make some local Hemlock
+;;; typescript buffer, tie things together, and make some local Heml
 ;;; variables.
 ;;;
 (defun typescriptify-buffer (buffer server wire)
@@ -254,7 +254,7 @@
 ;;; Return the typescript-data for the current buffer, or die trying.
 ;;;
 (defun typescript-data-or-lose ()
-  (if (hemlock-bound-p 'typescript-data)
+  (if (heml-bound-p 'typescript-data)
       (let ((ts (value typescript-data)))
         (if ts
             ts
@@ -271,12 +271,12 @@
         (let ((string (region-to-string input)))
           (declare (simple-string string))
           (insert-character (current-point) #\NewLine)
-          (hemlock.wire:remote (ts-data-wire ts)
+          (heml.wire:remote (ts-data-wire ts)
             (ts-stream-accept-input (ts-data-stream ts)
                                     (concatenate 'simple-string
                                                  string
                                                  (string #\newline))))
-          (hemlock.wire:wire-force-output (ts-data-wire ts))
+          (heml.wire:wire-force-output (ts-data-wire ts))
           (buffer-end (ts-data-fill-mark ts)
                       (ts-data-buffer ts)))))))
 
@@ -306,12 +306,12 @@
 (defun send-oob-to-slave (string)
   (let* ((ts (typescript-data-or-lose))
          (wire (ts-data-wire ts))
-         (socket (hemlock.wire:wire-fd wire)))
+         (socket (heml.wire:wire-fd wire)))
     (unless socket
       (editor-error "The slave is no longer alive."))
     (error "SEND-OOB-TO-SLAVE seeks an implementation.")
     #+NIL
-    (hemlock-ext:send-character-out-of-band socket (schar string 0))))
+    (heml-ext:send-character-out-of-band socket (schar string 0))))
 
 (defcommand "Clear Typescript Buffer" (p)
   "" ""

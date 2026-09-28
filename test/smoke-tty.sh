@@ -14,7 +14,7 @@ case $(basename "$LISP") in
     ecl*) quiet= ;;
     *) quiet=--noinform ;;
 esac
-session=xoamax-smoke-tty-$$
+session=heml-smoke-tty-$$
 failures=0
 checks=0
 
@@ -69,11 +69,11 @@ trap cleanup EXIT
 
 tmux new-session -d -s "$session" -x 100 -y 30 \
      "$LISP $quiet \
-        --eval '(asdf:load-system :hemlock.tty)' \
-        --eval '(uiop:symbol-call :hemlock :hemlock nil :backend-type :tty :load-user-init nil)' \
+        --eval '(asdf:load-system :heml.tty)' \
+        --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
-expect "Hemlock CL-USER:" "the editor starts, with a modeline" 180
+expect "Heml CL-USER:" "the editor starts, with a modeline" 180
 
 type_text 'café λ 日本語 end'
 expect 'café λ 日本語 end' "typing, wide characters included"
@@ -88,7 +88,7 @@ expect 'café λ 日本語 fincafé λ 日本語 fin' "kill and yank"
 send C-x 2
 checks=$((checks + 1))
 sleep 1
-if [ "$(screen | grep -c 'Hemlock CL-USER:')" -ge 2 ]; then
+if [ "$(screen | grep -c 'Heml CL-USER:')" -ge 2 ]; then
     echo "  ok    C-x 2 splits the window"
 else
     echo "  FAIL  C-x 2 splits the window"
@@ -100,7 +100,7 @@ sleep 1
 send C-x 1
 sleep 1
 checks=$((checks + 1))
-if [ "$(screen | grep -c 'Hemlock CL-USER:')" -eq 1 ] && ! screen | grep -q '|Hemlock'; then
+if [ "$(screen | grep -c 'Heml CL-USER:')" -eq 1 ] && ! screen | grep -q '|Heml'; then
     echo "  ok    C-x 1 deletes the other windows"
 else
     echo "  FAIL  C-x 1 deletes the other windows"
@@ -112,7 +112,7 @@ fi
 send C-x 3
 sleep 1
 checks=$((checks + 1))
-if screen | grep -q 'Hemlock CL-USER:.*|Hemlock CL-USER:'; then
+if screen | grep -q 'Heml CL-USER:.*|Heml CL-USER:'; then
     echo "  ok    C-x 3 splits the window side by side"
 else
     echo "  FAIL  C-x 3 splits the window side by side"
@@ -121,7 +121,7 @@ else
 fi
 # C-x } widens the current window, the right one, moving the bar; C-x + puts
 # it back in the middle of the 100 columns, with 49 or 50 on each side.
-bar_column() { screen | grep 'Hemlock CL-USER:.*|Hemlock' | head -1 | awk -F'|' '{ print length($1) }'; }
+bar_column() { screen | grep 'Heml CL-USER:.*|Heml' | head -1 | awk -F'|' '{ print length($1) }'; }
 balanced=$(bar_column)
 send C-u 1 0 C-x }
 sleep 1
@@ -139,7 +139,7 @@ fi
 send C-x 0
 sleep 1
 checks=$((checks + 1))
-if [ "$(screen | grep -c 'Hemlock CL-USER:')" -eq 1 ] && ! screen | grep -q '|Hemlock'; then
+if [ "$(screen | grep -c 'Heml CL-USER:')" -eq 1 ] && ! screen | grep -q '|Heml'; then
     echo "  ok    C-x 0 leaves one window across the screen"
 else
     echo "  FAIL  C-x 0 leaves one window across the screen"
@@ -185,17 +185,17 @@ sleep 1
 send n
 expect 'EDITOR-RETURNED' "C-x C-c leaves the editor" 15
 
-# The :mini backend: HEMLOCK:REPL, a REPL whose lines are edited by Hemlock
+# The :mini backend: HEML:REPL, a REPL whose lines are edited by Heml
 # where they stand rather than on a screen of their own.
 tmux kill-session -t "$session" 2>/dev/null
-session=xoamax-smoke-repl-$$
+session=heml-smoke-repl-$$
 tmux new-session -d -s "$session" -x 100 -y 30 \
      "$LISP $quiet \
-        --eval '(asdf:load-system :hemlock.tty)' \
-        --eval '(uiop:symbol-call :hemlock :repl)'; \
+        --eval '(asdf:load-system :heml.tty)' \
+        --eval '(uiop:symbol-call :heml :repl)'; \
       echo REPL-EXITED; sleep 30"
 
-expect 'CL-USER>' "hemlock:repl prompts" 180
+expect 'CL-USER>' "heml:repl prompts" 180
 
 # Keys typed before the REPL is editing a line can be lost, so each line
 # waits for an empty prompt at the bottom of the screen, and a moment more.
@@ -211,7 +211,7 @@ ready() {
 ready
 type_text '(format nil "repl-~A" (* 6 7))'
 send Enter
-expect 'repl-42' "hemlock:repl evaluates what is typed"
+expect 'repl-42' "heml:repl evaluates what is typed"
 
 ready
 send C-p

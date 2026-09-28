@@ -9,7 +9,7 @@
 ;;;
 ;;; Just barely enough to be a Pascal/C mode.  Maybe more some day.
 ;;;
-(in-package :hemlock)
+(in-package :heml)
 
 (defmode "Pascal" :major-p t)
 (defcommand "Pascal Mode" (p)
