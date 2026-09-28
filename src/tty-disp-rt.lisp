@@ -320,7 +320,7 @@
               (setf (ccref osicat-posix::cflag-vstatus) osicat-posix::posix-vdisable))
             (setf (ccref osicat-posix::cflag-vmin) 1)
             (setf (ccref osicat-posix::cflag-vtime) 0))
-          (osicat-posix::tcsetattr fd osicat-posix::tcsaflush tios))))))
+          (osicat-posix::tcsetattr fd osicat-posix::tcsadrain tios))))))
 
 ;;; #+nil ;; #-(or hpux irix bsd glibc2)
 ;;;       (alien:with-alien ((sg (alien:struct unix:sgttyb)))
@@ -435,7 +435,7 @@
                   (ccref osicat-posix::cflag-vdiscard) (elt *old-c-cc* 12))
             (when (boundp 'osicat-posix::cflag-vstatus)
               (setf (ccref osicat-posix::cflag-vstatus) (elt *old-c-cc* 13))))
-          (osicat-posix::tcsetattr fd osicat-posix::tcsaflush tios))))))
+          (osicat-posix::tcsetattr fd osicat-posix::tcsadrain tios))))))
 
 #+(or)
 (defun pause-hemlock ()

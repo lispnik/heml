@@ -197,10 +197,23 @@ tmux new-session -d -s "$session" -x 100 -y 30 \
 
 expect 'CL-USER>' "hemlock:repl prompts" 180
 
+# Keys typed before the REPL is editing a line can be lost, so each line
+# waits for an empty prompt at the bottom of the screen, and a moment more.
+ready() {
+    tries=50
+    while [ "$tries" -gt 0 ] && ! screen | grep -v '^$' | tail -1 | grep -q '^CL-USER> *$'; do
+        sleep 0.2
+        tries=$((tries - 1))
+    done
+    sleep 0.5
+}
+
+ready
 type_text '(format nil "repl-~A" (* 6 7))'
 send Enter
 expect 'repl-42' "hemlock:repl evaluates what is typed"
 
+ready
 send C-p
 checks=$((checks + 1))
 tries=50
