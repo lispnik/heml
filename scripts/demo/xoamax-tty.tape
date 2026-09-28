@@ -74,11 +74,13 @@ Sleep 1s
 Escape Type "v"
 Sleep 1s
 
-# The left column twelve wider, then that window gone.
+# The left column twelve wider, balanced again, then the one window left.
 Ctrl+U Type "12"
 Ctrl+X Type "}"
 Sleep 1.5s
-Ctrl+X Type "0"
+Ctrl+X Type "+"
+Sleep 1.5s
+Ctrl+X Type "1"
 Sleep 1.5s
 
 # Leave.

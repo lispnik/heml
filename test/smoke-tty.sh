@@ -44,6 +44,26 @@ expect() {
     return 1
 }
 
+# expect_re REGEX DESCRIPTION [SECONDS]: the same, for a basic regular
+# expression.
+expect_re() {
+    checks=$((checks + 1))
+    tries=$(( ${3:-10} * 5 ))
+    while [ "$tries" -gt 0 ]; do
+        if screen | grep -q -- "$1"; then
+            echo "  ok    $2"
+            return 0
+        fi
+        sleep 0.2
+        tries=$((tries - 1))
+    done
+    echo "  FAIL  $2"
+    echo "        (nothing matching \"$1\" on the screen:)"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+    return 1
+}
+
 cleanup() { tmux kill-session -t "$session" 2>/dev/null; }
 trap cleanup EXIT
 
@@ -74,7 +94,19 @@ else
     echo "  FAIL  C-x 2 splits the window"
     failures=$((failures + 1))
 fi
+# With windows above and beside it, C-x 1 leaves the current one alone.
+send C-x 3
+sleep 1
 send C-x 1
+sleep 1
+checks=$((checks + 1))
+if [ "$(screen | grep -c 'Hemlock CL-USER:')" -eq 1 ] && ! screen | grep -q '|Hemlock'; then
+    echo "  ok    C-x 1 deletes the other windows"
+else
+    echo "  FAIL  C-x 1 deletes the other windows"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
 
 # Side by side: two modelines on one line, with the bar between them.
 send C-x 3
@@ -187,14 +219,7 @@ send C-a C-k
 type_text '(defun'
 send Enter
 expect 'Not a complete form' "an unfinished form is not read"
-checks=$((checks + 1))
-if screen | grep -q '^CL-USER> (defun'; then
-    echo "  ok    the prompt comes back at the left margin"
-else
-    echo "  FAIL  the prompt comes back at the left margin"
-    screen | sed 's/^/        | /'
-    failures=$((failures + 1))
-fi
+expect_re '^CL-USER> (defun' "the prompt comes back at the left margin"
 
 send C-a C-k
 send C-d

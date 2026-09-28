@@ -1304,16 +1304,20 @@
       (editor-error "Cannot delete only window")
       (delete-window (next-window (current-window)))))
 
+(defcommand "Delete Other Windows" (p)
+  "Delete every window but the current one, which then fills the screen."
+  "Delete every window but the current one."
+  (declare (ignore p))
+  (dolist (window (remove-if (lambda (window)
+                               (or (eq window (current-window))
+                                   (eq window *echo-area-window*)))
+                             *window-list*))
+    (delete-window window)))
+
 (defcommand "Go to One Window" (p)
   "Deletes all windows but one, which shows what the current window shows."
   "Deletes all windows but one, which shows what the current window shows."
-  (declare (ignore p))
-  (let ((win (make-window (window-display-start (current-window)))))
-    (setf (current-window) win)
-    (dolist (w *window-list*)
-      (unless (or (eq w win)
-                  (eq w *echo-area-window*))
-        (delete-window w)))))
+  (delete-other-windows-command p))
 
 (defcommand "Line to Center of Window" (p)
   "Moves current line to the center of the window."

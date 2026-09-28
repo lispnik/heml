@@ -513,7 +513,7 @@ next window is, in general, unrelated to that of the current window.
 @enddefcom
 
 @defcom[com "Delete Window", bind (C-x C-d, C-x d)]
-@defcom1[com "Delete Next Window", bind (C-x 1)]
+@defcom1[com "Delete Next Window"]
 @hid[Delete Window] makes the current window go away, making the next window
 current.  @hid[Delete Next Window] deletes the next window, leaving the current
 window unaffected.
@@ -521,6 +521,11 @@ window unaffected.
 On bitmap devices, if there is only one window in the group, either command
 deletes the group, making some window in another group the current window.  If
 there are no other groups, they signal a user error.
+@enddefcom
+
+@defcom[com "Delete Other Windows", bind (C-x 1)]
+This command deletes every window but the current one, which then fills the
+screen.
 @enddefcom
 
 @defcom[com "Go to One Window"]

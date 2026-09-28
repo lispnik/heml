@@ -223,9 +223,13 @@
   (post-key #\v "Control") (pause 1)
   (post-key #\v "Meta") (pause 1)
 
-  ;; Widen the left column.
+  ;; Widen the left column, balance them again, and keep only this window.
   (post-key #\u "Control") (type-text "12" :pause 0.1)
   (post-key #\x "Control") (post-key #\})
+  (pause 1.5)
+  (choose-menu-item "View" "Balance Windows")
+  (pause 1.5)
+  (post-key #\x "Control") (post-key #\1)
   (pause 2)
 
   (setf *recording* nil)

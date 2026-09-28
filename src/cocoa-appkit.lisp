@@ -53,8 +53,11 @@ uses so as not to overwrite the user's clipboard.")
 ;;;; The screen
 
 ;;; What -drawRect: paints: a grid of rows, each a string and the runs of
-;;; it that are not in the default font.  The editor thread writes it and
-;;; the main thread reads it, both under the lock.
+;;; it that are not in the default font.  The editor thread writes ROWS and
+;;; the cursor while it redisplays, and PRESENT-SCREEN copies them, once a
+;;; pass is done, to the SHOWN- slots, which are all the main thread reads.
+;;; So the view never paints a frame half drawn.  Both threads take the
+;;; lock.
 
 (defstruct (row (:constructor make-row ()))
   (text "" :type simple-string)
@@ -68,7 +71,10 @@ uses so as not to overwrite the user's clipboard.")
   (lines 24 :type fixnum)
   (rows #() :type simple-vector)
   (cursor-x nil)
-  (cursor-y nil))
+  (cursor-y nil)
+  (shown-rows #() :type simple-vector)
+  (shown-cursor-x nil)
+  (shown-cursor-y nil))
 
 (defun make-screen (columns lines)
   (let ((screen (%make-screen columns lines)))
@@ -83,6 +89,14 @@ uses so as not to overwrite the user's clipboard.")
 (defmacro with-screen-lock ((screen) &body body)
   `(bt:with-lock-held ((screen-lock ,screen))
      ,@body))
+
+(defun present-screen (screen)
+  "Make what the editor has drawn what the view shows.  A row's text and
+runs are replaced, never changed, so a copy of each row will do."
+  (with-screen-lock (screen)
+    (setf (screen-shown-rows screen) (map 'simple-vector #'copy-row (screen-rows screen))
+          (screen-shown-cursor-x screen) (screen-cursor-x screen)
+          (screen-shown-cursor-y screen) (screen-cursor-y screen))))
 
 (defvar *screen* nil
   "The one screen, made with the window.")
@@ -508,10 +522,11 @@ that makes every character advance exactly one cell."
       (draw-segment display text position (length text) line nil))))
 
 (defun draw-cursor (display screen key-window-p)
-  (let ((x (screen-cursor-x screen))
-        (y (screen-cursor-y screen)))
-    (when (and x y (< -1 y (screen-lines screen)))
-      (let* ((text (row-text (svref (screen-rows screen) y)))
+  (let ((x (screen-shown-cursor-x screen))
+        (y (screen-shown-cursor-y screen))
+        (rows (screen-shown-rows screen)))
+    (when (and x y (< -1 y (length rows)))
+      (let* ((text (row-text (svref rows y)))
              (left (cell-x display x))
              (top (cell-y display y))
              (width (* (if (wide-at-p text x) 2 1) (display-char-width display)))
@@ -528,8 +543,8 @@ that makes every character advance exactly one cell."
   "An input method's uncommitted text at the cursor, in reverse video and
 underlined, laid out in cells as a row's text is."
   (let ((marked (display-marked-text display))
-        (x (screen-cursor-x screen))
-        (y (screen-cursor-y screen)))
+        (x (screen-shown-cursor-x screen))
+        (y (screen-shown-cursor-y screen)))
     (when (and marked x y)
       (let* ((cells (with-output-to-string (out)
                       (loop for c across marked
@@ -550,7 +565,7 @@ underlined, laid out in cells as a row's text is."
   (let ((bounds (objc:invoke (display-view display) "bounds")))
     (fill-rect (background-color display) 0 0 (aref bounds 2) (aref bounds 3)))
   (with-screen-lock (screen)
-    (let ((rows (screen-rows screen)))
+    (let ((rows (screen-shown-rows screen)))
       (dotimes (line (length rows))
         (draw-row display (svref rows line) line)))
     (draw-cursor display screen
@@ -851,8 +866,8 @@ movement in points, a fraction of a line at a time.")
   ;; Where the candidate window goes: at the cursor, in screen coordinates.
   (let* ((display *display*)
          (screen *screen*)
-         (x (or (screen-cursor-x screen) 0))
-         (y (or (screen-cursor-y screen) 0))
+         (x (or (screen-shown-cursor-x screen) 0))
+         (y (or (screen-shown-cursor-y screen) 0))
          (in-window (objc:invoke pointer "convertRect:toView:"
                                  (vector (df (cell-x display x)) (df (cell-y display y))
                                          (df (display-char-width display))
@@ -1131,7 +1146,7 @@ exists of those Hemlock loads, or the first of them to create."
      ("Balance Windows" (:command "Balance Windows"))
      ("Next Window" (:command "Next Window"))
      ("Delete Window" (:command "Delete Window"))
-     ("Delete Next Window" (:command "Delete Next Window"))
+     ("Delete Other Windows" (:command "Delete Other Windows"))
      :separator
      ("Enter Full Screen" (:selector "toggleFullScreen:") :key "f" :modifiers (:control)))
     ("Buffer"

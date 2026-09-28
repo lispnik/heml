@@ -349,6 +349,7 @@ another window is on its right."
 (defmethod hi::device-force-output ((device cocoa-device))
   (when (device-dirty device)
     (setf (device-dirty device) nil)
+    (present-screen *screen*)
     (request-redraw)))
 
 (defmethod hi::device-finish-output ((device cocoa-device) window)

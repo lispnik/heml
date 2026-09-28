@@ -120,7 +120,7 @@
 (bind-key "Enlarge Window" #k"control-x ^")
 (bind-key "New Window" #k"control-x 5 2")
 (bind-key "Delete Window" #k"control-x 0")
-(bind-key "Delete Next Window" #k"control-x 1")
+(bind-key "Delete Other Windows" #k"control-x 1")
 #+nil (bind-key "Line to Top of Window" #k"meta-!")
 (bind-key "Line to Center of Window" #k"meta-#")
 (bind-key "Top of Window" #k"meta-,")
