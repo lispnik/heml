@@ -212,6 +212,7 @@ if [ "$(screen | grep -c 'format nil')" -ge 2 ]; then
     echo "  ok    C-p recalls the last line"
 else
     echo "  FAIL  C-p recalls the last line"
+    screen | sed 's/^/        | /'
     failures=$((failures + 1))
 fi
 

@@ -1,0 +1,28 @@
+#!/bin/sh
+# xoamax -- Xoamax from a terminal.  Installed in Xoamax.app as
+# Contents/Resources/bin/xoamax, and linked onto the PATH by
+# `make install-cli`.
+#
+#   xoamax [file ...]         the Cocoa editor, in a window
+#   xoamax --tty [file ...]   the terminal editor, in this terminal
+#   xoamax --help             the editor's options
+#
+# The bundle's executable is the SBCL runtime, which reads its own options
+# before it loads the editor's core: it would take --help and --version for
+# itself, print its banner, and load another core when SBCL_HOME is set.
+# So the core is named here, and the runtime told where its options end.
+
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+
+app=$(cd "$(dirname "$self")/../../.." && pwd) || exit 1
+
+exec "$app/Contents/MacOS/xoamax" \
+     --core "$app/Contents/Resources/sbcl.core" \
+     --noinform --end-runtime-options "$@"

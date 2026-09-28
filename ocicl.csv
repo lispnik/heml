@@ -38,8 +38,8 @@ mgl-pax.asdf, ghcr.io/ocicl/mgl-pax-bootstrap@sha256:1c15644701ad5b8e441b2724c26
 multilang-documentation-utils, ghcr.io/ocicl/documentation-utils@sha256:b2a1b3f3bcd1a738af85ae2b0168d408c177661eab6d6bbebb254e394d983f54, documentation-utils-20230511-98630dd/multilang-documentation-utils.asd
 named-readtables, ghcr.io/ocicl/named-readtables@sha256:9c467a5a6d7b4e928d4ca48986e14312cf29cd5a71347be0ebb515ebb964ced2, named-readtables-20260701-9b774b5/named-readtables.asd
 named-readtables-test, ghcr.io/ocicl/named-readtables@sha256:9c467a5a6d7b4e928d4ca48986e14312cf29cd5a71347be0ebb515ebb964ced2, named-readtables-20260701-9b774b5/named-readtables-test.asd
-notes-app, ghcr.io/ocicl/objc@sha256:aa6d550c7decad34b60cfbcd7fe3da8726dde9a10606f6e2c6b7c51b19d4f010, objc-20260921-6b43274/examples/notes-app/notes-app.asd
-objc, ghcr.io/ocicl/objc@sha256:aa6d550c7decad34b60cfbcd7fe3da8726dde9a10606f6e2c6b7c51b19d4f010, objc-20260921-6b43274/objc.asd
+notes-app, ghcr.io/ocicl/objc@sha256:aae25979bba3ed8f17e30bb3ea2ba1dafb5893eb20b231186c318fd758e3fc38, objc-20260927-a194ed1/examples/notes-app/notes-app.asd
+objc, ghcr.io/ocicl/objc@sha256:aae25979bba3ed8f17e30bb3ea2ba1dafb5893eb20b231186c318fd758e3fc38, objc-20260927-a194ed1/objc.asd
 osicat, ghcr.io/ocicl/osicat@sha256:48af110420f02e99c37370e48bee10d7c7aada7e563483e1f47e3bc1173545f9, osicat-20251007-68732bd/osicat.asd
 prepl, ghcr.io/ocicl/prepl@sha256:bf9bcbe311a4944d233e8608bfd5df0c1677e63031fff91ab815aa0611f0d1ee, prepl-20250612-5299ce9/prepl.asd
 split-sequence, ghcr.io/ocicl/split-sequence@sha256:3a37662eedd99c42995587b9d443c4631f25c4c523091bcca31a27b880585b8e, split-sequence-2.0.1/split-sequence.asd

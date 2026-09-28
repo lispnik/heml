@@ -39,7 +39,10 @@
      make smoke-tty-ecl  # the TTY checks under ECL
      make demo       # a video of the TTY editor in build/demo (needs vhs)
      make demo-full  # that, the Cocoa editor's, and both with titles (needs ffmpeg)
+     make run-tty    # the terminal editor, in this terminal (LISP=ecl for ECL)
      make app        # build/Xoamax.app, signed ad hoc or with SIGN_IDENTITY
+     make install-cli  # link the app's xoamax command into ~/.local/bin
+     make smoke-cli  # check that command from a shell
      make check-app  # its signature, Info.plist, and what it links
      make dmg        # dist/Xoamax-<version>-<arch>.dmg
      make release SIGN_IDENTITY=...  # notarise and staple the app and the dmg
@@ -71,6 +74,11 @@
 
    Xoamax.app opens files from Finder -- Open With, a drop on its Dock
    icon, =open -a Xoamax file= -- in the running editor.
+
+   The app is also a command.  =make install-cli= links
+   =Xoamax.app/Contents/Resources/bin/xoamax= into =~/.local/bin=, and
+   then =xoamax file= opens the file in a window, =xoamax --tty file= edits
+   it in the terminal, and =xoamax --help= lists the options.
 
    View > Show Fonts (Cmd-T) picks the font, and Cmd-+, Cmd-- and Cmd-0
    make it bigger, smaller, or the default size again; the commands

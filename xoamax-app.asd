@@ -14,7 +14,8 @@
   :entry-point "hemlock.cocoa:main"
   :description "Xoamax, an Emacs-style editor in Common Lisp, as a macOS application."
   :version "0.1.0"
-  :depends-on ("hemlock.cocoa")
+  ;; The terminal editor too, for `xoamax --tty' from a shell.
+  :depends-on ("hemlock.cocoa" "hemlock.tty")
 
   :bundle-identifier "org.lispnik.xoamax"
   :bundle-name "Xoamax"
@@ -23,6 +24,9 @@
   :bundle-category "public.app-category.developer-tools"
   :bundle-icon "resources/xoamax.png"
   :bundle-output-directory "build/"
+  ;; The command a terminal runs, which starts the runtime with the options
+  ;; a shell needs; `make install-cli' links it onto the PATH.
+  :bundle-resources (("scripts/xoamax" . "bin/xoamax"))
   :bundle-document-types ((:dict ("CFBundleTypeName" . "Text")
                                  ("LSItemContentTypes" . (:array "public.text" "public.source-code"))
                                  ("CFBundleTypeRole" . "Editor")

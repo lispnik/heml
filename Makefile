@@ -30,6 +30,10 @@ smoke-tty:
 
 # The same under ECL.  Built first: ECL compiles through C, and a first
 # build takes longer than the checks wait for the editor to start.
+# The app's command, bin/xoamax, from a shell.  Builds the app first.
+smoke-cli: app
+	test/smoke-cli.sh
+
 smoke-tty-ecl:
 	ecl --eval '(asdf:load-system :hemlock.tty)' --eval '(ext:quit)'
 	LISP=ecl test/smoke-tty.sh
@@ -94,11 +98,21 @@ $(SIGN_RECORD): FORCE
 
 $(APP_STAMP): $(wildcard *.asd src/*.lisp vendor/conium/*.lisp) resources/xoamax.png $(SIGN_RECORD)
 	$(LISP) --eval '(asdf:make "xoamax-app")'
+	@# asdf-macos-app copies resources without their mode.  Permissions
+	@# are not part of the seal, so the signature stands.
+	chmod 755 "$(APP)/Contents/Resources/bin/xoamax"
 	@touch $(APP_STAMP)
 	@echo "built $(APP)$(if $(SIGN_IDENTITY), signed by $(SIGN_IDENTITY), (ad hoc))"
 
 run-app: app
 	"$(APP)/Contents/MacOS/xoamax"
+
+# The xoamax command, linked onto the PATH from the installed app.
+CLI_DIR ?= $(HOME)/.local/bin
+install-cli:
+	@mkdir -p "$(CLI_DIR)"
+	ln -sf "$(HOME)/Applications/Xoamax.app/Contents/Resources/bin/xoamax" "$(CLI_DIR)/xoamax"
+	@echo "linked $(CLI_DIR)/xoamax"
 
 install-app: app
 	@mkdir -p $(HOME)/Applications
@@ -216,5 +230,5 @@ clean:
 
 FORCE:
 
-.PHONY: run-tty FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
+.PHONY: run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean
