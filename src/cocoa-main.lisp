@@ -73,9 +73,6 @@ Launched by Finder, the process has no terminal, starts in /, and its
 output goes to the log asdf-macos-app opens.  Run from a shell, through
 the bin/heml launcher, its output goes to the terminal, and files named
 on the command line are found from the shell's directory."
-  ;; objc compiles a wrapper, at (SPEED 3), for each message signature it
-  ;; first sends, and each would print an efficiency note.
-  (proclaim '(sb-ext:muffle-conditions sb-ext:compiler-note))
   (let ((cwd (uiop:getcwd)))
     (unless (equal (uiop:native-namestring cwd) "/")
       (setf *default-pathname-defaults* cwd)))
