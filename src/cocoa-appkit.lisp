@@ -74,7 +74,11 @@ uses so as not to overwrite the user's clipboard.")
   (cursor-y nil)
   (shown-rows #() :type simple-vector)
   (shown-cursor-x nil)
-  (shown-cursor-y nil))
+  (shown-cursor-y nil)
+  ;; The edges a drag resizes windows by, as (DIRECTION COLUMN LINE COLUMNS
+  ;; LINES) rectangles of cells, where the pointer is a resize cursor.
+  (borders '())
+  (shown-borders '()))
 
 (defun make-screen (columns lines)
   (let ((screen (%make-screen columns lines)))
@@ -89,14 +93,6 @@ uses so as not to overwrite the user's clipboard.")
 (defmacro with-screen-lock ((screen) &body body)
   `(bt:with-lock-held ((screen-lock ,screen))
      ,@body))
-
-(defun present-screen (screen)
-  "Make what the editor has drawn what the view shows.  A row's text and
-runs are replaced, never changed, so a copy of each row will do."
-  (with-screen-lock (screen)
-    (setf (screen-shown-rows screen) (map 'simple-vector #'copy-row (screen-rows screen))
-          (screen-shown-cursor-x screen) (screen-cursor-x screen)
-          (screen-shown-cursor-y screen) (screen-cursor-y screen))))
 
 (defvar *screen* nil
   "The one screen, made with the window.")
@@ -375,6 +371,9 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
     (save-font-choice)
     (multiple-value-bind (columns lines) (grid-size display)
       (post-to-editor (list :resize columns lines)))
+    ;; The edges are where they were in cells, but not in points.
+    (objc:invoke (display-window display) "invalidateCursorRectsForView:"
+                 (display-view display))
     (request-redraw)))
 
 (defun change-font-size (delta)
@@ -572,6 +571,26 @@ underlined, laid out in cells as a row's text is."
                  (objc:invoke-bool (display-window display) "isKeyWindow"))
     (draw-marked-text display screen)))
 
+(defun present-screen (screen)
+  "Make what the editor has drawn what the view shows.  A row's text and
+runs are replaced, never changed, so a copy of each row will do.  When the
+edges have moved, AppKit is told to ask the view for its cursor rectangles
+again."
+  (let ((borders-moved nil))
+    (with-screen-lock (screen)
+      (setf (screen-shown-rows screen) (map 'simple-vector #'copy-row (screen-rows screen))
+            (screen-shown-cursor-x screen) (screen-cursor-x screen)
+            (screen-shown-cursor-y screen) (screen-cursor-y screen))
+      (unless (equal (screen-borders screen) (screen-shown-borders screen))
+        (setf (screen-shown-borders screen) (screen-borders screen)
+              borders-moved t)))
+    (when borders-moved
+      (on-main-thread
+        (let ((display *display*))
+          (when display
+            (objc:invoke (display-window display) "invalidateCursorRectsForView:"
+                         (display-view display))))))))
+
 (defun request-redraw ()
   "Ask the view to repaint, from either thread."
   (on-main-thread
@@ -755,6 +774,24 @@ movement in points, a fraction of a line at a time.")
 
 (objc:define-objc-method ("isFlipped" objc:objc-bool) ((self xoamax-view))
   t)
+
+;;; Over an edge that resizes windows, the pointer says which way it drags.
+;;;
+(objc:define-objc-method ("resetCursorRects" :void) ((self xoamax-view pointer))
+  (handler-case
+      (let ((display *display*)
+            (screen *screen*))
+        (when (and display screen)
+          (dolist (border (with-screen-lock (screen) (screen-shown-borders screen)))
+            (destructuring-bind (direction column line columns lines) border
+              (objc:invoke pointer "addCursorRect:cursor:"
+                           (vector (df (cell-x display column)) (df (cell-y display line))
+                                   (df (* columns (display-char-width display)))
+                                   (df (* lines (display-char-height display))))
+                           (objc:invoke "NSCursor" (if (eq direction :columns)
+                                                       "resizeLeftRightCursor"
+                                                       "resizeUpDownCursor")))))))
+    (error (condition) (log-error "resetCursorRects" condition))))
 
 (objc:define-objc-method ("acceptsFirstResponder" objc:objc-bool) ((self xoamax-view))
   t)

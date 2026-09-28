@@ -252,6 +252,41 @@
       (decf (nth j sizes) offset))
     (apply-layout device)))
 
+;;; The split that owns the edge after HUNK, its right side (DIRECTION
+;;; :COLUMNS) or its bottom: the nearest split that way in which HUNK, or the
+;;; split holding it, is not the last child.  Returns it and that child, or
+;;; NIL when the edge is the layout's own, and cannot move.
+;;;
+(defun layout-edge-split (device hunk direction)
+  (let ((root (layout-root (device-layout device)))
+        (node hunk))
+    (loop for parent = (layout-parent node root)
+          while parent
+          when (and (eq (layout-split-direction parent) direction)
+                    (not (eq node (car (last (layout-split-children parent))))))
+            return (values parent node)
+          do (setf node parent))))
+
+;;; Move the edge after HUNK OFFSET columns or lines, as far as the windows
+;;; on either side allow.  Returns how far it moved.
+;;;
+(defun layout-move-edge (device hunk direction offset)
+  (multiple-value-bind (parent node) (layout-edge-split device hunk direction)
+    (if (null parent)
+        0
+        (let* ((children (layout-split-children parent))
+               (sizes (layout-split-sizes parent))
+               (i (position node children))
+               (offset (max (- (layout-min node direction) (nth i sizes))
+                            (min offset
+                                 (- (nth (1+ i) sizes)
+                                    (layout-min (nth (1+ i) children) direction))))))
+          (unless (zerop offset)
+            (incf (nth i sizes) offset)
+            (decf (nth (1+ i) sizes) offset)
+            (apply-layout device))
+          offset))))
+
 ;;; How many windows NODE has across DIRECTION: those side by side add up,
 ;;; and of those one above another, the most.
 ;;;

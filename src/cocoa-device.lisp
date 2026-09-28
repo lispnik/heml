@@ -122,7 +122,8 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
            (hi::process-command-line-argument (second item)))
           ((eq (car item) :mouse)
            (destructuring-bind (name modifiers column line) (rest item)
-             (queue-mouse-event name modifiers column line)))
+             (unless (drag-border name column line)
+               (queue-mouse-event name modifiers column line))))
           (t
            (let ((key-event (descriptor-key-event item)))
              (if key-event
@@ -147,6 +148,72 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
                (return (values (- column left) (- line top) hunk)))
               ((and (= line (+ top height)) (hi::window-modeline-buffer window))
                (return (values (- column left) nil hunk))))))))
+
+;;; Windows are resized by dragging what divides them: the bar between
+;;; windows side by side, or a modeline, which is its window's bottom edge.
+;;; A press there starts a drag, and until the release, the pointer moves
+;;; that edge instead of reaching the editor as keys.  A press on a
+;;; modeline still selects its window.
+
+(defvar *border-drag* nil
+  "While an edge is dragged: (DIRECTION HUNK WHERE), the hunk whose right
+side or bottom it is, and the column or line it is at.")
+
+;;; Every edge a drag can move, for the view's cursor rectangles.
+;;;
+(defun layout-borders ()
+  (let ((device (current-device))
+        (screen-columns (screen-columns *screen*))
+        (borders '()))
+    (dolist (hunk (hi::device-window-hunks device) (nreverse borders))
+      (let ((left (hi::device-hunk-column hunk))
+            (width (hi::device-hunk-width hunk))
+            (top (hunk-top-line hunk))
+            (bottom (hi::device-hunk-position hunk)))
+        (when (< (+ left width) screen-columns)
+          (push (list :columns (+ left width) top 1 (1+ (- bottom top))) borders))
+        (when (and (hi::device-hunk-modelinep hunk)
+                   (hi::layout-edge-split device hunk :rows))
+          (push (list :rows left bottom width 1) borders))))))
+
+(defun border-at (column line)
+  "The edge at the cell, as (DIRECTION HUNK WHERE), or NIL."
+  (let ((screen-columns (screen-columns *screen*)))
+    (dolist (hunk (hi::device-window-hunks (current-device)))
+      (let ((left (hi::device-hunk-column hunk))
+            (width (hi::device-hunk-width hunk))
+            (top (hunk-top-line hunk))
+            (bottom (hi::device-hunk-position hunk)))
+        (cond ((and (= column (+ left width))
+                    (< column screen-columns)
+                    (<= top line bottom))
+               (return (list :columns hunk column)))
+              ((and (= line bottom)
+                    (hi::device-hunk-modelinep hunk)
+                    (<= left column) (< column (+ left width)))
+               (return (list :rows hunk line))))))))
+
+(defun drag-border (name column line)
+  "Start, continue or end dragging an edge.  True when the event was
+that, and should not also reach the editor as a key."
+  (cond ((and (string= name "Leftdown") (not *border-drag*))
+         (let ((border (border-at column line)))
+           (when border
+             (setf *border-drag* border)
+             ;; A modeline's press goes on, to select its window.
+             (eq (first border) :columns))))
+        ((null *border-drag*) nil)
+        ((string= name "Leftdrag")
+         (destructuring-bind (direction hunk where) *border-drag*
+           (let ((moved (hi::layout-move-edge
+                         (current-device) hunk direction
+                         (- (if (eq direction :columns) column line) where))))
+             (incf (third *border-drag*) moved)))
+         t)
+        ((string= name "Leftup")
+         (setf *border-drag* nil)
+         t)
+        (t nil)))
 
 (defun queue-mouse-event (name modifiers column line)
   (multiple-value-bind (x y hunk) (locate-cell column line)
@@ -349,6 +416,7 @@ another window is on its right."
 (defmethod hi::device-force-output ((device cocoa-device))
   (when (device-dirty device)
     (setf (device-dirty device) nil)
+    (setf (screen-borders *screen*) (layout-borders))
     (present-screen *screen*)
     (request-redraw)))
 

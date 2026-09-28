@@ -11,6 +11,12 @@ run:
 	sbcl --noinform --eval '(asdf:load-system :hemlock.cocoa)' \
 	     --eval '(hemlock:hemlock nil :backend-type :cocoa)' --eval '(uiop:quit)'
 
+# The terminal editor, in this terminal.  LISP=ecl runs it under ECL.
+run-tty:
+	$(or $(LISP),sbcl) --eval '(asdf:load-system :hemlock.tty)' \
+	     --eval '(uiop:symbol-call :hemlock :hemlock nil :backend-type :tty)' \
+	     --eval '(uiop:quit)'
+
 # The Cocoa editor driven end to end, with checks, and a picture of each
 # step in build/smoke/.  It neither takes the keyboard nor touches the
 # clipboard, so it can run while you work.
@@ -210,5 +216,5 @@ clean:
 
 FORCE:
 
-.PHONY: FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
+.PHONY: run-tty FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean
