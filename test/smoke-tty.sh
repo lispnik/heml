@@ -170,8 +170,12 @@ send Enter
 expect 'repl-42' "hemlock:repl evaluates what is typed"
 
 send C-p
-sleep 1
 checks=$((checks + 1))
+tries=50
+while [ "$tries" -gt 0 ] && [ "$(screen | grep -c 'format nil')" -lt 2 ]; do
+    sleep 0.2
+    tries=$((tries - 1))
+done
 if [ "$(screen | grep -c 'format nil')" -ge 2 ]; then
     echo "  ok    C-p recalls the last line"
 else

@@ -322,6 +322,8 @@ café λ 日本語 end")
     (shot "side-by-side")
     (mouse :down 2 0) (mouse :up 2 0)
     (settle)
+    (check "the screen is not cleared again after the split has been drawn"
+           (not hi::*screen-image-trashed*))
     (check "a click in the left window goes to it"
            (eq (hi::window-hunk hi::*current-window*) left))
     (let ((column (+ 3 (hi::device-hunk-column right))))

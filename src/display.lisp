@@ -140,10 +140,7 @@
     (dolist (thing *things-to-do-once*) (apply (car thing) (cdr thing)))
     (setf *things-to-do-once* nil))
   (cond (*in-redisplay* t)
-        (*screen-image-trashed*
-         (when (eq (redisplay-all) t)
-           (setf *screen-image-trashed* nil)
-           t))
+        (*screen-image-trashed* (redisplay-trashed-screen))
         (t
          (redisplay-loop #'redisplay-window #'redisplay-window-recentering))))
 
@@ -153,7 +150,7 @@
 ;;; Update the screen making no assumptions about its correctness.  This is
 ;;; useful if the screen gets trashed, or redisplay gets lost.  Since windows
 ;;; may be on different devices, we have to go through the list clearing all
-;;; possible devices.  Always returns T or :EDITOR-INPUT, never NIL.
+;;; possible devices.  Returns what REDISPLAY-LOOP does.
 ;;;
 (defun redisplay-all ()
   "An entry into redisplay; causes all windows to be fully refreshed."
@@ -170,6 +167,18 @@
 
 
 
+;;; The screen was cleared and every window drawn unless input cut it
+;;; short, and only then must it be cleared again next time.  A true result
+;;; that is not :EDITOR-INPUT means only that the cursor could not be
+;;; placed.
+;;;
+(defun redisplay-trashed-screen ()
+  (let ((result (redisplay-all)))
+    (unless (eq result :editor-input)
+      (setf *screen-image-trashed* nil))
+    result))
+
+
 ;;;; Internal redisplay entry points.
 
 (defun internal-redisplay ()
@@ -180,10 +189,7 @@
     (setf *things-to-do-once* nil))
   (cond (*in-redisplay*
          t)
-        (*screen-image-trashed*
-         (when (eq (redisplay-all) t)
-           (setf *screen-image-trashed* nil)
-           t))
+        (*screen-image-trashed* (redisplay-trashed-screen))
         (t
          (redisplay-loop #'redisplay-window #'redisplay-window-recentering))))
 
@@ -207,10 +213,7 @@
   (cond ((or *in-redisplay* (not *in-the-editor*)) t)
         ((and throttlep (< (time-since-redisplay) *redisplay-interval*)) t)
         ((listen-editor-input *editor-input*) :editor-input)
-        (*screen-image-trashed*
-         (when (eq (redisplay-all) t)
-           (setf *screen-image-trashed* nil)
-           t))
+        (*screen-image-trashed* (redisplay-trashed-screen))
         (t
          (let ((*in-redisplay* t))
            (catch 'redisplay-catcher
