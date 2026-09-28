@@ -381,9 +381,9 @@
 ;;;
 (defun compute-line-image (string underhang line offset dis-line width)
   ;;
-  ;; Bring the line's syntax highlighting up to date: it is font marks,
-  ;; read below.
-  (line-tag line)
+  ;; Bring the line's syntax highlighting up to date, as its buffer's major
+  ;; mode does it: it is font marks, read below.
+  (highlight-line line)
   ;;
   ;; Release any old font-changes.
   (let ((changes (dis-line-font-changes dis-line)))

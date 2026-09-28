@@ -107,6 +107,18 @@ $(APP_STAMP): $(wildcard *.asd src/*.lisp vendor/conium/*.lisp) resources/heml.p
 run-app: app
 	"$(APP)/Contents/MacOS/heml"
 
+# Tree-sitter grammars for C, Markdown and Common Lisp, built from source
+# into build/tree-sitter/.  The tree-sitter library, and Python's grammar,
+# come from Homebrew: brew install tree-sitter tree-sitter-python.
+tree-sitter:
+	scripts/tree-sitter-grammars.sh
+
+# The grammars where the installed app finds them.
+install-tree-sitter: tree-sitter
+	@mkdir -p "$(HOME)/.local/share/heml/tree-sitter"
+	cp -R build/tree-sitter/lib build/tree-sitter/share "$(HOME)/.local/share/heml/tree-sitter/"
+	@echo "installed $(HOME)/.local/share/heml/tree-sitter"
+
 # The heml command, linked onto the PATH from the installed app.
 CLI_DIR ?= $(HOME)/.local/bin
 install-cli:
@@ -230,5 +242,5 @@ clean:
 
 FORCE:
 
-.PHONY: run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
+.PHONY: tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean

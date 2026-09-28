@@ -322,7 +322,19 @@
 (defun empty-syntax-info ()
   (make-syntax-info :frob nil (initial-syntax-state) nil))
 
+(declaim (special *mode-highlighters*))
+
+(defun lisp-highlighted-p (line)
+  "True when LINE's buffer is coloured by this file's Lisp parser.  Tags are
+also computed for their package, which the modeline shows in any buffer, and
+a buffer in another mode must not be coloured as Lisp on that account."
+  (let ((buffer (line-buffer line)))
+    (and buffer
+         (eq (gethash (buffer-major-mode buffer) *mode-highlighters*) 'line-tag))))
+
 (defun recompute-syntax-marks (line tag)
+  (unless (lisp-highlighted-p line)
+    (return-from recompute-syntax-marks (empty-syntax-info)))
   (let* ((sy (or (tag-syntax-info tag)
                  (empty-syntax-info)))
          (prev (line-previous line))
@@ -377,6 +389,36 @@
              (hash-plus 6)
              (hash-minus 7)
              ((nil) 0))))))
+
+
+;;;; Highlighters by mode
+
+;;; A buffer's major mode decides how its lines are coloured: a mode names a
+;;; function of a line, which brings the line's font marks up to date before
+;;; redisplay reads them.  A mode that names none gets no colouring.  The
+;;; parser above understands Lisp, so it is Lisp mode's; buffers in other
+;;; modes are no longer coloured as if they held Lisp.
+
+(defvar *mode-highlighters* (make-hash-table :test 'equal)
+  "Major mode name to the function that brings a line's highlighting up to
+date.")
+
+(defun define-mode-highlighter (mode function)
+  "Make FUNCTION, of a line, the highlighter of lines in buffers whose major
+mode is MODE.  NIL removes it."
+  (if function
+      (setf (gethash mode *mode-highlighters*) function)
+      (remhash mode *mode-highlighters*))
+  mode)
+
+(defun highlight-line (line)
+  (let ((buffer (line-buffer line)))
+    (when buffer
+      (let ((function (gethash (buffer-major-mode buffer) *mode-highlighters*)))
+        (when function
+          (funcall function line))))))
+
+(define-mode-highlighter "Lisp" 'line-tag)
 
 
 ;;;; Tag computation

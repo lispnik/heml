@@ -32,8 +32,8 @@ jobs:
         with:
           submodules: true
 
-      - name: Install SBCL, ECL, libfixposix and tmux
-        run: brew install sbcl ecl libfixposix tmux
+      - name: Install SBCL, ECL, libfixposix, tmux and tree-sitter
+        run: brew install sbcl ecl libfixposix tmux tree-sitter tree-sitter-python
 
       - name: Install and configure ocicl
         run: |
@@ -98,6 +98,9 @@ jobs:
           sbcl --noinform --non-interactive \
             --eval '(asdf:load-system :heml.cocoa)' \
             --eval '(format t "~&window server: ~A~%" (objc.runloop:window-server-p))'
+
+      - name: Build the tree-sitter grammars (make tree-sitter)
+        run: make tree-sitter
 
       - name: Drive the Cocoa editor (make smoke)
         run: make smoke

@@ -169,6 +169,21 @@
 
 (defun point-column () (hi::mark-column (hi::current-point)))
 
+(defun row-runs-containing (text)
+  "The font runs of the first screen row that shows TEXT, or :NONE."
+  (let ((row (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
+                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+    (if row (heml.cocoa::row-runs row) :none)))
+
+(defun run-font-at (text offset)
+  "The font drawn at OFFSET characters into TEXT, where TEXT is on screen."
+  (let ((row (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
+                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+    (when row
+      (let ((column (+ offset (search text (heml.cocoa::row-text row)))))
+        (loop for (start end . font) in (heml.cocoa::row-runs row)
+              when (and (<= start column) (< column end)) return font)))))
+
 
 ;;;; The run
 
@@ -185,6 +200,8 @@ café λ 日本語 end")
   (check "a wide character takes two columns"
          (= (point-column) (+ (length "café λ ") (* 3 2) (length " end"))))
   (shot "typed")
+  (check "a buffer that is not in Lisp mode is not coloured as Lisp"
+         (null (row-runs-containing "(format t")))
 
   (note "key events")
   (post-text (string #\Newline))
@@ -290,8 +307,29 @@ café λ 日本語 end")
     (check "application:openURLs: visits the file"
            (and (equal (truename (hi::buffer-pathname (hi::current-buffer)))
                        (truename file))
-                (search "Opened from Finder, λ." (buffer-text)))))
+                (search "Opened from Finder, λ." (buffer-text))))
+    (check "a Lisp file is coloured: its comment is red"
+           (eql 1 (run-font-at ";;; Opened" 0))))
   (shot "opened")
+
+  (note "tree-sitter")
+  (let ((file (merge-pathnames "opened.c" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (write-line "/* a C comment */" out)
+      (write-line "int main(void) { return 0; }" out))
+    (post (list :open (namestring file)))
+    (settle)
+    (check "a C file is in C mode"
+           (equal "C" (hi::buffer-major-mode (hi::current-buffer))))
+    (if (and (heml.tree-sitter:tree-sitter-available-p)
+             (heml.tree-sitter::find-in-directories "lib/libtree-sitter-c.dylib"))
+        (progn
+          (check "tree-sitter colours its comment"
+                 (eql 1 (run-font-at "/* a C comment" 0)))
+          (check "and its type"
+                 (eql 2 (run-font-at "int main" 0)))
+          (shot "tree-sitter"))
+        (note "  skip  tree-sitter colouring: no tree-sitter or C grammar (make tree-sitter)")))
 
   (note "menus")
   (choose-menu-item "View" "Split Window")

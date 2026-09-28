@@ -19,6 +19,7 @@
    #:line-character
    #:line-plist
    #:line-signature
+   #:define-mode-highlighter
    #:markp
    #:mark-line
    #:mark-charpos
