@@ -62,9 +62,9 @@
 ;;; installed to handle return values, etc.
 ;;;
 (defun connect-to-remote-server (hostname port on-connected &optional on-death)
-  (declare (ignore on-death))           ;fixme?
   "Connect to a remote request server addressed with the given host and port
-   pair.  This returns the created wire."
+   pair.  This returns the created wire.  ON-DEATH, when given, is called
+   with no arguments if the connection is lost."
   (let (wire)
     (flet ((sentinel (connection event)
              (ecase event
@@ -73,7 +73,10 @@
                             (make-connection-device
                              connection))))
                (:connected
-                (funcall on-connected wire)))))
+                (funcall on-connected wire))
+               ((:disconnected :error)
+                (when on-death
+                  (funcall on-death))))))
       (make-tcp-connection "Connection to master"
                            hostname
                            port

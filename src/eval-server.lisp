@@ -781,9 +781,13 @@
     (frob *query-io*)
     (frob *trace-output*))
   (setf *background-io* nil)
-  (format t "~2&Connection to editor died.~%")
-  #+NILGB
-  (ext:quit))
+  ;; Said if anyone is listening: a slave's output usually went to its
+  ;; editor, and is a broken pipe now.
+  (ignore-errors
+   (format t "~2&Connection to editor died.~%")
+   (finish-output))
+  ;; A slave is there for its editor, and has nothing to do without it.
+  (uiop:quit 0 nil))
 
 ;;; *MASTER-MACHINE-AND-PORT* -- internal
 ;;;
