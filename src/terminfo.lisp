@@ -602,14 +602,44 @@
   (defcap memory-unlock string 412)
   (defcap box-chars-1 string 413))
 
+;;; Where terminfo entries are looked for, as ncurses looks: $TERMINFO,
+;;; ~/.terminfo, each directory in $TERMINFO_DIRS (an empty entry there
+;;; standing for the system's), and the system's.  A terminal that ships its
+;;; own entry, as Ghostty does, says where it is with $TERMINFO.
+;;;
+(defun terminfo-search-path ()
+  (flet ((directory-name (name)
+           (if (and (plusp (length name))
+                    (char= (char name (1- (length name))) #\/))
+               name
+               (concatenate 'string name "/"))))
+    (let ((terminfo (uiop:getenv "TERMINFO"))
+          (dirs (uiop:getenv "TERMINFO_DIRS")))
+      (remove-duplicates
+       (append (when (plusp (length terminfo)) (list (directory-name terminfo)))
+               (list (namestring (merge-pathnames ".terminfo/" (user-homedir-pathname))))
+               (when (plusp (length dirs))
+                 (loop for dir in (uiop:split-string dirs :separator ":")
+                       if (zerop (length dir))
+                         append *terminfo-directories*
+                       else
+                         collect (directory-name dir)))
+               *terminfo-directories*)
+       :test #'string= :from-end t))))
+
+;;; An entry is under its first character, as a letter or, as macOS and
+;;; Ghostty store them, in hexadecimal: x/xterm or 78/xterm.
+;;;
+(defun terminfo-entry-files (name)
+  (let ((letter (concatenate 'string (string (char name 0)) "/" name))
+        (hex (format nil "~(~X~)/~A" (char-code (char name 0)) name)))
+    (loop for directory in (terminfo-search-path)
+          append (list (concatenate 'string directory letter)
+                       (concatenate 'string directory hex)))))
+
 (defun load-terminfo (name)
-  (flet ((stringify-first-char (name)
-           #+darwin (format nil "~X" (char-code (char name 0)))
-           #-darwin (string (char name 0))))
-    (let ((name (concatenate 'string (stringify-first-char name) "/" name)))
-      (dolist (path (list* (merge-pathnames ".terminfo/" (user-homedir-pathname))
-                           *terminfo-directories*))
-        (with-open-file (stream (merge-pathnames name path)
+  (dolist (file (terminfo-entry-files name))
+        (with-open-file (stream file
                                 :direction :input
                                 :element-type '(unsigned-byte 8)
                                 :if-does-not-exist nil)
@@ -667,7 +697,7 @@
                                               :start (aref strings i))))))
                   (setq strings xtrings))
                 (return (make-terminfo :names names :booleans booleans
-                                       :numbers numbers :strings strings))))))))))
+                                       :numbers numbers :strings strings))))))))
 
 (defun skip-conditional-part (in stop-at-else)
   "Read IN past the rest of a %? conditional's current part: to the %e that
