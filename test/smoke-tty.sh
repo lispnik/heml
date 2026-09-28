@@ -180,6 +180,23 @@ sleep 1
 send C-v
 expect 'row-030' "C-v scrolls a page"
 
+# Killing the shell's buffer closes its pty.  The event loop must forget
+# the descriptor first, or its next select(2) fails with EBADF.
+send C-x k
+sleep 0.5
+send Enter
+sleep 1
+type_text 'after-the-shell'
+expect 'after-the-shell' "the editor goes on after a shell's buffer is killed"
+checks=$((checks + 1))
+if screen | grep -q 'Bad file descriptor'; then
+    echo "  FAIL  and nothing complains of a bad file descriptor"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+else
+    echo "  ok    and nothing complains of a bad file descriptor"
+fi
+
 send C-x C-c
 sleep 1
 send n

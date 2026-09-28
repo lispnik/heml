@@ -102,6 +102,11 @@
 
 (defmethod delete-connection :before ((connection iolib-connection))
   (with-slots (read-fd write-fd) connection
+    ;; The event loop forgets the descriptors before they are closed.  Left
+    ;; watching a closed one, its next select(2) fails with EBADF, as it did
+    ;; when a shell's buffer was killed.
+    (dolist (fd (remove-duplicates (remove nil (list read-fd write-fd))))
+      (iolib:remove-fd-handlers *event-base* fd))
     (when read-fd
       (isys:close read-fd))
     (when write-fd
