@@ -486,6 +486,57 @@ café λ 日本語 end")
   (press-menu #\0) (settle)
   (check "Cmd-0 goes back to the default" (= heml.cocoa:*font-size* 13))
 
+  (note "text styles")
+  (let ((file (merge-pathnames "styles.txt" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (write-line "plain italic under both" out))
+    (post (list :open (namestring file)))
+    (settle)
+    ;; The editor is idle, waiting for input, while the marks are made.
+    (let ((line (hi::mark-line (hi::buffer-start-mark (hi::current-buffer)))))
+      (hi::font-mark line 6 '(:italic t))
+      (hi::font-mark line 12 0)
+      (hi::font-mark line 13 '(:underline t))
+      (hi::font-mark line 18 0)
+      (hi::font-mark line 19 '(:bold t :italic t :underline t)))
+    (post-key #\l "Control")
+    (settle)
+    (check "styles reach the screen"
+           (and (equal '(:italic t) (run-font-at "plain italic" 6))
+                (equal '(:underline t) (run-font-at "plain italic" 13))))
+    (check "italic text is drawn italic, or slanted where the font has none"
+           (main (let* ((attributes (heml.cocoa::text-attributes (display) "textColor" nil t))
+                        (font (objc:invoke attributes "objectForKey:" "NSFont")))
+                   (or (logtest 1 (objc:invoke (objc:invoke font "fontDescriptor") "symbolicTraits"))
+                       (not (cffi:null-pointer-p
+                             (objc:invoke attributes "objectForKey:" "NSObliqueness")))))))
+    (check "an underline is drawn under underlined text, and not under plain"
+           (let* ((row (position-if (lambda (row) (search "plain italic under" (heml.cocoa::row-text row)))
+                                    (heml.cocoa::screen-shown-rows heml.cocoa::*screen*)))
+                  (display (display)))
+             (and row
+                  (main
+                    (let* ((view (view))
+                           (bounds (objc:invoke view "bounds"))
+                           (rep (objc:invoke view "bitmapImageRepForCachingDisplayInRect:" bounds))
+                           (scale (/ (objc:invoke rep "pixelsWide") (aref bounds 2)))
+                           (y (floor (* scale (+ (heml.cocoa::cell-y display row)
+                                                 (heml.cocoa::display-char-ascent display) 1)))))
+                      (objc:invoke view "cacheDisplayInRect:toBitmapImageRep:" bounds rep)
+                      (flet ((ink (column)
+                               (let* ((x (floor (* scale (+ (heml.cocoa::cell-x display column)
+                                                            (/ (heml.cocoa::display-char-width display) 2)))))
+                                      (color (objc:invoke (objc:invoke rep "colorAtX:y:" x y)
+                                                          "colorUsingColorSpace:"
+                                                          (objc:invoke "NSColorSpace" "sRGBColorSpace"))))
+                                 (+ (objc:invoke color "redComponent")
+                                    (objc:invoke color "greenComponent")
+                                    (objc:invoke color "blueComponent")))))
+                        ;; A space under "under" (column 15, the "d") and in
+                        ;; "plain" (column 2, the "a") at the underline's row.
+                        (> (abs (- (ink 15) (ink 2))) 0.5)))))))
+    (shot "styles"))
+
   (note "shell")
   (extended-command "Shell")
   (settle)

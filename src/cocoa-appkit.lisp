@@ -251,6 +251,14 @@ there since it last looked; otherwise NIL."
    (app-delegate :initform nil :accessor display-app-delegate)
    (font :initform nil :accessor display-font)
    (bold-font :initform nil :accessor display-bold-font)
+   (italic-font :initform nil :accessor display-italic-font)
+   (bold-italic-font :initform nil :accessor display-bold-italic-font)
+   (slanted :initform '() :accessor display-slanted
+            :documentation "Which of :ITALIC and :BOLD-ITALIC the font has no face
+for, and so are the upright face slanted.")
+   (char-ascent :initform 12 :accessor display-char-ascent
+                :documentation "From the top of a cell to its baseline, where an
+underline is drawn.")
    (char-width :initform 8 :accessor display-char-width)
    (char-height :initform 16 :accessor display-char-height)
    (char-advance :initform 8d0 :accessor display-char-advance)
@@ -274,16 +282,31 @@ whether Quit asks Heml or just ends the application.")
 
 ;;;; Fonts
 
-(defun make-font (name size bold)
-  (let ((size (df size)))
-    (or (and name
-             (let ((font (objc:invoke "NSFont" "fontWithName:size:" name size)))
-               (cond ((null-pointer-p font) nil)
-                     (bold (objc:invoke (objc:invoke "NSFontManager" "sharedFontManager")
-                                        "convertFont:toHaveTrait:" font 2)) ; NSBoldFontMask
-                     (t font))))
-        (objc:invoke "NSFont" "monospacedSystemFontOfSize:weight:"
-                     size (if bold 0.4d0 0d0)))))
+(defconstant +bold-font-mask+ 2)
+(defconstant +italic-font-mask+ 1)
+(defconstant +italic-trait+ 1)          ; NSFontDescriptorTraitItalic
+
+(defun make-font (name size bold &optional italic)
+  "The font NAME, or the system's monospaced font, at SIZE.  For ITALIC, a
+second value is true when the font has no italic face, and what is returned
+is the upright one, to be slanted."
+  (let* ((size (df size))
+         (font (or (and name
+                        (let ((font (objc:invoke "NSFont" "fontWithName:size:" name size)))
+                          (cond ((null-pointer-p font) nil)
+                                (bold (objc:invoke (objc:invoke "NSFontManager" "sharedFontManager")
+                                                   "convertFont:toHaveTrait:" font +bold-font-mask+))
+                                (t font))))
+                   (objc:invoke "NSFont" "monospacedSystemFontOfSize:weight:"
+                                size (if bold 0.4d0 0d0)))))
+    (if (not italic)
+        font
+        (let ((italic (objc:invoke (objc:invoke "NSFontManager" "sharedFontManager")
+                                   "convertFont:toHaveTrait:" font +italic-font-mask+)))
+          (if (logtest +italic-trait+
+                       (objc:invoke (objc:invoke italic "fontDescriptor") "symbolicTraits"))
+              (values italic nil)
+              (values font t))))))
 
 (defun measure-font (font)
   "The cell FONT wants, as (VALUES WIDTH HEIGHT ADVANCE).  The width is the
@@ -296,18 +319,28 @@ that every character sits exactly in its cell."
          (descender (objc:invoke font "descender")))
     (values (max 1 (round advance))
             (max 1 (ceiling (- ascender descender)))
-            advance)))
+            advance
+            (round ascender))))
 
 (defun install-fonts (display)
   "Make the fonts from *FONT-NAME* and *FONT-SIZE* and remeasure the cell.
 The text attribute cache goes with the old fonts: its dictionaries name them."
-  (let ((old (list (display-font display) (display-bold-font display))))
+  (let ((old (list (display-font display) (display-bold-font display)
+                   (display-italic-font display) (display-bold-italic-font display))))
     (setf (display-font display) (objc:retain (make-font *font-name* *font-size* nil))
-          (display-bold-font display) (objc:retain (make-font *font-name* *font-size* t)))
-    (multiple-value-bind (width height advance) (measure-font (display-font display))
+          (display-bold-font display) (objc:retain (make-font *font-name* *font-size* t))
+          (display-slanted display) '())
+    (multiple-value-bind (font slanted) (make-font *font-name* *font-size* nil t)
+      (setf (display-italic-font display) (objc:retain font))
+      (when slanted (push :italic (display-slanted display))))
+    (multiple-value-bind (font slanted) (make-font *font-name* *font-size* t t)
+      (setf (display-bold-italic-font display) (objc:retain font))
+      (when slanted (push :bold-italic (display-slanted display))))
+    (multiple-value-bind (width height advance ascent) (measure-font (display-font display))
       (setf (display-char-width display) width
             (display-char-height display) height
-            (display-char-advance display) advance))
+            (display-char-advance display) advance
+            (display-char-ascent display) ascent))
     (loop for dictionary being the hash-values of (display-attributes display)
           do (objc:release dictionary))
     (clrhash (display-attributes display))
@@ -411,22 +444,32 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
 (defun background-color (display) (ns-color display "textBackgroundColor"))
 
 (defun font-style (font)
-  "FONT's foreground index, background index and boldness, each NIL for
-the default."
-  (cond ((integerp font) (values (if (zerop font) nil font) nil nil))
-        ((consp font) (values (getf font :fg) (getf font :bg) (getf font :bold)))
-        (t (values nil nil nil))))
+  "FONT's foreground index, background index, boldness, italic and
+underline, each NIL for the default."
+  (cond ((integerp font) (values (if (zerop font) nil font) nil nil nil nil))
+        ((consp font) (values (getf font :fg) (getf font :bg) (getf font :bold)
+                              (getf font :italic) (getf font :underline)))
+        (t (values nil nil nil nil nil))))
 
-(defun text-attributes (display color-name bold)
+(defun text-attributes (display color-name bold &optional italic)
   "A retained NSDictionary: the font, COLOR-NAME's colour, and the kern
-that makes every character advance exactly one cell."
-  (let ((key (list color-name bold)))
+that makes every character advance exactly one cell.  An italic that the
+font has no face for is the upright face slanted."
+  (let ((key (list color-name bold italic)))
     (or (gethash key (display-attributes display))
         (setf (gethash key (display-attributes display))
               (let ((dictionary (objc:alloc-init-object "NSMutableDictionary")))
                 (objc:invoke dictionary "setObject:forKey:"
-                             (if bold (display-bold-font display) (display-font display))
+                             (cond ((and bold italic) (display-bold-italic-font display))
+                                   (italic (display-italic-font display))
+                                   (bold (display-bold-font display))
+                                   (t (display-font display)))
                              "NSFont")
+                (when (and italic
+                           (member (if bold :bold-italic :italic) (display-slanted display)))
+                  (objc:invoke dictionary "setObject:forKey:"
+                               (objc:invoke "NSNumber" "numberWithDouble:" 0.2d0)
+                               "NSObliqueness"))
                 (objc:invoke dictionary "setObject:forKey:"
                              (ns-color display color-name) "NSColor")
                 (objc:invoke dictionary "setObject:forKey:"
@@ -461,8 +504,8 @@ that makes every character advance exactly one cell."
 ;;; and a wide character's filler not at all -- the character before it has
 ;;; the room.
 ;;;
-(defun draw-text (display string start end line color-name bold)
-  (let ((attributes (text-attributes display color-name bold)))
+(defun draw-text (display string start end line color-name bold &optional italic)
+  (let ((attributes (text-attributes display color-name bold italic)))
     (flet ((draw (from to)
              (when (find #\Space string :start from :end to :test-not #'char=)
                (objc:invoke (objc:string-to-ns-string (subseq string from to))
@@ -499,14 +542,22 @@ that makes every character advance exactly one cell."
        (char= (char string (1+ index)) hi::wide-character-filler)))
 
 (defun draw-segment (display text start end line font)
-  (multiple-value-bind (fg bg bold) (font-style font)
+  (multiple-value-bind (fg bg bold italic underline) (font-style font)
     (when bg
       (fill-rect (palette-color display bg)
                  (cell-x display start) (cell-y display line)
                  (* (- end start) (display-char-width display))
                  (display-char-height display)))
     (draw-text display text start (min end (length text)) line
-               (color-name-for fg) bold)))
+               (color-name-for fg) bold italic)
+    ;; Drawn rather than asked of AppKit, whose underline breaks at
+    ;; descenders and need not end where the cells do.
+    (when underline
+      (fill-rect (palette-color display fg)
+                 (cell-x display start)
+                 (+ (cell-y display line) (display-char-ascent display) 1)
+                 (* (- end start) (display-char-width display))
+                 1))))
 
 (defun draw-row (display row line)
   (let ((text (row-text row))
