@@ -28,6 +28,8 @@
   pattern               ; FILE-NAMESTRING with wildcard possibly.
   dot-files-p           ; Whether to include UNIX dot files.
   (sort :name)          ; :NAME, :DATE or :SIZE.
+  (expanded '())        ; Subdirectories listed inline, after their lines.
+  (edit-names '())      ; The names as they were when Wdired began.
   write-date            ; Write date of directory.
   files                 ; Simple-vector of dired-file structures.
   file-list)            ; List of pathnames for files, excluding directories.
@@ -157,7 +159,7 @@
           :value (make-dired-information :pathname directory
                                          :pattern pattern
                                          :dot-files-p dot-files-p
-                                         :write-date (dired-directory-signature directory)
+                                         :write-date (dired-listing-signature directory nil)
                                          :files dired-files
                                          :file-list pathnames)))))
 
@@ -405,7 +407,8 @@
                            (dired-in-buffer directory pattern
                                             (dired-info-dot-files-p dir-info)
                                             buffer
-                                            (dired-info-sort dir-info))
+                                            (dired-info-sort dir-info)
+                                            (dired-info-expanded dir-info))
         (let ((point (buffer-point buffer))
               (old-dired-files (dired-info-files dir-info)))
           (declare (simple-vector old-dired-files))
@@ -440,7 +443,7 @@
           (setf (dired-info-files dir-info) new-dired-files)
           (setf (dired-info-file-list dir-info) pathnames)
           (setf (dired-info-write-date dir-info)
-                (dired-directory-signature directory))
+                (dired-listing-signature directory (dired-info-expanded dir-info)))
           (dired-file-line point 0))))))
 
 ;;; DIRED-IN-BUFFER inserts a dired listing of directory in buffer returning
@@ -450,41 +453,68 @@
 ;;; and trailing lines known to be in the output (into every code a little
 ;;; slime must fall).
 ;;;
-(defun dired-in-buffer (directory pattern dot-files-p buffer &optional (sort :name))
+(defun dired-listing (directory dot-files-p expanded &optional (prefix ""))
+  "DIRECTORY's listing as ((PATHNAME . LINE) ...), each directory in EXPANDED
+followed by its own, named from the top directory (sub/file).  A second value
+is the size of what the top directory holds."
+  (let* ((*directory-name-prefix* prefix)
+         (pathnames '())
+         (text (with-output-to-string (stream)
+                 (setf pathnames (print-directory directory stream
+                                                  :all dot-files-p :verbose t
+                                                  :return-list t))))
+         (total *directory-total-size*)
+         ;; The first line says which directory it is: the header does that.
+         (lines (rest (uiop:split-string text :separator (string #\Newline)))))
+    (values
+     (loop for pathname in pathnames
+           for line in lines
+           collect (cons pathname line)
+           when (and (directoryp pathname)
+                     (member pathname expanded :test #'equal))
+             append (dired-listing pathname dot-files-p expanded
+                                   (concatenate 'string prefix
+                                                (car (last (pathname-directory pathname)))
+                                                "/")))
+     total)))
+
+(defun dired-in-buffer (directory pattern dot-files-p buffer
+                        &optional (sort :name) expanded)
   (let ((point (buffer-point buffer))
         (*directory-sort* sort))
     (with-writable-buffer (buffer)
-      (let* ((pathnames (call-print-directory
-			 (if pattern
-			     (merge-pathnames directory pattern)
-			     (merge-pathnames directory "*.*.~*~"))
-                         point
-                         dot-files-p))
-             (dired-files (make-array (length pathnames))))
-        (declare (list pathnames) (simple-vector dired-files))
-        (filter-region #'(lambda (str)
-                           (concatenate 'simple-string "  " str))
-                       (buffer-region buffer))
-        (delete-characters point -2)
-        (delete-region (line-to-region (mark-line (buffer-start point))))
-        (delete-characters point)
-        ;; The header: which directory, and how much is in it.  It starts in
-        ;; the first column, where a file line has its deletion flag, so line
-        ;; motion over files never stops on it.
-        (with-mark ((start (buffer-start-mark buffer) :left-inserting))
-          (insert-string start (format nil "~A  (~D entr~:@P, ~A~@[, by ~(~A~)~])~%"
-                                       (namestring (if pattern
-                                                       (merge-pathnames directory pattern)
-                                                       directory))
-                                       (length pathnames)
-                                       (human-size *directory-total-size*)
-                                       (unless (eq sort :name) sort))))
-        (do ((p pathnames (cdr p))
-             (i 0 (1+ i)))
-            ((null p))
-          (setf (svref dired-files i) (make-dired-file (car p))))
-        (dired-file-line point 0)
-        (values (delete-if #'directoryp pathnames) dired-files)))))
+      (multiple-value-bind (entries total)
+          (handler-case (dired-listing (if pattern
+                                           (merge-pathnames directory pattern)
+                                           (merge-pathnames directory "*.*.~*~"))
+                                       dot-files-p expanded)
+            (error (condition)
+              (delete-buffer-if-possible buffer)
+              (editor-error "~A" condition)))
+        (let ((pathnames (mapcar #'car entries))
+              (dired-files (map 'simple-vector (lambda (entry) (make-dired-file (car entry)))
+                                entries)))
+          ;; The header: which directory, and how much is in it.  It starts
+          ;; in the first column, where a file line has its deletion flag, so
+          ;; line motion over files never stops on it.  Then a line per file,
+          ;; its flag column first.
+          (with-mark ((start (buffer-start-mark buffer) :left-inserting))
+            (insert-string
+             start
+             (string-right-trim
+              '(#\Newline)
+              (with-output-to-string (s)
+                (format s "~A  (~D entr~:@P, ~A~@[, by ~(~A~)~])~%"
+                        (namestring (if pattern
+                                        (merge-pathnames directory pattern)
+                                        directory))
+                        (length entries)
+                        (human-size total)
+                        (unless (eq sort :name) sort))
+                (dolist (entry entries)
+                  (format s "  ~A~%" (cdr entry)))))))
+          (dired-file-line point 0)
+          (values (delete-if #'directoryp pathnames) dired-files))))))
 
 
 (defun dired-file-at (mark files)
@@ -816,14 +846,20 @@
    (let ((stat (isys:stat (string-right-trim "/" (directory-namestring directory)))))
      (list (isys:stat-mtime stat) (isys:stat-size stat)))))
 
+(defun dired-listing-signature (directory expanded)
+  "The signatures of DIRECTORY and the subdirectories listed inline."
+  (mapcar #'dired-directory-signature (cons directory expanded)))
+
 (defun maintain-dired-consistency ()
   (dolist (info *pathnames-to-dired-buffers*)
     (let* ((directory (directory-namestring (car info)))
            (buffer (cdr info))
            (dir-info (variable-value 'dired-information :buffer buffer))
-           (write-date (dired-directory-signature directory)))
-      ;; A directory that has gone is left as it was last listed.
-      (when (and write-date
+           (write-date (dired-listing-signature directory (dired-info-expanded dir-info))))
+      ;; A directory that has gone is left as it was last listed, and one
+      ;; whose names are being edited is left alone.
+      (when (and (every #'identity write-date)
+                 (not (equal (buffer-major-mode buffer) "Wdired"))
                  (not (equal (dired-info-write-date dir-info) write-date)))
         (update-dired-buffer directory (dired-info-pattern dir-info) buffer)))))
 
@@ -1379,3 +1415,113 @@
   (unless *dired-watching*
     (schedule-event +dired-watch-interval+ #'dired-watch)
     (setf *dired-watching* t)))
+
+
+
+;;;; Subdirectories inline.
+
+(defcommand "Dired Insert Subdirectory" (p)
+  "List the directory under point after its line, its files named from here
+   (sub/file), or take it away again if it is listed."
+  "List a subdirectory inline, or fold it away."
+  (declare (ignore p))
+  (let ((pathname (dired-pathname-at-point))
+        (info (value dired-information)))
+    (unless (directoryp pathname)
+      (editor-error "Not a directory."))
+    (if (member pathname (dired-info-expanded info) :test #'equal)
+        ;; Folding a directory folds those inserted inside it.
+        (setf (dired-info-expanded info)
+              (remove-if (lambda (directory)
+                           (uiop:string-prefix-p (namestring pathname) (namestring directory)))
+                         (dired-info-expanded info)))
+        (push pathname (dired-info-expanded info)))
+    (update-dired-buffer (dired-info-pathname info) (dired-info-pattern info)
+                         (current-buffer))))
+
+
+
+;;;; Editing names in the buffer.
+
+;;; C-x C-q makes the file names editable: the buffer goes into Wdired mode,
+;;; where letters are letters, and C-c C-c renames each file whose name was
+;;; changed, as its line now says, and C-c C-k puts it all back.
+
+(defmode "Wdired" :major-p t
+  :documentation "Editing the names in a Dired listing: C-c C-c renames the
+   files whose names were changed; C-c C-k goes back to Dired as it was.")
+
+(define-mode-highlighter "Wdired" 'dired-highlight-line)
+
+(defun dired-line-name (string)
+  "The name a Dired line shows, or NIL when it is not a file line."
+  (multiple-value-bind (start end) (cl-ppcre:scan *dired-line-scanner* string)
+    (when start
+      (let* ((name (subseq string end))
+             (arrow (search " -> " name)))
+        (string-right-trim "/" (if arrow (subseq name 0 arrow) name))))))
+
+(defun dired-buffer-line-names (buffer)
+  "Each file line's name, in order, after the header."
+  (let ((line (line-next (mark-line (buffer-start-mark buffer)))))
+    (loop while line
+          unless (and (null (line-next line)) (zerop (line-length line)))
+            collect (dired-line-name (line-string line))
+          do (setf line (line-next line)))))
+
+(defcommand "Dired Edit Names" (p)
+  "Make the file names editable.  C-c C-c renames the files whose names were
+   changed; C-c C-k goes back as it was."
+  "Edit the file names in the buffer."
+  (declare (ignore p))
+  (let ((buffer (current-buffer))
+        (info (value dired-information)))
+    (setf (dired-info-edit-names info) (dired-buffer-line-names buffer)
+          (buffer-writable buffer) t
+          (buffer-major-mode buffer) "Wdired")
+    (message "Edit the names: C-c C-c renames, C-c C-k cancels.")))
+
+(defun wdired-leave (info)
+  (let ((buffer (current-buffer)))
+    (setf (buffer-writable buffer) nil
+          (buffer-major-mode buffer) "Dired"
+          (dired-info-edit-names info) '())
+    (update-dired-buffer (dired-info-pathname info) (dired-info-pattern info) buffer)))
+
+(defcommand "Wdired Finish" (p)
+  "Rename each file whose name was changed, and go back to Dired."
+  "Rename the files whose names were changed."
+  (declare (ignore p))
+  (let* ((info (value dired-information))
+         (old (dired-info-edit-names info))
+         (new (dired-buffer-line-names (current-buffer)))
+         (files (dired-info-files info))
+         (directory (dired-info-pathname info))
+         (renamed 0))
+    (unless (= (length old) (length new))
+      (editor-error "Lines were added or taken away; C-c C-k cancels."))
+    (let ((broken (position nil new)))
+      (when broken
+        (editor-error "Line ~D is no longer a file's line; C-c C-k cancels."
+                      (+ broken 1 +dired-header-lines+))))
+    (loop for from-name in old
+          for to-name in new
+          for file across files
+          unless (string= from-name to-name)
+            do (let ((from (string-right-trim "/" (namestring (dired-file-pathname file))))
+                     (to (namestring (merge-pathnames to-name directory))))
+                 (cond ((probe-file to)
+                        (message "~A is there already; ~A kept its name." to-name from-name))
+                       (t
+                        (handler-case (progn (isys:rename from to) (incf renamed))
+                          (error (condition)
+                            (message "Could not rename ~A: ~A" from-name condition)))))))
+    (wdired-leave info)
+    (message "~D file~:P renamed." renamed)))
+
+(defcommand "Wdired Abort" (p)
+  "Go back to Dired, renaming nothing."
+  "Go back to Dired, renaming nothing."
+  (declare (ignore p))
+  (wdired-leave (value dired-information))
+  (message "Nothing renamed."))

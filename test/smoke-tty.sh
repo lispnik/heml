@@ -295,6 +295,41 @@ else
     echo "  FAIL  and deletes only the file under point"; ls -la "$D" | sed 's/^/        | /'
     failures=$((failures + 1))
 fi
+send 'M->'
+send i
+expect 'sub/a.txt' "i lists a subdirectory inline"
+send i
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'sub/a.txt'; then
+    echo "  FAIL  and i again folds it away"; failures=$((failures + 1))
+else
+    echo "  ok    and i again folds it away"
+fi
+send C-x C-q
+expect '(Wdired)' "C-x C-q makes the names editable"
+send 'M-<'
+send M-x
+sleep 0.3
+type_text 'Replace String'
+send Enter
+sleep 0.3
+type_text 'renamed.txt'
+send Enter
+sleep 0.3
+type_text 'final.txt'
+send Enter
+sleep 0.5
+send C-c C-c
+expect '1 file renamed.' "C-c C-c renames what was edited"
+checks=$((checks + 1))
+if [ -e "$D/final.txt" ] && [ ! -e "$D/renamed.txt" ]; then
+    echo "  ok    and the file has its new name"
+else
+    echo "  FAIL  and the file has its new name"; ls -la "$D" | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+expect '(Dired)' "and Dired is back"
 send C-x k
 sleep 0.5
 send Enter

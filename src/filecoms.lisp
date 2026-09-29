@@ -1015,6 +1015,10 @@
                          (format nil "~,1F~C" size unit)
                          (format nil "~D~C" (round size) unit)))))
 
+(defvar *directory-name-prefix* ""
+  "Put before each name PRINT-DIRECTORY-VERBOSE lists: Dired's inserted
+subdirectories list their files as sub/file.")
+
 (defvar *directory-sort* :name
   "How PRINT-DIRECTORY-VERBOSE orders its files: :NAME, :DATE (newest first)
 or :SIZE (largest first).")
@@ -1072,7 +1076,7 @@ or :SIZE (largest first).")
                           (or name uid)
                           (human-size size)
                           (decode-universal-time-for-files mtime year)
-                          tail
+                          (concatenate 'string *directory-name-prefix* tail)
                           (= type isys:s-ifdir)
                           (and (= type isys:s-iflnk)
                                (ignore-errors (isys:readlink namestring))))))
