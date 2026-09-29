@@ -167,6 +167,20 @@ send C-a C-k
 type_text "$PWD/src/"
 send Enter
 expect 'abbrev.lisp' "and Dired lists it"
+expect_re '/src/  ([0-9]* entries, ' "a header names the directory, its entries and their size"
+expect_re ' [0-9.]*K [A-Z][a-z][a-z] ' "sizes are human-readable"
+checks=$((checks + 1))
+if screen | grep -q -E '^  [dlpscb-][rwxs-]{9}[0-9]'; then
+    echo "  FAIL  the link count has a column of its own"
+    screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+else
+    echo "  ok    the link count has a column of its own"
+fi
+send h
+expect 'Showing hidden files.' "h shows the hidden files"
+send g
+sleep 0.5
 send C-x k
 sleep 0.5
 send Enter

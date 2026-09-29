@@ -250,15 +250,14 @@
                   :trim t)
                  (dired-info-file-list dir-info))
                 (list (dired-file-pathname
-                       (array-element-from-mark mark files)))))
+                       (dired-file-at mark files)))))
            (note-char (if deletep #\D #\space)))
       (with-writable-buffer ((current-buffer))
         (dolist (f del-files)
           (let* ((pos (position f files :test #'equal
                                 :key #'dired-file-pathname))
                  (dired-file (svref files pos)))
-            (buffer-start mark)
-            (line-offset mark pos 0)
+            (dired-file-line mark pos)
             (setf (dired-file-deleted-p dired-file) deletep)
             (if deletep
                 (setf (dired-file-write-date dired-file)
@@ -282,7 +281,7 @@
   (let ((point (current-point)))
     (when (blank-line-p (mark-line point)) (editor-error "Not on a file line."))
     (let ((pathname (dired-file-pathname
-                     (array-element-from-mark
+                     (dired-file-at
                       point (dired-info-files (value dired-information))))))
       (if (directoryp pathname)
           (dired-command nil (directory-namestring pathname))
@@ -297,7 +296,7 @@
   (let ((point (current-point)))
     (when (blank-line-p (mark-line point)) (editor-error "Not on a file line."))
     (let ((pathname (dired-file-pathname
-                     (array-element-from-mark
+                     (dired-file-at
                       point (dired-info-files (value dired-information))))))
       (if (directoryp pathname)
           (dired-command nil (directory-namestring pathname))
@@ -340,6 +339,18 @@
 
 
 ;;;; Dired misc. commands -- update, help, line motion.
+
+(defcommand "Dired Toggle Hidden Files" (p)
+  "Show the files whose names start with a dot, or hide them again."
+  "Show or hide dot files."
+  (declare (ignore p))
+  (unless (heml-bound-p 'dired-information)
+    (editor-error "Not in Dired buffer."))
+  (let ((info (value dired-information)))
+    (setf (dired-info-dot-files-p info) (not (dired-info-dot-files-p info)))
+    (update-dired-buffer (dired-info-pathname info) (dired-info-pattern info)
+                         (current-buffer))
+    (message "~:[Hiding~;Showing~] hidden files." (dired-info-dot-files-p info))))
 
 (defcommand "Dired Update Buffer" (p)
   "Recompute the contents of a dired buffer.
@@ -385,14 +396,13 @@
                       (when (= (dired-file-write-date old-file) write-date)
                         (setf (dired-file-deleted-p new-file) t)
                         (setf (dired-file-write-date new-file) write-date)
-                        (setf (next-character
-                               (line-offset (buffer-start point) pos 0))
+                        (setf (next-character (dired-file-line (copy-mark point :temporary) pos))
                               #\D))))))))
           (setf (dired-info-files dir-info) new-dired-files)
           (setf (dired-info-file-list dir-info) pathnames)
           (setf (dired-info-write-date dir-info)
                 (file-write-date directory))
-          (move-mark point (buffer-start-mark buffer)))))))
+          (dired-file-line point 0))))))
 
 ;;; DIRED-IN-BUFFER inserts a dired listing of directory in buffer returning
 ;;; two values: a list of pathnames of files only, and an array of dired-file
@@ -418,11 +428,42 @@
         (delete-characters point -2)
         (delete-region (line-to-region (mark-line (buffer-start point))))
         (delete-characters point)
+        ;; The header: which directory, and how much is in it.  It starts in
+        ;; the first column, where a file line has its deletion flag, so line
+        ;; motion over files never stops on it.
+        (with-mark ((start (buffer-start-mark buffer) :left-inserting))
+          (insert-string start (format nil "~A  (~D entr~:@P, ~A)~%"
+                                       (namestring (if pattern
+                                                       (merge-pathnames directory pattern)
+                                                       directory))
+                                       (length pathnames)
+                                       (human-size *directory-total-size*))))
         (do ((p pathnames (cdr p))
              (i 0 (1+ i)))
             ((null p))
           (setf (svref dired-files i) (make-dired-file (car p))))
+        (dired-file-line point 0)
         (values (delete-if #'directoryp pathnames) dired-files)))))
+
+;;; A Dired buffer is a header line and then a line for each file, in the
+;;; order of the files vector.
+;;;
+(defconstant +dired-header-lines+ 1)
+
+(defun dired-file-at (mark files)
+  "The dired-file whose line MARK is on."
+  (let ((index (- (count-lines (region (buffer-start-mark (line-buffer (mark-line mark)))
+                                       mark))
+                  1 +dired-header-lines+)))
+    (when (or (blank-line-p (mark-line mark)) (not (< -1 index (length files))))
+      (editor-error "Not on a file line."))
+    (aref files index)))
+
+(defun dired-file-line (mark index)
+  "Move MARK to the start of the INDEXth file's line, and return it."
+  (buffer-start mark)
+  (line-offset mark (+ index +dired-header-lines+) 0)
+  mark)
 
 
 (defcommand "Dired Help" (p)
@@ -567,7 +608,7 @@
   (let* ((point (current-point))
          (confirm (value dired-copy-file-confirm))
          (source (dired-file-pathname
-                  (array-element-from-mark
+                  (dired-file-at
                    point (dired-info-files (value dired-information)))))
          (dest (prompt-for-file
                 :prompt (if (directoryp source)
@@ -589,7 +630,7 @@
   (declare (ignore p))
   (let* ((point (current-point))
          (source (dired-namify (dired-file-pathname
-                                (array-element-from-mark
+                                (dired-file-at
                                  point
                                  (dired-info-files (value dired-information))))))
          (dest (prompt-for-file
@@ -883,3 +924,44 @@
   "Shows \"View\" mode help message."
   (declare (ignore p))
   (describe-mode-command nil "View"))
+
+
+
+;;;; Colours.
+
+;;; The header is bold; a directory is blue, a symbolic link cyan and an
+;;; executable green; a file flagged for deletion is red all along.
+;;;
+(defparameter *dired-line-scanner*
+  (cl-ppcre:create-scanner
+   "^(.) ([dlpscb-])\\S{9}\\s+\\d+\\s+\\S+\\s+\\S+\\s+\\w{3}\\s+\\d+\\s+(?:\\d\\d:\\d\\d|\\d{4}) "))
+
+(defun dired-line-fonts (string)
+  "Where LINE's colours start, as ((POSITION . FONT) ...)."
+  (multiple-value-bind (start end) (cl-ppcre:scan *dired-line-scanner* string)
+    (cond
+      ((zerop (length string)) '())
+      ((not start)
+       (if (member (char string 0) '(#\Space #\D)) '() (list (cons 0 '(:bold t)))))
+      ((char= (char string 0) #\D) (list (cons 0 1)))
+      (t
+       (let ((font (case (char string 2)
+                     (#\d '(:fg 4 :bold t))
+                     (#\l 6)
+                     (t (and (find #\x string :start 3 :end 12) 2)))))
+         (when font
+           (let ((arrow (search " -> " string :start2 end)))
+             (list* (cons end font)
+                    (when arrow (list (cons arrow 0)))))))))))
+
+(defun dired-highlight-line (line)
+  (let ((old (getf (line-plist line) 'dired-marks)))
+    (unless (and old (eq (car old) (line-signature line)))
+      (dolist (mark (cdr old))
+        (hi::delete-font-mark mark))
+      (setf (getf (line-plist line) 'dired-marks)
+            (cons (line-signature line)
+                  (loop for (position . font) in (dired-line-fonts (line-string line))
+                        collect (hi::font-mark line position font)))))))
+
+(define-mode-highlighter "Dired" 'dired-highlight-line)

@@ -983,7 +983,14 @@
                               (write-char ,name))
                          `(write-char ,name))
                     (write-char #\-))))
-    (frob 15 #\d nil nil t)
+    (write-char (case (logand mode isys:s-ifmt)
+                  (#.isys:s-ifdir #\d)
+                  (#.isys:s-iflnk #\l)
+                  (#.isys:s-ififo #\p)
+                  (#.isys:s-ifsock #\s)
+                  (#.isys:s-ifchr #\c)
+                  (#.isys:s-ifblk #\b)
+                  (t #\-)))
     (frob 8 #\r)
     (frob 7 #\w)
     (frob 6 #\x 11 #\s)
@@ -994,10 +1001,25 @@
     (frob 1 #\w)
     (frob 0 #\x)))
 
+(defvar *directory-total-size* 0
+  "The bytes in the files PRINT-DIRECTORY-VERBOSE listed last.")
+
+(defun human-size (bytes)
+  "BYTES as ls -h shows them: 912, 1.2K, 23K, 63M."
+  (if (< bytes 1024)
+      (princ-to-string bytes)
+      (loop for unit across "KMGTP"
+            for size = (/ bytes 1024.0) then (/ size 1024.0)
+            when (or (< size 1024) (char= unit #\P))
+              return (if (< size 10)
+                         (format nil "~,1F~C" size unit)
+                         (format nil "~D~C" (round size) unit)))))
+
 (defun print-directory-verbose (pathname all return-list)
   (let* ((contents (%directory pathname all))
          (result nil)
          (n (length contents)))
+    (setf *directory-total-size* 0)
     (format t "Directory of ~A:~%" (namestring pathname))
     (iter:iter (iter:for file in contents)
                (iter:for i from 0)
@@ -1028,15 +1050,18 @@
               (multiple-value-bind (sec min hour date month year)
                   (get-decoded-time)
                 (declare (ignore sec min hour date month))
-                (let ((name (cdr (assoc :name (iolib.os:user-info uid)))))
-                  (format t "~2D ~8A ~8D ~12A ~A~@[/~]~%"
+                (let ((name (cdr (assoc :name (iolib.os:user-info uid))))
+                      (type (logand mode isys:s-ifmt)))
+                  (incf *directory-total-size* size)
+                  (format t " ~2D ~8A ~5@A ~12A ~A~:[~;/~]~@[ -> ~A~]~%"
                           nlink
                           (or name uid)
-                          size
+                          (human-size size)
                           (decode-universal-time-for-files mtime year)
                           tail
-                          (= (logand mode isys:s-ifmt)
-                             isys:s-ifdir))))
+                          (= type isys:s-ifdir)
+                          (and (= type isys:s-iflnk)
+                               (ignore-errors (isys:readlink namestring))))))
               ;;
               ;; return
               (when return-list

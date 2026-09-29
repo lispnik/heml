@@ -486,6 +486,35 @@ café λ 日本語 end")
   (press-menu #\0) (settle)
   (check "Cmd-0 goes back to the default" (= heml.cocoa:*font-size* 13))
 
+  (note "dired")
+  ;; A directory of its own: flagging a file must not risk a real one.
+  (let ((directory (merge-pathnames "dired/" *out*)))
+    (ensure-directories-exist (merge-pathnames "a-directory/" directory))
+    (with-open-file (out (merge-pathnames "a-file.txt" directory)
+                         :direction :output :if-exists :supersede)
+      (write-line "x" out))
+    (post (list :command "Dired" (namestring directory)))
+    (settle)
+    (check "Dired lists a directory, with a header"
+           (and (equal "Dired" (hi::buffer-major-mode (hi::current-buffer)))
+                (not (eq :none (row-runs-containing "(2 entries, ")))))
+    (check "a directory is blue and bold"
+           (equal '(:fg 4 :bold t) (run-font-at "a-directory/" 0)))
+    ;; C-d flags the file on point's line and C-u clears it, neither moving.
+    (post-key #\d "Control")
+    (settle)
+    (check "a file flagged for deletion is red"
+           (eql 1 (run-font-at "D " 0)))
+    (post-key #\u "Control")
+    (settle)
+    (post-key #\x "Control") (post-key #\k)
+    (settle)
+    (post (list :named "Return" (quote ())))
+    (settle)
+    (check "and nothing was deleted"
+           (and (probe-file (merge-pathnames "a-file.txt" directory))
+                (probe-file (merge-pathnames "a-directory/" directory)))))
+
   (note "text styles")
   (let ((file (merge-pathnames "styles.txt" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)

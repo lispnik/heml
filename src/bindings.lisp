@@ -657,6 +657,8 @@
 
 (bind-key "Dired Expunge Files" #k"!" :mode "Dired")
 (bind-key "Dired Update Buffer" #k"hyper-u" :mode "Dired")
+(bind-key "Dired Update Buffer" #k"g" :mode "Dired")
+(bind-key "Dired Toggle Hidden Files" #k"h" :mode "Dired")
 ;; (bind-key "Dired View File" #k"space" :mode "Dired")
 (bind-key "Dired Edit File" #k"space" :mode "Dired")
 (bind-key "Dired Edit File" #k"e" :mode "Dired")
