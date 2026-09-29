@@ -181,6 +181,88 @@ send h
 expect 'Showing hidden files.' "h shows the hidden files"
 send g
 sleep 0.5
+
+# Marks and operations, in a directory of the test's own.
+send C-x k
+sleep 0.5
+send Enter
+sleep 0.5
+D=$PWD/build/smoke-tty-dired
+rm -rf "$D"
+mkdir -p "$D/sub"
+printf 'one\n' > "$D/a.txt"
+printf 'two\n2\n' > "$D/b.txt"
+printf 'three\n' > "$D/c.log"
+send C-x d
+sleep 0.5
+send C-a C-k
+type_text "$D/"
+send Enter
+expect 'c.log' "Dired lists the test's directory"
+send m m
+expect_re '^\* .*b\.txt' "m marks files"
+send C
+expect 'Copy 2 files to directory:' "C copies the marked files"
+send C-a C-k
+type_text "$D/sub/"
+send Enter
+sleep 1
+checks=$((checks + 1))
+if [ -f "$D/sub/a.txt" ] && [ -f "$D/sub/b.txt" ]; then
+    echo "  ok    into the directory given"
+else
+    echo "  FAIL  into the directory given"; ls -la "$D/sub" | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+send U
+sleep 0.5
+checks=$((checks + 1))
+if screen | grep -q '^\* '; then
+    echo "  FAIL  U unmarks everything"; failures=$((failures + 1))
+else
+    echo "  ok    U unmarks everything"
+fi
+send +
+expect 'Create directory:' "+ asks for a new directory"
+type_text 'newdir'
+send Enter
+expect 'newdir/' "and makes it"
+send 'M-<' C-n C-n C-n
+send M
+expect 'Mode (octal) for c.log' "M asks for c.log's mode"
+type_text '600'
+send Enter
+expect_re '^  -rw------- .*c\.log' "and changes it"
+send Z
+expect 'c.log.gz' "Z compresses a file"
+send 'M-<' C-n
+send '!'
+expect '! on a.txt:' "! asks for a command for the file under point"
+type_text 'wc -l'
+send Enter
+expect_re '1 a\.txt' "and runs it"
+send R
+expect 'Move a.txt to:' "R asks where a file goes"
+send C-a C-k
+type_text "$D/renamed.txt"
+send Enter
+expect 'renamed.txt' "and renames it"
+send 'M-<' C-n
+send D
+expect 'Really delete files?' "D asks before deleting"
+send y
+sleep 1
+checks=$((checks + 1))
+if [ ! -e "$D/b.txt" ] && [ -e "$D/renamed.txt" ] && [ -e "$D/c.log.gz" ]; then
+    echo "  ok    and deletes only the file under point"
+else
+    echo "  FAIL  and deletes only the file under point"; ls -la "$D" | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+send C-x k
+sleep 0.5
+send Enter
+sleep 0.5
 send C-x k
 sleep 0.5
 send Enter

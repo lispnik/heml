@@ -39,7 +39,8 @@
 (defstruct (dired-file (:print-function print-dired-file)
                        (:constructor make-dired-file (pathname)))
   pathname
-  (deleted-p nil)
+  (deleted-p nil)                       ; flagged for deletion, shown as D
+  (marked-p nil)                        ; marked for an operation, shown as *
   (write-date nil))
 
 (defun print-dired-file (obj str n)
@@ -373,6 +374,23 @@
 ;;; and the write date is the same for both specifications.
 ;;;
 (defun update-dired-buffer (directory pattern buffer)
+  (let* ((dir-info (variable-value 'dired-information :buffer buffer))
+         (point (buffer-point buffer))
+         (old-index (max 0 (- (count-lines (region (buffer-start-mark buffer) point))
+                              1 +dired-header-lines+)))
+         (old-files (dired-info-files dir-info))
+         (old-pathname (and (< old-index (length old-files))
+                            (dired-file-pathname (svref old-files old-index)))))
+    (%update-dired-buffer directory pattern buffer)
+    ;; Point stays on its file, or where it was if that has gone.
+    (let* ((files (dired-info-files dir-info))
+           (index (or (and old-pathname
+                           (position old-pathname files :test #'equal
+                                                        :key #'dired-file-pathname))
+                      (min old-index (max 0 (1- (length files)))))))
+      (dired-file-line point index))))
+
+(defun %update-dired-buffer (directory pattern buffer)
   (with-writable-buffer (buffer)
     (delete-region (buffer-region buffer))
     (let ((dir-info (variable-value 'dired-information :buffer buffer)))
@@ -398,6 +416,19 @@
                         (setf (dired-file-write-date new-file) write-date)
                         (setf (next-character (dired-file-line (copy-mark point :temporary) pos))
                               #\D))))))))
+          ;; Marks stay on files that are still there.
+          (dotimes (i (length old-dired-files))
+            (let ((old-file (svref old-dired-files i)))
+              (when (dired-file-marked-p old-file)
+                (let ((pos (position (dired-file-pathname old-file)
+                                     new-dired-files :test #'equal
+                                     :key #'dired-file-pathname)))
+                  (when pos
+                    (let ((new-file (svref new-dired-files pos)))
+                      (setf (dired-file-marked-p new-file) t)
+                      (unless (dired-file-deleted-p new-file)
+                        (setf (next-character (dired-file-line (copy-mark point :temporary) pos))
+                              #\*))))))))
           (setf (dired-info-files dir-info) new-dired-files)
           (setf (dired-info-file-list dir-info) pathnames)
           (setf (dired-info-write-date dir-info)
@@ -496,7 +527,7 @@
             (return-from dired-line-offset nil))
           (when (blank-line-p (mark-line m))
             (return-from dired-line-offset nil))
-          (when (char= (next-character m) #\space)
+          (when (member (next-character m) '(#\space #\*))
             (return)))))))
 
 
@@ -930,7 +961,8 @@
 ;;;; Colours.
 
 ;;; The header is bold; a directory is blue, a symbolic link cyan and an
-;;; executable green; a file flagged for deletion is red all along.
+;;; executable green; a file flagged for deletion is red all along, and a
+;;; marked one bold yellow.
 ;;;
 (defparameter *dired-line-scanner*
   (cl-ppcre:create-scanner
@@ -944,6 +976,7 @@
       ((not start)
        (if (member (char string 0) '(#\Space #\D)) '() (list (cons 0 '(:bold t)))))
       ((char= (char string 0) #\D) (list (cons 0 1)))
+      ((char= (char string 0) #\*) (list (cons 0 '(:fg 3 :bold t))))
       (t
        (let ((font (case (char string 2)
                      (#\d '(:fg 4 :bold t))
@@ -965,3 +998,267 @@
                         collect (hi::font-mark line position font)))))))
 
 (define-mode-highlighter "Dired" 'dired-highlight-line)
+
+
+
+;;;; Marks, and operations on the marked files.
+
+;;; A file is marked with *, and an operation acts on the marked files, or
+;;; on the file under point when none is marked.  D, a deletion flag, is
+;;; separate: x (or q) deletes what is flagged.
+
+(defun dired-files ()
+  (unless (heml-bound-p 'dired-information)
+    (editor-error "Not in Dired buffer."))
+  (dired-info-files (value dired-information)))
+
+(defun dired-show-state (index)
+  "Put the INDEXth file's flag in the first column of its line."
+  (let ((file (svref (dired-files) index)))
+    (with-writable-buffer ((current-buffer))
+      (with-mark ((mark (current-point)))
+        (dired-file-line mark index)
+        (setf (next-character mark)
+              (cond ((dired-file-deleted-p file) #\D)
+                    ((dired-file-marked-p file) #\*)
+                    (t #\space)))))))
+
+(defun dired-index-at-point ()
+  (let ((files (dired-files)))
+    (position (dired-file-at (current-point) files) files)))
+
+(defun dired-targets ()
+  "The marked files' pathnames, or the one under point when none is marked."
+  (let ((marked (loop for file across (dired-files)
+                      when (dired-file-marked-p file)
+                        collect (dired-file-pathname file))))
+    (or marked
+        (list (dired-file-pathname (svref (dired-files) (dired-index-at-point)))))))
+
+(defun dired-set-mark (index value)
+  (let ((file (svref (dired-files) index)))
+    (setf (dired-file-marked-p file) value)
+    (unless value
+      (setf (dired-file-deleted-p file) nil
+            (dired-file-write-date file) nil))
+    (dired-show-state index)))
+
+(defcommand "Dired Mark" (p)
+  "Mark the file under point, or the next P files, and move down."
+  "Mark the file under point and move down."
+  (dotimes (i (or p 1))
+    (dired-set-mark (dired-index-at-point) t)
+    (dired-down-line (current-point))))
+
+(defcommand "Dired Unmark" (p)
+  "Remove the mark or deletion flag from the file under point, or the next P
+   files, and move down."
+  "Unmark the file under point and move down."
+  (dotimes (i (or p 1))
+    (dired-set-mark (dired-index-at-point) nil)
+    (dired-down-line (current-point))))
+
+(defcommand "Dired Unmark All" (p)
+  "Remove every mark and deletion flag."
+  "Remove every mark and deletion flag."
+  (declare (ignore p))
+  (dotimes (i (length (dired-files)))
+    (let ((file (svref (dired-files) i)))
+      (when (or (dired-file-marked-p file) (dired-file-deleted-p file))
+        (dired-set-mark i nil)))))
+
+(defcommand "Dired Toggle Marks" (p)
+  "Mark the unmarked files and unmark the marked ones.  Files flagged for
+   deletion are left as they are."
+  "Toggle the marks."
+  (declare (ignore p))
+  (dotimes (i (length (dired-files)))
+    (let ((file (svref (dired-files) i)))
+      (unless (dired-file-deleted-p file)
+        (dired-set-mark i (not (dired-file-marked-p file)))))))
+
+(defcommand "Dired Mark with Pattern" (p)
+  "Mark the files whose names match a pattern with a single *."
+  "Mark the files matching a pattern."
+  (declare (ignore p))
+  (let* ((matches (dired:pathnames-from-pattern
+                   (prompt-for-string :prompt "Mark files matching: "
+                                      :help "A file name with a single asterisk."
+                                      :trim t)
+                   (dired-info-file-list (value dired-information))))
+         (files (dired-files)))
+    (dolist (pathname matches)
+      (let ((index (position pathname files :test #'equal :key #'dired-file-pathname)))
+        (when index (dired-set-mark index t))))
+    (message "~D file~:P marked." (length matches))))
+
+(defun dired-refresh ()
+  "Show the directory as it now is, keeping marks and flags."
+  (let ((info (value dired-information)))
+    (update-dired-buffer (dired-info-pathname info) (dired-info-pattern info)
+                         (current-buffer))
+    (maintain-dired-consistency)))
+
+(defun dired-directory ()
+  (dired-info-pathname (value dired-information)))
+
+(defun dired-file-name (pathname)
+  "PATHNAME's last component: a file's name, or a directory's with its /."
+  (if (directoryp pathname)
+      (format nil "~A/" (car (last (pathname-directory pathname))))
+      (file-namestring pathname)))
+
+(defun dired-each-into-directory (verb targets function)
+  "Prompt for a directory and call FUNCTION with each target and where it goes
+   there; or, for one target, prompt for the whole new name."
+  (if (rest targets)
+      (let ((directory (prompt-for-file
+                        :prompt (format nil "~A ~D files to directory: " verb (length targets))
+                        :help "The directory they go into."
+                        :default (dired-directory)
+                        :must-exist nil)))
+        (unless (directoryp directory)
+          (setf directory (pathname (concatenate 'string (namestring directory) "/"))))
+        (dolist (target targets)
+          (funcall function target (merge-pathnames (dired-file-name target) directory))))
+      (let ((target (first targets)))
+        (funcall function target
+                 (prompt-for-file :prompt (format nil "~A ~A to: " verb (dired-file-name target))
+                                  :help "The new name."
+                                  :default target
+                                  :must-exist nil)))))
+
+(defmacro with-dired-functions (&body body)
+  `(let ((dired:*error-function* #'dired-error-function)
+         (dired:*report-function* #'dired-report-function)
+         (dired:*yesp-function* #'dired-yesp-function))
+     ,@body))
+
+(defcommand "Dired Copy" (p)
+  "Copy the marked files, or the file under point, to a directory or a new
+   name."
+  "Copy the marked files or the file under point."
+  (declare (ignore p))
+  (with-dired-functions
+    (dired-each-into-directory
+     "Copy" (dired-targets)
+     (lambda (from to)
+       (dired:copy-file (namestring from) (namestring to)
+                        :clobber (not (value dired-copy-file-confirm))))))
+  (dired-refresh))
+
+(defcommand "Dired Rename" (p)
+  "Rename the marked files, or the file under point, or move them into a
+   directory."
+  "Rename the marked files or the file under point."
+  (declare (ignore p))
+  (with-dired-functions
+    (dired-each-into-directory
+     "Move" (dired-targets)
+     (lambda (from to)
+       (dired:rename-file (namestring from) (namestring to)
+                          :clobber (not (value dired-rename-file-confirm))))))
+  (dired-refresh))
+
+(defcommand "Dired Delete" (p)
+  "Delete the marked files, or the file under point, after asking."
+  "Delete the marked files or the file under point."
+  (declare (ignore p))
+  (let ((targets (dired-targets))
+        (files (dired-files)))
+    (dolist (target targets)
+      (let ((index (position target files :test #'equal :key #'dired-file-pathname)))
+        (setf (dired-file-deleted-p (svref files index)) t
+              (dired-file-write-date (svref files index)) (file-write-date target))))
+    (expunge-dired-files)
+    (dired-refresh)))
+
+(defcommand "Dired Create Directory" (p)
+  "Make a directory, named relative to this one."
+  "Make a directory."
+  (declare (ignore p))
+  (let ((name (prompt-for-string :prompt "Create directory: "
+                                 :help "The new directory's name, relative to this one."
+                                 :trim t)))
+    (ensure-directories-exist
+     (merge-pathnames (if (and (plusp (length name))
+                               (char= (char name (1- (length name))) #\/))
+                          name
+                          (concatenate 'string name "/"))
+                      (dired-directory))))
+  (dired-refresh))
+
+(defcommand "Dired Symlink" (p)
+  "Make symbolic links to the marked files, or the file under point."
+  "Make symbolic links."
+  (declare (ignore p))
+  (dired-each-into-directory
+   "Link" (dired-targets)
+   (lambda (from to)
+     (isys:symlink (string-right-trim "/" (namestring from))
+                   (string-right-trim "/" (namestring to)))))
+  (dired-refresh))
+
+(defcommand "Dired Change Mode" (p)
+  "Change the permissions of the marked files, or the file under point, to an
+   octal mode such as 644."
+  "Change permissions."
+  (declare (ignore p))
+  (let* ((targets (dired-targets))
+         (text (prompt-for-string :prompt (format nil "Mode (octal) for ~:[~A~;~*~D files~]: "
+                                                  (rest targets) (dired-file-name (first targets))
+                                                  (length targets))
+                                  :help "Permissions in octal, such as 644 or 755."
+                                  :trim t))
+         (mode (or (ignore-errors (parse-integer text :radix 8))
+                   (editor-error "~S is not an octal mode." text))))
+    (dolist (target targets)
+      (isys:chmod (string-right-trim "/" (namestring target)) mode)))
+  (dired-refresh))
+
+(defcommand "Dired Compress" (p)
+  "Compress the marked files, or the file under point, with gzip; one that is
+   already compressed (.gz) is uncompressed."
+  "Compress or uncompress with gzip."
+  (declare (ignore p))
+  (dolist (target (dired-targets))
+    (unless (directoryp target)
+      (let ((result (uiop:run-program (list (if (equalp (pathname-type target) "gz") "gunzip" "gzip")
+                                            (namestring target))
+                                      :ignore-error-status t
+                                      :error-output :string)))
+        (declare (ignore result)))))
+  (dired-refresh))
+
+(defcommand "Dired Shell Command" (p)
+  "Run a shell command on the marked files, or the file under point.  A * in
+   the command stands for the files; without one, they go at the end."
+  "Run a shell command on files."
+  (declare (ignore p))
+  (let* ((targets (dired-targets))
+         (names (format nil "~{~A~^ ~}"
+                        (mapcar (lambda (target)
+                                  (uiop:escape-sh-token
+                                   (string-right-trim "/" (dired-file-name target))))
+                                targets)))
+         (command (prompt-for-string :prompt (format nil "! on ~:[~A~;~*~D files~]: "
+                                                     (rest targets)
+                                                     (dired-file-name (first targets))
+                                                     (length targets))
+                                     :help "A shell command; * stands for the files."
+                                     :trim t))
+         (words (cl-ppcre:split "\\s+" command))
+         (line (if (member "*" words :test #'string=)
+                   (format nil "~{~A~^ ~}"
+                           (substitute names "*" words :test #'string=))
+                   (concatenate 'string command " " names)))
+         (output (uiop:run-program (list "/bin/sh" "-c" line)
+                                   :directory (dired-directory)
+                                   :output :string :error-output :output
+                                   :ignore-error-status t)))
+    ;; The refresh says how many files it read: the output is shown after.
+    (dired-refresh)
+    (if (find #\Newline (string-right-trim '(#\Newline) output))
+        (with-pop-up-display (s)
+          (write-string output s))
+        (message "~A" (string-right-trim '(#\Newline) output)))))

@@ -41,8 +41,9 @@
 (defconstant wildcard-char #\*
   "Wildcard designator for file names will match any substring.")
 
+;;; On ECL a namestring is not a simple string.
 (defmacro wildcardp (file-namestring)
-  `(position wildcard-char (the simple-string ,file-namestring) :test #'char=))
+  `(position wildcard-char (coerce ,file-namestring 'simple-string) :test #'char=))
 
 
 
@@ -286,14 +287,14 @@
           (t (do-the-copy ses-name1 ses-name2 secs1)))))
 
 (defun do-the-copy (ses-name1 ses-name2 secs1)
+  (declare (ignore secs1))
   (with-open-file (input ses-name1 :element-type '(unsigned-byte 8) :direction :input)
-    (with-open-file (output ses-name2 :element-type '(unsinged-byte 8) :direction :output
+    (with-open-file (output ses-name2 :element-type '(unsigned-byte 8) :direction :output
                             :if-exists :supersede)
-      (loop
-        (let ((byte (read-byte input nil nil)))
-          (unless byte
-            (return))
-          (write-byte byte output)))))
+      (let ((buffer (make-array 65536 :element-type '(unsigned-byte 8))))
+        (loop for count = (read-sequence buffer input)
+              while (plusp count)
+              do (write-sequence buffer output :end count)))))
   (funcall *report-function* "~&~S  ==>~%  ~S~%" ses-name1 ses-name2))
 
 
@@ -419,8 +420,8 @@
 (defun find-file-aux (the-file directory find-all-p &optional before after)
   (declare (simple-string the-file))
   (dolist (spec (directory directory))
-    (let* ((spec-ses-name (namestring spec))
-           (spec-file-name (file-namestring spec-ses-name)))
+    (let* ((spec-ses-name (coerce (namestring spec) 'simple-string))
+           (spec-file-name (coerce (file-namestring spec-ses-name) 'simple-string)))
       (declare (simple-string spec-ses-name spec-file-name))
       (if (directoryp spec)
           (find-file-aux the-file spec find-all-p before after)
