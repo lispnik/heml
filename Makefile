@@ -52,6 +52,14 @@ demo-cocoa:
 	ffmpeg -v error -y -framerate 10 -i build/demo/cocoa-frames/%05d.png \
 	  -c:v libx264 -pix_fmt yuv420p build/demo/heml-cocoa.mp4
 
+# Syntax highlighting, by mode and with tree-sitter:
+# build/demo/heml-tree-sitter.mp4.  Needs ffmpeg and `make tree-sitter'.
+demo-tree-sitter:
+	@mkdir -p build/demo
+	$(LISP) --load scripts/demo/tree-sitter.lisp
+	ffmpeg -v error -y -framerate 10 -i build/demo/tree-sitter-frames/%05d.png \
+	  -c:v libx264 -pix_fmt yuv420p build/demo/heml-tree-sitter.mp4
+
 # Both, after title cards: build/demo/heml.mp4.
 demo-full: demo demo-cocoa
 	scripts/demo/combine.sh
@@ -242,5 +250,5 @@ clean:
 
 FORCE:
 
-.PHONY: tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
+.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean
