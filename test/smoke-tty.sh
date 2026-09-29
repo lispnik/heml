@@ -161,6 +161,17 @@ type_text "$PWD/build/smoke-tty-new-file.txt"
 send Enter
 expect '(New File)' "C-x C-f on a new name starts a new file"
 
+send C-x d
+expect 'Edit Directory:' "C-x d asks for a directory to edit"
+send C-a C-k
+type_text "$PWD/src/"
+send Enter
+expect 'abbrev.lisp' "and Dired lists it"
+send C-x k
+sleep 0.5
+send Enter
+sleep 0.5
+
 send M-x
 expect 'Extended Command:' "Meta (ESC) prefixes: M-x prompts"
 type_text 'Shell'

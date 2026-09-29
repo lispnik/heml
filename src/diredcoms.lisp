@@ -99,9 +99,11 @@
                        :prompt "Filename pattern: "
                        :help "Type a filename with a single asterisk."
                        :trim t)))
-         (full-name (namestring (if pattern
-                                    (merge-pathnames directory pattern)
-                                    directory)))
+         ;; On ECL a namestring is not a simple string.
+         (full-name (coerce (namestring (if pattern
+                                            (merge-pathnames directory pattern)
+                                            directory))
+                            'simple-string))
          (name (concatenate 'simple-string "Dired " full-name))
          (buffer (cdr (assoc full-name *pathnames-to-dired-buffers*
                              :test #'string=))))

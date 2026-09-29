@@ -642,6 +642,7 @@
 
 ;;;; Dired.
 
+(bind-key "Dired" #k"control-x d")
 (bind-key "Dired" #k"control-x control-meta-d")
 
 (bind-key "Dired Delete File and Down Line" #k"d" :mode "Dired")
