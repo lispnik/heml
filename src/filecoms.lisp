@@ -81,10 +81,48 @@
             (setq no-major-mode nil)
             (funcall (cdr (assoc "mode" *mode-option-handlers* :test #'string=))
                      buffer (trim-subseq string start end)))))))
-    (when (and no-major-mode type)
-      (let ((hook (assoc (string-downcase type) *file-type-hooks*
-                         :test #'string=)))
-        (when hook (funcall (cdr hook) buffer type))))))
+    (when no-major-mode
+      (let ((hook (and type (assoc (string-downcase type) *file-type-hooks*
+                                   :test #'string=))))
+        (cond (hook (funcall (cdr hook) buffer type))
+              ;; A script without a type says what it is on its #! line.
+              ((let ((mode (interpreter-mode string)))
+                 (when mode
+                   (setf (buffer-major-mode buffer) mode)))))))))
+
+;;; A script names its interpreter on its first line: #!/bin/sh, or
+;;; #!/usr/bin/env python3.  The interpreter's name, without a version
+;;; (python3.12 is python), chooses the major mode.
+;;;
+(defvar *interpreter-modes* '()
+  "Interpreter names, as a #! line names them, to major mode names.")
+
+(defun define-interpreter-mode (names mode)
+  "Visit a file without a type whose #! line names one of NAMES in MODE."
+  (dolist (name names)
+    (setf *interpreter-modes*
+          (acons name mode (remove name *interpreter-modes* :key #'car :test #'string=))))
+  mode)
+
+(defun interpreter-name (line)
+  "The name of the interpreter LINE, a #! line, runs, or NIL."
+  (when (and (> (length line) 2) (string= "#!" line :end2 2))
+    (let* ((words (remove "" (cl-ppcre:split "\\s+" (subseq line 2)) :test #'string=))
+           (program (first words))
+           (name (and program (subseq program (1+ (or (position #\/ program :from-end t) -1))))))
+      (when (equal name "env")
+        ;; /usr/bin/env [-S] [NAME=VALUE ...] PROGRAM
+        (let ((next (find-if (lambda (word)
+                               (not (or (char= (char word 0) #\-) (find #\= word))))
+                             (rest words))))
+          (setf name (and next (subseq next (1+ (or (position #\/ next :from-end t) -1)))))))
+      (when name
+        (string-right-trim "0123456789." name)))))
+
+(defun interpreter-mode (line)
+  (let ((name (interpreter-name line)))
+    (when name
+      (cdr (assoc name *interpreter-modes* :test #'string=)))))
 
 
 
@@ -143,6 +181,8 @@
 (define-file-type-hook ("lisp" "slisp" "l" "lsp" "mcl") (buffer type)
   (declare (ignore type))
   (setf (buffer-major-mode buffer) "Lisp"))
+
+(define-interpreter-mode '("sbcl" "ecl" "ccl" "clisp") "Lisp")
 
 (define-file-type-hook ("txt" "text" "tx") (buffer type)
   (declare (ignore type))
