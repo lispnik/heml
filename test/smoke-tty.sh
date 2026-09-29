@@ -247,13 +247,49 @@ send C-a C-k
 type_text "$D/renamed.txt"
 send Enter
 expect 'renamed.txt' "and renames it"
+send s
+expect 'by date)' "s sorts by date"
+send s
+expect 'by size)' "and by size"
+send s
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'by size)\|by date)'; then
+    echo "  FAIL  and by name again"; failures=$((failures + 1))
+else
+    echo "  ok    and by name again"
+fi
+touch "$D/appeared.txt"
+expect 'appeared.txt' "a file made outside Heml appears in the listing" 10
+send 'M-<' C-n
+send o
+sleep 1
+checks=$((checks + 1))
+if [ "$(screen | grep -c 'Heml CL-USER:')" -ge 2 ] && screen | grep -q 'CL-USER:.*appeared.txt'; then
+    echo "  ok    o visits the file in the other window"
+else
+    echo "  FAIL  o visits the file in the other window"; screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+send C-x o
+sleep 0.3
+send C-x 1
+sleep 0.5
+send v
+expect 'View' "v views the file"
+send q
+expect '(Dired)' "and q goes back to Dired"
 send 'M-<' C-n
 send D
-expect 'Really delete files?' "D asks before deleting"
+if [ -x /usr/bin/trash ]; then
+    expect 'Move 1 file to the Trash?' "D asks before moving a file to the Trash"
+else
+    expect 'Really delete files?' "D asks before deleting"
+fi
 send y
 sleep 1
 checks=$((checks + 1))
-if [ ! -e "$D/b.txt" ] && [ -e "$D/renamed.txt" ] && [ -e "$D/c.log.gz" ]; then
+if [ ! -e "$D/appeared.txt" ] && [ -e "$D/b.txt" ] && [ -e "$D/renamed.txt" ] && [ -e "$D/c.log.gz" ]; then
     echo "  ok    and deletes only the file under point"
 else
     echo "  FAIL  and deletes only the file under point"; ls -la "$D" | sed 's/^/        | /'

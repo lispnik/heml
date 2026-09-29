@@ -27,6 +27,7 @@
   pathname              ; Pathname of directory.
   pattern               ; FILE-NAMESTRING with wildcard possibly.
   dot-files-p           ; Whether to include UNIX dot files.
+  (sort :name)          ; :NAME, :DATE or :SIZE.
   write-date            ; Write date of directory.
   files                 ; Simple-vector of dired-file structures.
   file-list)            ; List of pathnames for files, excluding directories.
@@ -42,6 +43,11 @@
   (deleted-p nil)                       ; flagged for deletion, shown as D
   (marked-p nil)                        ; marked for an operation, shown as *
   (write-date nil))
+
+;;; A Dired buffer is a header line and then a line for each file, in the
+;;; order of the files vector.
+;;;
+(defconstant +dired-header-lines+ 1)
 
 (defun print-dired-file (obj str n)
   (declare (ignore n))
@@ -86,6 +92,7 @@
   (dired-guts t p nil))
 
 (defun dired-guts (patternp dot-files-p directory)
+  (start-dired-watch)
   (let* ((dpn (value pathname-defaults))
          (directory (or directory
                         (prompt-for-file
@@ -150,7 +157,7 @@
           :value (make-dired-information :pathname directory
                                          :pattern pattern
                                          :dot-files-p dot-files-p
-                                         :write-date (file-write-date directory)
+                                         :write-date (dired-directory-signature directory)
                                          :files dired-files
                                          :file-list pathnames)))))
 
@@ -397,7 +404,8 @@
       (multiple-value-bind (pathnames new-dired-files)
                            (dired-in-buffer directory pattern
                                             (dired-info-dot-files-p dir-info)
-                                            buffer)
+                                            buffer
+                                            (dired-info-sort dir-info))
         (let ((point (buffer-point buffer))
               (old-dired-files (dired-info-files dir-info)))
           (declare (simple-vector old-dired-files))
@@ -432,7 +440,7 @@
           (setf (dired-info-files dir-info) new-dired-files)
           (setf (dired-info-file-list dir-info) pathnames)
           (setf (dired-info-write-date dir-info)
-                (file-write-date directory))
+                (dired-directory-signature directory))
           (dired-file-line point 0))))))
 
 ;;; DIRED-IN-BUFFER inserts a dired listing of directory in buffer returning
@@ -442,8 +450,9 @@
 ;;; and trailing lines known to be in the output (into every code a little
 ;;; slime must fall).
 ;;;
-(defun dired-in-buffer (directory pattern dot-files-p buffer)
-  (let ((point (buffer-point buffer)))
+(defun dired-in-buffer (directory pattern dot-files-p buffer &optional (sort :name))
+  (let ((point (buffer-point buffer))
+        (*directory-sort* sort))
     (with-writable-buffer (buffer)
       (let* ((pathnames (call-print-directory
 			 (if pattern
@@ -463,12 +472,13 @@
         ;; the first column, where a file line has its deletion flag, so line
         ;; motion over files never stops on it.
         (with-mark ((start (buffer-start-mark buffer) :left-inserting))
-          (insert-string start (format nil "~A  (~D entr~:@P, ~A)~%"
+          (insert-string start (format nil "~A  (~D entr~:@P, ~A~@[, by ~(~A~)~])~%"
                                        (namestring (if pattern
                                                        (merge-pathnames directory pattern)
                                                        directory))
                                        (length pathnames)
-                                       (human-size *directory-total-size*))))
+                                       (human-size *directory-total-size*)
+                                       (unless (eq sort :name) sort))))
         (do ((p pathnames (cdr p))
              (i 0 (1+ i)))
             ((null p))
@@ -476,10 +486,6 @@
         (dired-file-line point 0)
         (values (delete-if #'directoryp pathnames) dired-files)))))
 
-;;; A Dired buffer is a header line and then a line for each file, in the
-;;; order of the files vector.
-;;;
-(defconstant +dired-header-lines+ 1)
 
 (defun dired-file-at (mark files)
   "The dired-file whose line MARK is on."
@@ -587,7 +593,10 @@
           (we-did-something nil))
       (when (and marked-files
                  (or (not (value dired-file-expunge-confirm))
-                     (prompt-for-y-or-n :prompt "Really delete files? "
+                     (prompt-for-y-or-n :prompt (if (dired-trash-p)
+                                                    (format nil "Move ~D file~:P to the Trash? "
+                                                            (length marked-files))
+                                                    "Really delete files? ")
                                         :default t
                                         :must-exist t
                                         :default-string "Y")))
@@ -596,8 +605,7 @@
           (let ((pathname (car file-info))
                 (write-date (cdr file-info)))
             (if (= write-date (file-write-date pathname))
-                (dired:delete-file (namestring pathname) :clobber t
-                                   :recursive nil)
+                (dired-remove pathname nil)
                 (message "~A has been modified, it remains unchanged."
                          (namestring pathname))))))
       (when marked-dirs
@@ -607,13 +615,14 @@
             (if (= write-date (file-write-date dir))
                 (when (or (not (value dired-directory-expunge-confirm))
                           (prompt-for-y-or-n
-                           :prompt (list "~a is a directory. Delete it? "
+                           :prompt (list (if (dired-trash-p)
+                                             "~a is a directory. Move it to the Trash? "
+                                             "~a is a directory. Delete it? ")
                                          (directory-namestring dir))
                            :default t
                            :must-exist t
                            :default-string "Y"))
-                  (dired:delete-file (directory-namestring dir) :clobber t
-                                     :recursive t)
+                  (dired-remove dir t)
                   (setf we-did-something t))
                 (message "~A has been modified, it remains unchanged.")))))
       we-did-something)))
@@ -797,13 +806,25 @@
                        :clobber (not (value dired-rename-file-confirm))))
   (maintain-dired-consistency))
 
+;;; What changes when a directory's entries do: its modification time, which
+;;; is kept to the second, and its size, which on APFS follows the number of
+;;; entries, so that two changes in one second are not missed.  NIL when the
+;;; directory cannot be read.
+;;;
+(defun dired-directory-signature (directory)
+  (ignore-errors
+   (let ((stat (isys:stat (string-right-trim "/" (directory-namestring directory)))))
+     (list (isys:stat-mtime stat) (isys:stat-size stat)))))
+
 (defun maintain-dired-consistency ()
   (dolist (info *pathnames-to-dired-buffers*)
     (let* ((directory (directory-namestring (car info)))
            (buffer (cdr info))
            (dir-info (variable-value 'dired-information :buffer buffer))
-           (write-date (file-write-date directory)))
-      (unless (= (dired-info-write-date dir-info) write-date)
+           (write-date (dired-directory-signature directory)))
+      ;; A directory that has gone is left as it was last listed.
+      (when (and write-date
+                 (not (equal (dired-info-write-date dir-info) write-date)))
         (update-dired-buffer directory (dired-info-pattern dir-info) buffer)))))
 
 
@@ -1262,3 +1283,99 @@
         (with-pop-up-display (s)
           (write-string output s))
         (message "~A" (string-right-trim '(#\Newline) output)))))
+
+
+
+;;;; The Trash.
+
+(defhvar "Dired Delete to Trash"
+  "When true, and macOS's trash command is there, files Dired deletes go to
+   the Trash, whence Finder can put them back, rather than being deleted for
+   good."
+  :value t)
+
+(defparameter *trash-program* "/usr/bin/trash")
+
+(defun dired-trash-p ()
+  (and (value dired-delete-to-trash) (probe-file *trash-program*) t))
+
+(defun dired-remove (pathname directoryp)
+  "Move PATHNAME to the Trash, or delete it, as \"Dired Delete to Trash\" says."
+  (let ((name (if directoryp
+                  (string-right-trim "/" (directory-namestring pathname))
+                  (namestring pathname))))
+    (if (dired-trash-p)
+        (multiple-value-bind (output error status)
+            (uiop:run-program (list *trash-program* name)
+                              :ignore-error-status t :error-output :string)
+          (declare (ignore output))
+          (unless (zerop status)
+            (message "Could not move ~A to the Trash: ~A" name error)))
+        (dired:delete-file (if directoryp (directory-namestring pathname) name)
+                           :clobber t :recursive directoryp))))
+
+
+
+;;;; Sorting, opening, and keeping up.
+
+(defcommand "Dired Sort" (p)
+  "Sort by name, then by date (newest first), then by size (largest first),
+   each time this is run."
+  "Change the order files are listed in."
+  (declare (ignore p))
+  (let ((info (value dired-information)))
+    (setf (dired-info-sort info)
+          (ecase (dired-info-sort info) (:name :date) (:date :size) (:size :name)))
+    (update-dired-buffer (dired-info-pathname info) (dired-info-pattern info)
+                         (current-buffer))
+    (message "Sorted by ~(~A~)." (dired-info-sort info))))
+
+(defun dired-pathname-at-point ()
+  (dired-file-pathname (svref (dired-files) (dired-index-at-point))))
+
+(defcommand "Dired Edit File Other Window" (p)
+  "Visit the file under point in the other window, splitting this one if it
+   is the only one.  A directory is edited in Dired there."
+  "Visit the file under point in the other window."
+  (declare (ignore p))
+  (let* ((pathname (dired-pathname-at-point))
+         (window (if (> (length (remove *echo-area-window* *window-list*)) 1)
+                     (next-window (current-window))
+                     (or (make-window (window-display-start (current-window)))
+                         (editor-error "No room for another window.")))))
+    (setf (current-window) window)
+    (if (directoryp pathname)
+        (dired-command nil (directory-namestring pathname))
+        (change-to-buffer (find-file-buffer pathname)))))
+
+(defcommand "Dired Open Externally" (p)
+  "Open the marked files, or the file under point, with the application the
+   Mac opens them with."
+  "Open files with their default application."
+  (declare (ignore p))
+  (dolist (target (dired-targets))
+    (uiop:launch-program (list "/usr/bin/open" (string-right-trim "/" (namestring target))))))
+
+(defcommand "Dired Mouse Edit File" (p)
+  "Visit the file double-clicked, or Dired the directory."
+  "Visit the file double-clicked."
+  (mouse-set-point-command p)
+  (dired-edit-file-command nil))
+
+;;; A listing is brought up to date when its directory changes: every two
+;;; seconds, each Dired buffer whose directory's write date has moved is
+;;; listed again, keeping its marks, flags and point.
+;;;
+(defparameter +dired-watch-interval+ 2)
+
+(defvar *dired-watching* nil)
+
+(defun dired-watch (elapsed)
+  (declare (ignore elapsed))
+  (handler-case (maintain-dired-consistency)
+    (error () nil)))
+
+(defun start-dired-watch ()
+  (unless *dired-watching*
+    (schedule-event +dired-watch-interval+ #'dired-watch)
+    (setf *dired-watching* t)))

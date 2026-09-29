@@ -237,15 +237,14 @@
          (max 0 (- *redisplay-interval* (time-since-redisplay)))))
        ((not (internal-redisplay))
         (device-note-read-wait device t)
-        (let ((wait (and (not
-                          ;; Let's be extra careful here and prepare
-                          ;; for the case where key events have been
-                          ;; seen in the mean time, in which case we
-                          ;; must not wait here:
-                          (listen-editor-input editor-input))
-                         (next-scheduled-event-wait))))
-          (when wait
-            (dispatch-events))))))
+        ;; Unless key events arrived in the meantime, wait for input, but
+        ;; only until the next scheduled event is due, so that it runs on
+        ;; time rather than at the next keystroke.
+        (unless (listen-editor-input editor-input)
+          (let ((wait (next-scheduled-event-wait)))
+            (if wait
+                (dispatch-events-for wait)
+                (dispatch-events)))))))
     (device-note-read-wait device nil)
     (when (and (abort-key-event-p key-event)
                ;; ignore-abort-attempts-p must exist outside the macro.

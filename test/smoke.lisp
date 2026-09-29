@@ -507,6 +507,17 @@ café λ 日本語 end")
            (eql 1 (run-font-at "D " 0)))
     (post-key #\u "Control")
     (settle)
+    ;; A double click on a file visits it.
+    (let* ((rows (heml.cocoa::screen-shown-rows heml.cocoa::*screen*))
+           (line (position-if (lambda (row) (search "a-file.txt" (heml.cocoa::row-text row))) rows))
+           (column (and line (search "a-file.txt" (heml.cocoa::row-text (svref rows line))))))
+      (when line
+        (mouse :down (+ column 2) line) (mouse :up (+ column 2) line)
+        (mouse :down (+ column 2) line :clicks 2) (mouse :up (+ column 2) line :clicks 2)
+        (settle))
+      (check "a double click in Dired visits the file"
+             (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+               (and pathname (equal "a-file.txt" (file-namestring pathname))))))
     (post-key #\x "Control") (post-key #\k)
     (settle)
     (post (list :named "Return" (quote ())))

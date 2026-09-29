@@ -269,10 +269,13 @@
 ;;; the next event to happen.
 ;;;
 (defun next-scheduled-event-wait ()
+  "Seconds until the next scheduled event is due, exactly, or NIL when none
+   is scheduled.  Not rounded: a wait rounded down to 0 would have the input
+   loop poll, busily, until the event came due."
   (if *time-queue*
-      (let ((wait (round (- (tq-event-time (car *time-queue*))
-                            (get-internal-real-time))
-                         internal-time-units-per-second)))
+      (let ((wait (/ (- (tq-event-time (car *time-queue*))
+                        (get-internal-real-time))
+                     internal-time-units-per-second)))
         (if (plusp wait) wait 0))))
 
 ;;; INVOKE-SCHEDULED-EVENTS invokes all the functions in *time-queue* whose

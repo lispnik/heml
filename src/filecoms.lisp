@@ -1015,8 +1015,22 @@
                          (format nil "~,1F~C" size unit)
                          (format nil "~D~C" (round size) unit)))))
 
+(defvar *directory-sort* :name
+  "How PRINT-DIRECTORY-VERBOSE orders its files: :NAME, :DATE (newest first)
+or :SIZE (largest first).")
+
+(defun sort-directory (contents)
+  (flet ((stat-of (file key)
+           (or (ignore-errors
+                (funcall key (isys:lstat (iolib.pathnames:file-path-namestring file))))
+               0)))
+    (ecase *directory-sort*
+      (:name contents)
+      (:date (stable-sort contents #'> :key (lambda (file) (stat-of file #'isys:stat-mtime))))
+      (:size (stable-sort contents #'> :key (lambda (file) (stat-of file #'isys:stat-size)))))))
+
 (defun print-directory-verbose (pathname all return-list)
-  (let* ((contents (%directory pathname all))
+  (let* ((contents (sort-directory (%directory pathname all)))
          (result nil)
          (n (length contents)))
     (setf *directory-total-size* 0)
