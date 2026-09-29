@@ -29,8 +29,12 @@
 
 (heml.tree-sitter:define-tree-sitter-language "python" :mode "Python")
 
-;;; Lisp keeps its own highlighter (exp-syntax.lisp), but tree-sitter's Common
-;;; Lisp grammar is here to compare, and to switch to: its query is Neovim's,
-;;; and follows Neovim's rule that the later of two patterns wins.
+;;; Lisp is coloured by tree-sitter's Common Lisp grammar where it is
+;;; installed, and otherwise by Heml's own parser (exp-syntax.lisp), which
+;;; misses #| |# comments and colours less.  The query is Neovim's, and
+;;; follows Neovim's rule that the later of two patterns wins.
 ;;;
-(heml.tree-sitter:define-tree-sitter-language "commonlisp" :precedence :last)
+(heml.tree-sitter:define-tree-sitter-language "commonlisp"
+                                              :mode "Lisp"
+                                              :precedence :last
+                                              :fallback 'hi::line-tag)

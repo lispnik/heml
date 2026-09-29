@@ -35,9 +35,9 @@
   (with-open-file (s (merge-pathnames name *files*) :direction :output
                      :if-exists :supersede :if-does-not-exist :create)))
 
-;;; The same Lisp twice: once in Lisp mode, coloured by Heml's own parser,
-;;; and once in a mode made here for the demo, coloured by tree-sitter's
-;;; Common Lisp grammar.
+;;; The same Lisp twice: once in a mode made here for the demo, coloured by
+;;; Heml's own parser, and once in Lisp mode, which tree-sitter's Common Lisp
+;;; grammar colours.
 (defparameter *lisp* ";;;; Both highlighters, on the same Lisp.
 
 #| A block comment:
@@ -57,18 +57,17 @@
 #+sbcl (sb-ext:gc :full t)
 (list #\\( :key 3.14 #x1F nil t)
 ")
-(dolist (name '("both.lisp" "both.tslisp"))
+(dolist (name '("both.explisp" "both.lisp"))
   (with-open-file (s (merge-pathnames name *files*) :direction :output
                      :if-exists :supersede :if-does-not-exist :create)
     (write-string *lisp* s)))
 
 (in-package :heml)
-(defmode "Lisp/tree-sitter" :major-p t)
-(define-file-type-hook ("tslisp") (buffer type)
+(defmode "Lisp/exp-syntax" :major-p t)
+(define-file-type-hook ("explisp") (buffer type)
   (declare (ignore type))
-  (setf (buffer-major-mode buffer) "Lisp/tree-sitter"))
-(heml.tree-sitter:define-tree-sitter-language "commonlisp" :mode "Lisp/tree-sitter"
-                                              :precedence :last)
+  (setf (buffer-major-mode buffer) "Lisp/exp-syntax"))
+(define-mode-highlighter "Lisp/exp-syntax" 'hi::line-tag)
 (in-package :heml-demo)
 
 
@@ -243,11 +242,12 @@
   (type-lines '("Plain text: it's not code; \"quotes\" and (parens) stay plain."))
   (pause 2)
 
-  ;; The same Lisp, Heml's parser on the left, tree-sitter on the right.
-  (open-file "both.lisp")
+  ;; The same Lisp, Heml's parser on the left, Lisp mode's tree-sitter on
+  ;; the right.
+  (open-file "both.explisp")
   (post-key #\x "Control") (post-key #\3)
   (pause 0.8)
-  (open-file "both.tslisp")
+  (open-file "both.lisp")
   (post-key #\< "Meta")
   (pause 5)
 

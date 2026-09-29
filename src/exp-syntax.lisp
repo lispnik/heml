@@ -322,7 +322,7 @@
 (defun empty-syntax-info ()
   (make-syntax-info :frob nil (initial-syntax-state) nil))
 
-(declaim (special *mode-highlighters*))
+(declaim (special *mode-highlighters* *buffer-list*))
 
 (defun lisp-highlighted-p (line)
   "True when LINE's buffer is coloured by this file's Lisp parser.  Tags are
@@ -409,6 +409,10 @@ mode is MODE.  NIL removes it."
   (if function
       (setf (gethash mode *mode-highlighters*) function)
       (remhash mode *mode-highlighters*))
+  ;; Tags already computed made font marks, or not, by the highlighter
+  ;; before: they are computed again as they are drawn.
+  (dolist (buffer *buffer-list*)
+    (setf (buffer-tag-line-number buffer) 0))
   mode)
 
 (defun highlight-line (line)

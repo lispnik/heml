@@ -330,6 +330,20 @@ café λ 日本語 end")
                  (eql 2 (run-font-at "int main" 0)))
           (shot "tree-sitter"))
         (note "  skip  tree-sitter colouring: no tree-sitter or C grammar (make tree-sitter)")))
+  (let ((file (merge-pathnames "block.lisp" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (write-line "#| a block comment |#" out)
+      (write-line "(defun f (x &key y) (list x y :key))" out))
+    (post (list :open (namestring file)))
+    (settle)
+    (if (heml.tree-sitter::find-in-directories "lib/libtree-sitter-commonlisp.dylib")
+        (progn
+          (check "tree-sitter colours Lisp: a block comment is red"
+                 (eql 1 (run-font-at "#| a block" 0)))
+          (check "and &key is a keyword"
+                 (eql 5 (run-font-at "&key y" 0))))
+        (check "without tree-sitter's grammar, Heml's own parser colours Lisp"
+               (run-font-at "(defun f" 1))))
 
   (note "menus")
   (choose-menu-item "View" "Split Window")

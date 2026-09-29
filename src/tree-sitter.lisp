@@ -124,20 +124,28 @@ copies them to ~/.local/share/heml/tree-sitter/.")
   pointer              ; the TSLanguage
   query                ; the TSQuery
   fonts                ; capture index to font, or NIL for none
-  predicates)          ; pattern index to its predicates
+  predicates           ; pattern index to its predicates
+  problem)             ; why it could not be loaded, when it could not
 
 (defvar *languages* (make-hash-table :test 'equal))
 
-(defun define-tree-sitter-language (name &key mode (precedence :first))
+(defun define-tree-sitter-language (name &key mode (precedence :first) fallback)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
-come with grammars, or :LAST, Neovim's, followed by its queries."
+come with grammars, or :LAST, Neovim's, followed by its queries.  FALLBACK,
+when given, is MODE's highlighter instead, from the first time it is needed,
+if the grammar or its query cannot be loaded."
   (let ((language (%make-language :name name :precedence precedence)))
     (setf (gethash name *languages*) language)
     (when mode
       (heml-interface:define-mode-highlighter
-       mode (lambda (line) (highlight-line language line))))
+       mode (lambda (line)
+              (cond ((language-ready-p language)
+                     (highlight-line language line))
+                    (fallback
+                     (heml-interface:define-mode-highlighter mode fallback)
+                     (funcall fallback line))))))
     language))
 
 (defun language-ready-p (language)
@@ -145,9 +153,11 @@ come with grammars, or :LAST, Neovim's, followed by its queries."
   (unless (language-state language)
     (setf (language-state language)
           (handler-case (progn (load-language language) :ready)
+            ;; Said nowhere: the terminal editor's error output is its
+            ;; screen, and a mode without tree-sitter is simply not coloured.
+            ;; The reason stays here for anyone who asks.
             (error (condition)
-              (format *error-output* "~&tree-sitter: no highlighting for ~A: ~A~%"
-                      (language-name language) condition)
+              (setf (language-problem language) (princ-to-string condition))
               :missing))))
   (eq (language-state language) :ready))
 
