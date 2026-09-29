@@ -446,9 +446,9 @@
 
 (bind-key "Delete Previous Character Expanding Tabs" #k"backspace"
           :mode "Pascal")
-(bind-key "Scribe Insert Bracket" #k")" :mode "Pascal")
-(bind-key "Scribe Insert Bracket" #k"]" :mode "Pascal")
-(bind-key "Scribe Insert Bracket" #k"}" :mode "Pascal")
+(bind-key "Insert Close Bracket" #k")" :mode "Pascal")
+(bind-key "Insert Close Bracket" #k"]" :mode "Pascal")
+(bind-key "Insert Close Bracket" #k"}" :mode "Pascal")
 
 
 ;;;; Auto Fill Mode.
@@ -538,15 +538,6 @@
 
 
 
-;;;; Scribe Mode.
-
-(dolist (key (list #k"]" #k")" #k"}" #k"\>"))
-  (bind-key "Scribe Insert Bracket" key :mode "Scribe"))
-
-(bind-key "Select Scribe Warnings" #k"control-meta-C" :mode "Scribe")
-
-(bind-key "Insert Scribe Directive" #k"hyper-i" :mode "Scribe")
-
 
 ;;;; Process (Shell).
 

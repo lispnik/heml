@@ -206,9 +206,7 @@
                (:file "abbrev")
                (:file "icom")
                (:file "defsyn")
-               (:file "scribe")
                (:file "pascal")
-               (:file "dylan" :depends-on ("filecoms"))
 
                (:file "edit-defs")
                (:file "auto-save")
