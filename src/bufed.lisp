@@ -318,7 +318,7 @@ then the others under no heading."
         (here (current-window)))
     (setf (current-window) (bufed-other-window))
     (change-to-buffer buffer)
-    (setf (current-window) here)))
+    (select-window here)))
 
 (defun bufed-other-window ()
   (if (> (length (remove *echo-area-window* *window-list*)) 1)

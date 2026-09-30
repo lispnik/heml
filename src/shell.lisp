@@ -72,6 +72,11 @@
     :initarg :heml-stream
     :accessor shell-filter-stream-heml-stream
     :documentation "The Heml stream to which output will be directed")
+   (lines
+    :initform nil
+    :accessor shell-filter-stream-lines
+    :documentation "About how many lines the buffer holds, or NIL until
+     they are first counted.")
    (pending-escape
     :initform nil
     :accessor shell-filter-stream-pending-escape
@@ -88,11 +93,15 @@
       (write-shell-output stream (string char) 0 1)
       (write-shell-char stream char)))
 
+;;; A carriage return goes back to the start of the line, as a progress
+;;; report's does: what the line held is deleted for what comes next.
+;;;
 (defun write-shell-char (stream char)
   (if (eql char #\return)
-      (with-mark ((m (current-point)))
-        (line-start m)
-        (kill-region (region m (current-point)) :kill-backward))
+      (let ((output (hi::heml-output-stream-mark (shell-filter-stream-heml-stream stream))))
+        (with-mark ((m output))
+          (line-start m)
+          (delete-region (region m output))))
       (write-char char (shell-filter-stream-heml-stream stream))))
 
 (defmethod hi::stream-write-sequence
@@ -167,7 +176,36 @@
                        (shell-filter-stream-heml-stream stream))))
             (font-mark (mark-line mark) (mark-charpos mark) font)))))))
 
+(defhvar "Shell Output Limit"
+  "The most lines a shell buffer keeps: when output makes it longer, the
+   earliest lines are deleted.  NIL keeps them all."
+  :value 20000)
+
+(defun trim-shell-buffer (stream added)
+  "Having written ADDED more lines, delete the buffer's first lines if it
+   has grown past \"Shell Output Limit\" by a tenth."
+  (let* ((buffer (shell-filter-stream-buffer stream))
+         (limit (and buffer (variable-value 'shell-output-limit :global))))
+    (when (and limit (plusp added))
+      (let ((lines (+ added (or (shell-filter-stream-lines stream)
+                                (count-lines (buffer-region buffer))))))
+        (when (> lines (+ limit (ceiling limit 10)))
+          (setf lines (count-lines (buffer-region buffer)))
+          (when (> lines limit)
+            (with-mark ((end (buffer-start-mark buffer)))
+              (line-offset end (- lines limit))
+              (let ((input (and (heml-bound-p 'buffer-input-mark :buffer buffer)
+                                (variable-value 'buffer-input-mark :buffer buffer))))
+                (when (and input (mark> end input))
+                  (move-mark end input)
+                  (line-start end)))
+              (with-writable-buffer (buffer)
+                (delete-region (region (buffer-start-mark buffer) end))))
+            (setf lines (count-lines (buffer-region buffer)))))
+        (setf (shell-filter-stream-lines stream) lines)))))
+
 (defun write-shell-output (stream seq start end)
+  (trim-shell-buffer stream (count #\Newline seq :start start :end end))
   (let ((pending (shell-filter-stream-pending-escape stream)))
     (when pending
       (setf (shell-filter-stream-pending-escape stream) nil

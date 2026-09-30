@@ -69,9 +69,10 @@ grammar bash tree-sitter/tree-sitter-bash v0.25.1
 grammar commonlisp theHamsta/tree-sitter-commonlisp v0.4.1 . \
         https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3414fa1b06af75c79faebe7f76df080a/queries/commonlisp/highlights.scm
 
-# Indentation: Neovim's queries for C and Python (whose grammar comes from
+# Indentation: Neovim's queries for C, Pascal and Python (whose grammar comes from
 # Homebrew), and Heml's own for shell scripts, which Neovim has none for.
 NVIM=https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3414fa1b06af75c79faebe7f76df080a/queries
 indents c $NVIM/c/indents.scm
 indents python $NVIM/python/indents.scm
+indents pascal $NVIM/pascal/indents.scm
 indents bash scripts/tree-sitter-queries/bash/indents.scm

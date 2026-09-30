@@ -48,7 +48,9 @@
 
 (defmode "Xref" :major-p t
   :documentation
-  "Xref lists Lisp definitions.")
+  "Xref lists Lisp definitions, and the places that call, reference, bind,
+   set or expand a name, grouped by file.  Return visits one, n and p show
+   the next and previous, and C-x ` visits the next from anywhere.")
 
 (defcommand "Xref Quit" (p)
   "Kill the xref buffer."
@@ -59,36 +61,63 @@
 (defcommand "Xref Goto" (p)
   "Change to the entry's buffer."
   "Change to the entry's buffer."
-  (declare (ignore p))
-  (let ((entry (array-element-from-mark (current-point) *xref-entries*)))
-    (when entry
-      (change-to-definition entry))))
+  (result-goto-command p))
 
-(defun refresh-xref (buf entries)
+(defun xref-location (entry)
+  (let ((file (xref-entry-file entry))
+        (position (xref-entry-position entry)))
+    (when file
+      (list (pathname file) :position (or position 1)))))
+
+(defun refresh-xref (buf entries &optional title)
+  (setf *xref-entries-end* (length entries))
+  (setf *xref-entries* (coerce entries 'vector))
   (with-writable-buffer (buf)
     (delete-region (buffer-region buf))
-    (setf *xref-entries-end* (length entries))
-    (setf *xref-entries* (coerce entries 'vector))
-    (with-output-to-mark (s (buffer-point buf))
+    (let ((point (buffer-point buf))
+          (groups '()))
       (dolist (entry entries)
-        (xref-write-line entry s)))))
+        (let ((group (assoc (xref-entry-file entry) groups :test #'equal)))
+          (if group
+              (push entry (cdr group))
+              (push (list (xref-entry-file entry) entry) groups))))
+      (when title
+        (insert-string point (format nil "~A~%" title)))
+      (loop for (file . group) in (reverse groups)
+            do (insert-string point (format nil "~%~A~%" (or file "(no file)")))
+               (dolist (entry (reverse group))
+                 (let ((line (mark-line point)))
+                   (insert-string point (format nil "  ~A~%" (xref-entry-name entry)))
+                   (setf (getf (line-plist line) 'result-location)
+                         (xref-location entry))))))))
 
-(defun make-xref-buffer (entries)
-  (let ((buf (or *xref-buffer* (make-buffer "*Xref*" :modes '("Xref")))))
+(defun xref-line-fonts (string)
+  (cond ((zerop (length string)) '())
+        ((char= (char string 0) #\Space) '())
+        ((or (char= (char string 0) #\/) (search "(no file)" string))
+         (list (cons 0 '(:fg 5 :bold t))))
+        (t (list (cons 0 '(:bold t))))))
+
+(defun xref-highlight-line (line)
+  (let ((old (getf (line-plist line) 'xref-marks)))
+    (unless (and old (eq (car old) (line-signature line)))
+      (dolist (mark (cdr old))
+        (hi::delete-font-mark mark))
+      (setf (getf (line-plist line) 'xref-marks)
+            (cons (line-signature line)
+                  (loop for (position . font) in (xref-line-fonts (line-string line))
+                        collect (hi::font-mark line position font)))))))
+
+(define-mode-highlighter "Xref" 'xref-highlight-line)
+
+(defun make-xref-buffer (entries &optional title)
+  (let ((buf (make-result-buffer "*Xref*" "Xref" 'plist-line-location)))
     (setf *xref-buffer* buf)
-    (refresh-xref buf entries)
-    (let ((fields (buffer-modeline-fields *xref-buffer*)))
-      (setf (cdr (last fields))
-            (list (or (modeline-field :xref-cmds)
-                      (make-modeline-field
-                       :name :xref-cmds :width 18
-                       :function
-                       #'(lambda (buffer window)
-                           (declare (ignore buffer window))
-                           "  Type ? for help.")))))
-      (setf (buffer-modeline-fields *xref-buffer*) fields))
+    (pushnew 'delete-xref-buffers (buffer-delete-hook buf))
+    (refresh-xref buf entries title)
     (buffer-start (buffer-point buf))
-    (change-to-buffer buf)))
+    (change-to-buffer buf)
+    (next-result-line (current-point) 1)))
 
 (defun xref-write-line (entry s)
   (format s "  ~A ~40T~A~%"
@@ -122,6 +151,7 @@
       t)))
 
 (defun %find-definitions (label xref-fun name)
+  ;; LABEL is "definition", or the command's name ("Who Calls").
   (let* ((sym (heml::resolve-slave-symbol name nil))
          (data
           (and sym
@@ -139,7 +169,11 @@
      ((null (cdr entries))
       (change-to-definition (car entries)))
      (t
-      (make-xref-buffer entries)))))
+      (make-xref-buffer entries
+                        (if (string-equal label "definition")
+                            (format nil "Definitions of ~A" name)
+                            (format nil "~A ~A" (string-downcase label :start 1)
+                                    name)))))))
 
 (defun find-definitions (name)
   (heml::eval-in-slave

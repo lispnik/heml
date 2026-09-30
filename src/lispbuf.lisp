@@ -279,8 +279,18 @@
    input mark, and the end is the current point moved to the end of the buffer."
   (let ((point (current-point))
         (mark (value buffer-input-mark)))
+    ;; Return on an earlier input sends it again: it replaces what is typed.
+    (let ((old (and (mark< point mark) (input-start-on-line (mark-line point)))))
+      (when old
+        (let ((text (with-mark ((end old))
+                      (line-end end)
+                      (region-to-string (region old end)))))
+          (delete-region (region mark (buffer-end-mark (current-buffer))))
+          (buffer-end point)
+          (insert-string point text))))
     (cond
      ((mark>= point mark)
+      (note-input-start mark)
       (buffer-end point)
       (let* ((input-region (region mark point))
              (string (region-to-string input-region))
@@ -302,6 +312,61 @@
       nil)
      (t
       (editor-error "Point not past input mark.")))))
+
+;;; Where each input began is kept, so that "Previous Prompt" and "Next
+;;; Prompt" can move between them and Return on one can send it again.  The
+;;; marks are right-inserting: output comes after an input, never before.
+
+(defparameter *input-starts-kept* 1000)
+
+(defun input-starts (&optional (buffer (current-buffer)))
+  (if (heml-bound-p 'input-starts :buffer buffer)
+      (variable-value 'input-starts :buffer buffer)
+      (progn
+        (defhvar "Input Starts"
+          "Where each input to this interactive buffer began, the latest first."
+          :buffer buffer :value '())
+        '())))
+
+(defun note-input-start (mark)
+  (let* ((buffer (line-buffer (mark-line mark)))
+         (starts (cons (copy-mark mark :right-inserting) (input-starts buffer))))
+    (when (> (length starts) *input-starts-kept*)
+      (let ((cut (nthcdr (1- *input-starts-kept*) starts)))
+        (mapc #'delete-mark (cdr cut))
+        (setf (cdr cut) nil)))
+    (setf (variable-value 'input-starts :buffer buffer) starts)))
+
+(defun input-start-on-line (line)
+  (find line (input-starts (line-buffer line)) :key #'mark-line))
+
+(defun move-to-input (count)
+  (let* ((point (current-point))
+         (starts (sort (remove-if-not (lambda (m) (eq (line-buffer (mark-line m))
+                                                       (current-buffer)))
+                                      (copy-list (input-starts)))
+                       #'mark<))
+         (target (if (plusp count)
+                     (nth (1- count) (remove-if-not (lambda (m) (mark> m point)) starts))
+                     (nth (1- (- count))
+                          (reverse (remove-if-not
+                                    (lambda (m) (mark< (mark (mark-line m) 0)
+                                                       (mark (mark-line point) 0)))
+                                    starts))))))
+    (cond (target (move-mark point target))
+          ((and (plusp count) (heml-bound-p 'buffer-input-mark))
+           (move-mark point (value buffer-input-mark)))
+          (t (editor-error "No ~:[later~;earlier~] input." (minusp count))))))
+
+(defcommand "Previous Prompt" (p)
+  "Move to the input after the previous prompt."
+  "Move to the input after the previous prompt."
+  (move-to-input (- (or p 1))))
+
+(defcommand "Next Prompt" (p)
+  "Move to the input after the next prompt, or to what is being typed."
+  "Move to the input after the next prompt."
+  (move-to-input (or p 1)))
 
 ;; fixme: this shouldn't be limited at all
 (defhvar "Interactive History Length"

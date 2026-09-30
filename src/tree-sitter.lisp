@@ -21,7 +21,9 @@
   (:use :common-lisp)
   (:export #:define-tree-sitter-language
            #:*tree-sitter-directories*
-           #:tree-sitter-available-p))
+           #:tree-sitter-available-p
+           #:buffer-language
+           #:definition-spans))
 
 (in-package :heml.tree-sitter)
 
@@ -134,13 +136,15 @@ copies them to ~/.local/share/heml/tree-sitter/.")
   closes               ; a regex: a line starting so closes one
   finishes             ; a regex: a line starting so ends its block
   inline               ; the language of what its (inline) nodes hold, or NIL
-  inline-node-query)   ; the query finding those nodes
+  inline-node-query    ; the query finding those nodes
+  mode                 ; the major mode it colours
+  definitions)         ; node types "Beginning of Definition" moves among
 
 (defvar *languages* (make-hash-table :test 'equal))
 
 (defun define-tree-sitter-language (name &key mode (precedence :first) fallback
                                                 indent (indent-width 4) opens closes finishes
-                                                inline)
+                                                inline definitions)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
@@ -148,8 +152,10 @@ come with grammars, or :LAST, Neovim's, followed by its queries.  FALLBACK,
 when given, is MODE's highlighter instead, from the first time it is needed,
 if the grammar or its query cannot be loaded.  INDENT makes MODE's lines
 indented as the language's indents.scm says, INDENT-WIDTH columns a level,
-with spaces."
+with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
+-- that \"Beginning of Definition\" and its fellows move among."
   (let ((language (%make-language :name name :precedence precedence
+                                  :mode mode :definitions definitions
                                   :indent-width indent-width
                                   :opens (and opens (ppcre:create-scanner opens))
                                   :closes (and closes (ppcre:create-scanner closes))
@@ -1096,3 +1102,38 @@ before is when there is no query to say."
                        (< (heml-interface:mark-column point) column))
               (heml-interface:move-to-column point column))))
         (heml::generic-indent mark))))
+
+
+;;;; Definitions: the functions and classes C-M-a, C-M-e and C-M-h move by.
+
+(defun buffer-language (buffer)
+  "The language that colours BUFFER's major mode, when it is loaded."
+  (let ((mode (heml-interface:buffer-major-mode buffer)))
+    (loop for language being the hash-values of *languages*
+          when (and (equal (language-mode language) mode)
+                    (language-ready-p language))
+            return language)))
+
+(defun definition-spans (language buffer)
+  "Where each of BUFFER's definitions starts and ends, as ((START-LINE
+START-CHARPOS END-LINE END-CHARPOS) ...), in the order they start."
+  (let* ((parse (buffer-parse language buffer))
+         (lines (parse-lines parse))
+         (types (language-definitions language))
+         (spans '()))
+    (labels ((place (row byte)
+               (if (< row (length lines))
+                   (let ((line (svref lines row)))
+                     (values line (line-char-index (heml-interface:line-string line) byte)))
+                   (let ((last (svref lines (1- (length lines)))))
+                     (values last (length (heml-interface:line-string last))))))
+             (walk (node)
+               (when (member (node-type node) types :test #'string=)
+                 (multiple-value-bind (start-row start-byte) (node-start node)
+                   (multiple-value-bind (end-row end-byte) (node-end node)
+                     (multiple-value-bind (start-line start) (place start-row start-byte)
+                       (multiple-value-bind (end-line end) (place end-row end-byte)
+                         (push (list start-line start end-line end) spans))))))
+               (mapc #'walk (node-children node))))
+      (walk (node-copy (parse-root parse))))
+    (nreverse spans)))

@@ -30,7 +30,7 @@
 
 ;;;; Spell structure referencing and setting
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defmacro sapref (sap offset)
   `(let ((index (* ,offset 2)))

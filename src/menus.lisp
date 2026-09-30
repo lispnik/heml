@@ -239,6 +239,39 @@ while the current buffer is in the mode."
   :separator
   ("Shell" "Shell"))
 
+(define-menu "Tools" ()
+  ("Grep…" "Grep")
+  ("Search Files…" "Recursive Grep")
+  ("Compile…" "Compile")
+  :separator
+  ("Next Result" "Next Result")
+  ("Previous Result" "Previous Result")
+  :separator
+  ("Shell Command…" "Shell Command"))
+
+(define-menu "Results" (:mode "Grep")
+  ("Visit" "Result Goto")
+  ("Show in Other Window" "Result Display")
+  ("Next" "Next Result Line")
+  ("Previous" "Previous Result Line")
+  :separator
+  ("Edit Lines" "Grep Edit")
+  ("Run Again" "Grep Again")
+  ("Quit" "Result Quit"))
+
+(define-menu "Compilation" (:mode "Compilation")
+  ("Visit" "Result Goto")
+  ("Show in Other Window" "Result Display")
+  ("Next" "Next Result Line")
+  ("Previous" "Previous Result Line")
+  :separator
+  ("Compile Again" "Grep Again")
+  ("Quit" "Result Quit"))
+
+(define-menu "Edit Lines" (:mode "Wgrep")
+  ("Write Changes" "Wgrep Finish")
+  ("Cancel" "Wgrep Abort"))
+
 (define-menu "Dired" (:mode "Dired")
   ("Open" "Dired Edit File")
   ("Open in Other Window" "Dired Edit File Other Window")

@@ -834,3 +834,73 @@
              (when (char/= (previous-character mark) #\') (return))
              (mark-before mark))))
     (region point mark)))
+
+
+;;;; Misspellings shown.
+
+;;; In Text mode with Spell mode on, each word the dictionary lacks is drawn
+;;; red and underlined, as it is drawn: the whole buffer, not only the words
+;;; typed.  Links are shown as in any buffer.
+
+(defparameter *misspelled-font* '(:fg 1 :underline t))
+
+(defun misspelled-word-p (word)
+  "Whether WORD, letters and apostrophes, is one to show as misspelled."
+  (let* ((word (string-right-trim "'" (string-left-trim "'" word)))
+         (root (if (and (> (length word) 2)
+                        (string-equal "'s" word :start2 (- (length word) 2)))
+                   (subseq word 0 (- (length word) 2))
+                   word))
+         (upper (string-upcase root)))
+    (and (<= 2 (length upper) spell:max-entry-length)
+         (not (and (value spell-ignore-uppercase) (every #'upper-case-p root)))
+         (not (gethash upper *ignored-misspellings*))
+         (not (spell:spell-try-word upper (length upper))))))
+
+(defun misspelling-spans (string)
+  "The misspelled words in STRING, as ((START END) ...)."
+  (spell:maybe-read-spell-dictionary)
+  (let ((spans '()) (i 0) (n (length string)))
+    (loop
+      (let ((start (position-if #'alpha-char-p string :start i)))
+        (unless start (return))
+        (let ((end (or (position-if-not (lambda (c) (or (alpha-char-p c) (char= c #\')))
+                                        string :start start)
+                       n)))
+          ;; A word joined to digits or underscores is a name, not a word.
+          (unless (or (and (plusp start)
+                           (let ((c (char string (1- start)))) (or (digit-char-p c) (char= c #\_))))
+                      (and (< end n)
+                           (let ((c (char string end))) (or (digit-char-p c) (char= c #\_))))
+                      (not (misspelled-word-p (subseq string start end))))
+            (push (list start end) spans))
+          (setf i end))))
+    (nreverse spans)))
+
+(defun text-highlight-line (line)
+  (let* ((buffer (line-buffer line))
+         (spell (and buffer (buffer-minor-mode buffer "Spell")))
+         (key (cons (line-signature line) spell))
+         (old (getf (line-plist line) 'text-marks)))
+    (unless (and old (equal (car old) key))
+      (dolist (mark (cdr old))
+        (hi::delete-font-mark mark))
+      (let* ((string (line-string line))
+             (links (line-links string))
+             (spans (when spell
+                      (remove-if (lambda (span)
+                                   (some (lambda (link) (and (< (first span) (second link))
+                                                             (> (second span) (first link))))
+                                         links))
+                                 (misspelling-spans string)))))
+        (setf (getf (line-plist line) 'text-marks)
+              (cons key
+                    (append
+                     (loop for (start end target) in links
+                           collect (font-mark line start (link-font target))
+                           collect (font-mark line end 0))
+                     (loop for (start end) in spans
+                           collect (font-mark line start *misspelled-font*)
+                           collect (font-mark line end 0)))))))))
+
+(define-mode-highlighter "Text" 'text-highlight-line)

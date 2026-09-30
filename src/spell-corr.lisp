@@ -240,7 +240,7 @@
 ;;; SET-MEMBER-P will be used with *aeiou* and *sxzh* to determine if a
 ;;; character is in the specified set.
 ;;;
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defmacro set-member-p (char set)
   `(not (zerop (the fixnum (aref (the simple-bit-vector ,set)
                                  (char-code ,char))))))
@@ -261,7 +261,7 @@
 (defconstant whole-index-low-byte (byte 16 0))
 (defconstant whole-index-high-byte (byte 16 16))
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defmacro dictionary-ref (idx)
   `(aref *dictionary* ,idx))
@@ -324,7 +324,10 @@
 ;;;
 (defun maybe-read-spell-dictionary ()
   "Read the spelling dictionary if it has not be read already."
-  (unless *dictionary-read-p* (read-dictionary)))
+  (unless *dictionary-read-p*
+    (if (probe-file default-binary-dictionary)
+        (read-dictionary)
+        (build-dictionary-in-memory))))
 
 
 (defun spell-root-word (index)
@@ -339,7 +342,7 @@
     result))
 
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defmacro check-closeness (word word-len closeness-list)
   `(if (spell-try-word ,word ,word-len)
        (pushnew (subseq ,word 0 ,word-len) ,closeness-list :test #'string=)))
@@ -421,7 +424,7 @@
 
 ;;;; Divining Correct Spelling
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defmacro setup-root-buffer (word buffer root-len)
   `(replace ,buffer ,word :end1 ,root-len :end2 ,root-len))
@@ -673,7 +676,7 @@
 
 ;;;; Looking up Trials
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 ;;; SPELL-STRING= determines if string1 and string2 are the same.  Before
 ;;; it is called it is known that they are both of (- end1 0) length, and

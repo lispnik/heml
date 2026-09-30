@@ -401,6 +401,12 @@
 ;;;; Debug mode
 
 (bind-key "Debug Quit" #k"q" :mode "Debug")
+(bind-key "Debug Toggle Locals" #k"return" :mode "Debug")
+(bind-key "Debug Toggle Locals" #k"space" :mode "Debug")
+(bind-key "Debug Source" #k"." :mode "Debug")
+(bind-key "Debug Next Frame" #k"n" :mode "Debug")
+(bind-key "Debug Previous Frame" #k"p" :mode "Debug")
+(bind-key "Debug Help" #k"?" :mode "Debug")
 
 
 ;;;; More Miscellaneous bindings.
@@ -556,6 +562,9 @@
 (bind-key "Kill Interactive Input" #k"meta-i" :mode "Process")
 (bind-key "Next Interactive Input" #k"meta-n" :mode "Process")
 (bind-key "Reenter Interactive Input" #k"control-return" :mode "Process")
+(dolist (mode '("Process" "Typescript"))
+  (bind-key "Previous Prompt" #k"control-c control-p" :mode mode)
+  (bind-key "Next Prompt" #k"control-c control-n" :mode mode))
 
 ;;;; Bufed.
 
@@ -613,6 +622,25 @@
 
 
 
+;;;; Result lists: Grep, Compilation, Xref.
+
+(bind-key "Next Result" #k"control-x `")
+
+(dolist (mode '("Grep" "Compilation" "Xref" "Outline"))
+  (bind-key "Result Goto" #k"return" :mode mode)
+  (bind-key "Result Goto" #k"space" :mode mode)
+  (bind-key "Result Display" #k"control-o" :mode mode)
+  (bind-key "Next Result Line" #k"n" :mode mode)
+  (bind-key "Previous Result Line" #k"p" :mode mode)
+  (bind-key "Result Quit" #k"q" :mode mode))
+
+(dolist (mode '("Grep" "Compilation"))
+  (bind-key "Grep Again" #k"g" :mode mode))
+(bind-key "Grep Edit" #k"control-x control-q" :mode "Grep")
+(bind-key "Wgrep Finish" #k"control-c control-c" :mode "Wgrep")
+(bind-key "Wgrep Abort" #k"control-c control-k" :mode "Wgrep")
+
+
 ;;;; Xref.
 
 (bind-key "Find Definitions" #k"meta-." :mode "Lisp")
@@ -623,8 +651,6 @@
 (bind-key "Who References"   #k"control-c control-w control-r" :mode "Lisp")
 (bind-key "Who Sets"         #k"control-c control-w control-s" :mode "Lisp")
 
-(bind-key "Xref Quit" #k"q" :mode "Xref")
-(bind-key "Xref Goto" #k"space" :mode "Xref")
 (bind-key "Xref Help" #k"?" :mode "Xref")
 
 
@@ -639,6 +665,9 @@
 (bind-key "Apropos Find Definition" #k"." :mode "Apropos")
 (bind-key "Apropos Describe" #k"space" :mode "Apropos")
 (bind-key "Apropos Help" #k"?" :mode "Apropos")
+(bind-key "Apropos Describe" #k"return" :mode "Apropos")
+(bind-key "Apropos Next Symbol" #k"n" :mode "Apropos")
+(bind-key "Apropos Previous Symbol" #k"p" :mode "Apropos")
 
 
 
@@ -653,6 +682,11 @@
 (bind-key "Completelist Quit" #k"q" :mode "Completelist")
 (bind-key "Completelist Find Definition" #k"." :mode "Completelist")
 (bind-key "Completelist Help" #k"?" :mode "Completelist")
+(bind-key "Fuzzylist Pick" #k"return" :mode "Fuzzylist")
+(bind-key "Completelist Pick" #k"return" :mode "Completelist")
+(dolist (mode '("Fuzzylist" "Completelist"))
+  (bind-key "Next Line" #k"n" :mode mode)
+  (bind-key "Previous Line" #k"p" :mode mode))
 
 
 

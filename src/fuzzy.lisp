@@ -815,6 +815,7 @@ keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
 ;;; Mode
 
 (defvar *fuzzylist-entries* nil)
+(defvar *fuzzylist-entries-end* nil)
 ;;;
 
 (defstruct (fuzzylist-entry
@@ -847,7 +848,9 @@ keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
 ;;;; Commands.
 
 (defmode "Fuzzylist" :major-p t
-  :documentation "Fuzzylist mode presents a list of fuzzy completions.")
+  :documentation "Fuzzylist mode presents a list of fuzzy completions, best
+   first, with the characters that matched shown.  Return or space inserts
+   the one on the line, n and p move, . visits its definition, and q quits.")
 
 (defcommand "Fuzzylist Quit" (p)
   "Kill the fuzzylist buffer."
@@ -856,7 +859,8 @@ keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
   (when *fuzzylist-buffer* (delete-buffer-if-possible *fuzzylist-buffer*)))
 
 (defun fuzzylist-entry-from-mark (mark)
-  (array-element-from-mark (current-point) *fuzzylist-entries*))
+  (or (getf (line-plist (mark-line mark)) 'completion-entry)
+      (editor-error "No completion on this line.")))
 
 (defcommand "Fuzzylist Find Definition" (p)
   "" ""
@@ -879,9 +883,12 @@ keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
     (delete-region (buffer-region buf))
     (setf *fuzzylist-entries-end* (length entries))
     (setf *fuzzylist-entries* (coerce entries 'vector))
-    (with-output-to-mark (s (buffer-point buf))
+    (let ((point (buffer-point buf)))
       (dolist (entry entries)
-        (fuzzylist-write-line entry s)))))
+        (let ((line (mark-line point)))
+          (insert-string point (with-output-to-string (s)
+                                 (fuzzylist-write-line entry s)))
+          (setf (getf (line-plist line) 'completion-entry) entry))))))
 
 (defun make-fuzzylist-buffer (entries)
   (let ((buf (or *fuzzylist-buffer*
@@ -902,11 +909,10 @@ keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
     (change-to-buffer buf)))
 
 (defun fuzzylist-write-line (entry s)
-  (format s "~A ~40T~A ~20T~A~%"
+  (format s "~A  ~40T~A  ~A~%"
           (fuzz-completed-string entry)
-          (fuzz-score entry)
-          ;; (fuzz-chunks entry)
-          (fuzz-classification-string entry)))
+          (fuzz-classification-string entry)
+          (fuzz-score entry)))
 
 (defcommand "Fuzzylist Help" (p)
   "Show this help."

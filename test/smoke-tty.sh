@@ -441,6 +441,34 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# Grep: its lines are coloured and counted, and Return visits one.
+send M-x
+type_text 'Grep'
+send Enter
+sleep 0.5
+type_text "contents $PWD/build/smoke-tty-linked.txt"
+send Enter
+expect 'Grep finished: 1 result.' "Grep lists what it finds, and counts it"
+send n
+sleep 0.5
+send Enter
+expect_re '(Text.*smoke-tty-linked\.txt' "Return visits the line found"
+send C-x 1
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.3
+send C-x b
+sleep 0.3
+send C-a C-k
+type_text '*grep*'
+send Enter
+sleep 0.3
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # Bufed.
 send C-x C-b
 expect 'Buffers  (' "C-x C-b lists the buffers, under a header"

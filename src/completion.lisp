@@ -684,7 +684,9 @@
 ;;;; Commands.
 
 (defmode "Completelist" :major-p t
-  :documentation "Completelist mode presents a list of completions.")
+  :documentation "Completelist mode presents a list of completions.  Return
+   or space inserts the one on the line, n and p move, . visits its
+   definition, and q quits.")
 
 (defcommand "Completelist Quit" (p)
   "Kill the completelist buffer."
@@ -694,7 +696,8 @@
         (delete-buffer-if-possible *completelist-buffer*)))
 
 (defun completelist-entry-from-mark (mark)
-  (array-element-from-mark (current-point) *completelist-entries*))
+  (or (getf (line-plist (mark-line mark)) 'completion-entry)
+      (editor-error "No completion on this line.")))
 
 (defcommand "Completelist Find Definition" (p)
   "" ""
@@ -712,14 +715,67 @@
       (delete-window-command nil)
       (%insert-completion (fuzz-completed-string entry)))))
 
+(defvar *completelist-entries-end* nil)
+
 (defun refresh-completelist (buf entries)
   (with-writable-buffer (buf)
     (delete-region (buffer-region buf))
     (setf *completelist-entries-end* (length entries))
     (setf *completelist-entries* (coerce entries 'vector))
-    (with-output-to-mark (s (buffer-point buf))
+    (let ((point (buffer-point buf))
+          (prefix (common-prefix-length (map 'list #'fuzz-completed-string entries))))
       (dolist (entry entries)
-        (completelist-write-line entry s)))))
+        (let ((line (mark-line point)))
+          (insert-string point (with-output-to-string (s)
+                                 (completelist-write-line entry s)))
+          (setf (getf (line-plist line) 'completion-entry) entry
+                (getf (line-plist line) 'completion-prefix) prefix))))))
+
+(defun common-prefix-length (strings)
+  (if (null strings)
+      0
+      (reduce #'min (mapcar (lambda (s) (or (mismatch (first strings) s) (length s)))
+                            strings)
+              :initial-value (length (first strings)))))
+
+;;; A completion's line shows what all the completions share dimly, and the
+;;; character after it -- the one to type next -- bright; a fuzzy one shows
+;;; the characters that matched.
+;;;
+(defun completion-line-fonts (line)
+  (let* ((plist (line-plist line))
+         (entry (getf plist 'completion-entry))
+         (string (line-string line)))
+    (when entry
+      (let ((chunks (fuzz-chunks entry))
+            (name-end (length (fuzz-completed-string entry))))
+        (append
+         (if chunks
+             (loop for (offset text) in chunks
+                   when (<= (+ offset (length text)) name-end)
+                     collect (cons offset '(:fg 4 :bold t))
+                     and collect (cons (+ offset (length text)) 0))
+             (let ((prefix (getf plist 'completion-prefix 0)))
+               (append (when (plusp prefix) (list (cons 0 7) (cons prefix 0)))
+                       (when (< prefix name-end)
+                         (list (cons prefix '(:fg 4 :bold t)) (cons (1+ prefix) 0))))))
+         (let ((class (search "  " string :start2 name-end)))
+           (when class
+             (let ((start (position #\Space string :start class :test-not #'char=)))
+               (when start (list (cons start 6)))))))))))
+
+(defun completion-highlight-line (line)
+  (let ((old (getf (line-plist line) 'completion-marks)))
+    (unless (and old (eq (car old) (line-signature line)))
+      (dolist (mark (cdr old))
+        (hi::delete-font-mark mark))
+      (setf (getf (line-plist line) 'completion-marks)
+            (cons (line-signature line)
+                  (loop for (position . font) in (completion-line-fonts line)
+                        collect (hi::font-mark line position font)))))))
+
+(define-mode-highlighter "Completelist" 'completion-highlight-line)
+(define-mode-highlighter "Fuzzylist" 'completion-highlight-line)
 
 (defun make-completelist-buffer (entries)
   (let ((buf (or *completelist-buffer*
@@ -740,11 +796,11 @@
     (change-to-buffer buf)))
 
 (defun completelist-write-line (entry s)
-  (format s "~A ~40T~A~%"
-          (fuzz-completed-string entry)
-          ;; (fuzz-score entry)
-          ;; (fuzz-chunks entry)
-          (fuzz-classification-string entry)))
+  (let ((class (fuzz-classification-string entry)))
+    (format s "~A~:[~;  ~40T~A~]~%"
+            (fuzz-completed-string entry)
+            (and class (not (every (lambda (c) (char= c #\?)) class)))
+            class)))
 
 (defcommand "Completelist Help" (p)
   "Show this help."

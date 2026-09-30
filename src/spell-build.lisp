@@ -133,8 +133,9 @@
               entry-count *collision-count*))))
 
 (defun read-initial-dictionary (f dictionary descriptors string-table)
-  (let* ((filename (pathname f))
-         (s (open filename :direction :input :if-does-not-exist nil)))
+  (let* ((s (if (streamp f)
+                f
+                (open (pathname f) :direction :input :if-does-not-exist nil))))
     (unless s (error "File ~S does not exist." f))
     (multiple-value-prog1
      (let ((descriptor-ptr 1)
@@ -254,3 +255,48 @@
   (with-open-file (s filename :direction :output :element-type 'character
                      :if-exists :append)
     (write-string string-table s :end string-table-length)))
+
+
+;;;; The dictionary Heml comes with.
+
+;;; The word list in resources/ is read into the image when this file is
+;;; compiled, and the dictionary is built from it in memory the first time
+;;; one is needed: its hashes are the Lisp's own SXHASH, so a binary built by
+;;; one Lisp is no good to another, and there is no file to find at run time.
+
+(defparameter *dictionary-words*
+  #.(let ((file (merge-pathnames "../resources/spell-dictionary.text"
+                                 (or *compile-file-truename* *load-truename*))))
+      (with-open-file (s file :external-format :latin-1)
+        (let ((string (make-string (file-length s))))
+          (subseq string 0 (read-sequence string s))))))
+
+(defun build-dictionary-in-memory (&optional (words *dictionary-words*))
+  "Make the spelling dictionary from WORDS, a word list in the text format
+   above, as READ-DICTIONARY would have from a binary file."
+  (let* ((entries (1+ (count #\Newline words)))
+         (dictionary (make-array new-dictionary-size :element-type '(unsigned-byte 32)))
+         (descriptors (make-array (+ 5 (* 4 entries)) :element-type '(unsigned-byte 16)))
+         (string-table (make-string (length words) :element-type 'base-char))
+         (*collision-count* 0)
+         (*standard-output* (make-broadcast-stream)))
+    (multiple-value-bind (entry-count string-table-length)
+        (with-input-from-string (s words)
+          (read-initial-dictionary s dictionary descriptors string-table))
+      (let* ((descriptors-size (1+ (* 4 entry-count)))
+             (bytes (make-array (* 2 descriptors-size) :element-type '(unsigned-byte 8)))
+             (strings (make-array string-table-length :element-type '(unsigned-byte 8))))
+        (dotimes (i descriptors-size)
+          (setf (aref bytes (* 2 i)) (ldb (byte 8 0) (aref descriptors i))
+                (aref bytes (1+ (* 2 i))) (ldb (byte 8 8) (aref descriptors i))))
+        (dotimes (i string-table-length)
+          (setf (aref strings i) (char-code (schar string-table i))))
+        (setf *free-descriptor-elements* 0
+              *free-string-table-bytes* 0
+              *dictionary-size* new-dictionary-size
+              *descriptors-size* descriptors-size
+              *string-table-size* string-table-length
+              *dictionary* dictionary
+              *descriptors* bytes
+              *string-table* strings
+              *dictionary-read-p* t)))))

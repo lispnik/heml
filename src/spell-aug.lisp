@@ -32,7 +32,7 @@
   "This holds the masks for character flags, which is used when reading
    a text file of dictionary words.  Illegal character flags hold zero.")
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defmacro flag-mask (char)
   `(aref *flag-masks* (char-code ,char)))
 ) ;eval-when
@@ -47,7 +47,7 @@
 
 ;;;; String and Hashing Macros
 
-(eval-when (:compile-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defmacro string-table-replace (src-string dst-start length)
   `(sap-replace *string-table* ,src-string 0 ,dst-start (+ ,dst-start ,length)))

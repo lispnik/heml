@@ -404,6 +404,111 @@ café λ 日本語 end")
         (check "without tree-sitter's grammar, Heml's own parser colours Lisp"
                (run-font-at "(defun f" 1))))
 
+  (note "modes")
+  (flet ((file-buffer (name)
+           (find name hi::*buffer-list*
+                 :key (lambda (b) (and (hi::buffer-pathname b) (file-namestring (hi::buffer-pathname b))))
+                 :test #'equal))
+         (point-line () (hi::line-string (hi::mark-line (hi::current-point))))
+         (write-file (name &rest lines)
+           (with-open-file (out (merge-pathnames name *out*) :direction :output :if-exists :supersede)
+             (dolist (line lines) (write-line line out)))
+           (merge-pathnames name *out*)))
+    (post (list :open (namestring (write-file "grep.txt" "alpha one" "beta two" "alpha three"))))
+    (settle)
+    (extended-command "Grep")
+    ;; The prompt holds its default, grep -nH -e, to add to.
+    (post-text "alpha grep.txt
+")
+    (check "Grep lists what it finds, and says how many"
+           (wait-until (lambda () (search "Grep finished: 2 results." (buffer-text)))))
+    (settle)
+    (check "Grep colours the file, the line number and the match"
+           (and (eql 5 (run-font-at "grep.txt:1:alpha" 0))
+                (eql 2 (run-font-at "grep.txt:1:alpha" 9))
+                (equal '(:fg 1 :bold t) (run-font-at "grep.txt:1:alpha" 11))))
+    (post-key #\n)
+    (post (list :named "Return" '()))
+    (settle)
+    (check "n and Return visit the first match"
+           (and (eq (hi::current-buffer) (file-buffer "grep.txt"))
+                (equal "alpha one" (point-line))))
+    (post-key #\x "Control") (post-key #\`)
+    (settle)
+    (check "C-x ` visits the next"
+           (equal "alpha three" (point-line)))
+    (post-key #\x "Control") (post-key #\o)
+    (post-key #\x "Control") (post-key #\q "Control")
+    (settle)
+    (check "C-x C-q makes the lines editable"
+           (equal "Wgrep" (hi::buffer-major-mode (hi::current-buffer))))
+    (post-key #\< "Meta")
+    (extended-command "Replace String")
+    (post-text "alpha
+gamma
+")
+    (post-key #\c "Control") (post-key #\c "Control")
+    (settle)
+    (check "C-c C-c writes the lines changed to their file's buffer"
+           (let ((text (buffer-text (file-buffer "grep.txt"))))
+             (and (search "gamma one" text) (search "gamma three" text) (search "beta two" text))))
+    (check "and goes back to Grep"
+           (equal "Grep" (hi::buffer-major-mode (hi::current-buffer))))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (write-file "tb.py" "def f():" "    raise ValueError('x')" "" "f()"))))
+    (settle)
+    (extended-command "Compile")
+    ;; Its default, make -k, goes.
+    (post-key #\a "Control") (post-key #\k "Control")
+    (post-text "python3 tb.py
+")
+    (check "Compile lists what a run prints"
+           (wait-until (lambda () (search "Compilation finished" (buffer-text)))))
+    (post-key #\x "Control") (post-key #\`)
+    (settle)
+    (check "C-x ` visits the place a traceback names"
+           (and (eq (hi::current-buffer) (file-buffer "tb.py"))
+                (member (point-line) '("f()" "    raise ValueError('x')") :test #'equal)))
+    (post-key #\x "Control") (post-key #\1)
+    (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-python.dylib")
+      (extended-command "Outline")
+      (settle)
+      (check "Outline lists a Python file's definitions"
+             (and (equal "Outline" (hi::buffer-major-mode (hi::current-buffer)))
+                  (search "def f():" (buffer-text))))
+      (post-key #\x "Control") (post-key #\1))
+    (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-c.dylib")
+      (post (list :open (namestring (write-file "defs.c" "int a(void) {" "  return 1;" "}"
+                                                "int b(void) {" "  return 2;" "}"))))
+      (settle)
+      (post-key #\> "Meta")
+      (post-key #\a "Control" "Meta")
+      (settle)
+      (check "C-M-a goes to the start of the C function before"
+             (equal "int b(void) {" (point-line)))
+      (post-key #\a "Control" "Meta")
+      (post-key #\e "Control" "Meta")
+      (settle)
+      (check "C-M-e goes past the end of this one"
+             (equal "int b(void) {" (point-line))))
+    (post (list :open (namestring (write-file "heads.md" "# One" "text" "## Two" "more"))))
+    (settle)
+    (post-key #\c "Control") (post-key #\n "Control")
+    (settle)
+    (check "C-c C-n goes to Markdown's next heading"
+           (equal "## Two" (point-line)))
+    (post-key #\c "Control") (post-key #\=)
+    (settle)
+    (check "C-c = demotes it"
+           (equal "### Two" (point-line)))
+    (post (list :open (namestring (write-file "words.txt" "Hello wrold here"))))
+    (settle)
+    (extended-command "Auto Spell Mode")
+    (settle)
+    (check "Spell mode underlines a misspelled word in red, and not the others"
+           (and (equal '(:fg 1 :underline t) (run-font-at "wrold" 1))
+                (null (run-font-at "Hello" 1)))))
+
   (note "menus")
   (choose-menu-item "View" "Split Window")
   (settle)
@@ -676,6 +781,16 @@ café λ 日本語 end")
                                                      (eql (hi::font-mark-font m) 1)))
                                     (hi::line-marks line)))
                  do (setf line (hi::line-next line)))))
+  (post-text "echo first-in
+")
+  (wait-until (lambda () (<= 2 (count-matches "first-in" (buffer-text)))))
+  (post-key #\c "Control") (post-key #\p "Control")
+  (settle)
+  (check "C-c C-p goes back to the last input"
+         (search "echo first-in" (hi::line-string (hi::mark-line (hi::current-point)))))
+  (post (list :named "Return" '()))
+  (check "Return on it sends it again"
+         (wait-until (lambda () (<= 4 (count-matches "first-in" (buffer-text))))))
   (shot "shell")
 
   (note "slave")
@@ -688,6 +803,38 @@ café λ 日本語 end")
          (wait-until (lambda () (search (format nil "~%42") (buffer-text)))))
   (shot "slave")
 
+  (note "lists")
+  (extended-command "List Slaves")
+  (settle)
+  (check "List Slaves shows the slave, idle"
+         (and (equal "Slave-List" (hi::buffer-major-mode (hi::current-buffer)))
+              (search "idle" (buffer-text))))
+  (post-key #\c "Control") (post-key #\?)
+  (post-key #\a "Control") (post-key #\k "Control")
+  (post-text "mapcar
+")
+  (check "Slave Apropos lists the symbols"
+         (wait-until (lambda () (and (equal "Apropos" (hi::buffer-major-mode (hi::current-buffer)))
+                                     (search "MAPCAR" (buffer-text))))))
+  (settle)
+  (check "with what each names, coloured"
+         (and (search "Function:" (buffer-text))
+              (eql 6 (run-font-at "  Function:" 2))))
+  (post (list :command "Smoke Debug Buffer"))
+  (settle)
+  (check "the debugger lists frames, coloured"
+         (and (equal "Debug" (hi::buffer-major-mode (hi::current-buffer)))
+              (eql 2 (run-font-at "  0: (FOO 1)" 2))))
+  (post (list :named "Return" '()))
+  (settle)
+  (check "Return shows a frame's locals"
+         (search "X = 1" (buffer-text)))
+  (post (list :command "Smoke Completions"))
+  (settle)
+  (check "a completion list shows what the completions share and the next character"
+         (and (eql 7 (run-font-at "mapcar" 0))
+              (equal (quote (:fg 4 :bold t)) (run-font-at "mapcar" 4))))
+
   (note "quitting")
   (post :quit)
   ;; Answer whatever Save All Files and Exit asks.
@@ -697,6 +844,22 @@ café λ 日本語 end")
            (when heml.cocoa::*editor-running-p* (post-key #\n)))
   (check "the editor exits" (not heml.cocoa::*editor-running-p*))
   (setf *finished* t))
+
+(defun count-matches (text string)
+  (loop with start = 0
+        for at = (search text string :start2 start)
+        while at count t do (setf start (1+ at))))
+
+;;; What the lists would show without a slave in the debugger or completing.
+(heml::defcommand "Smoke Debug Buffer" (p) "" ""
+  (declare (ignore p))
+  (heml::make-debug-buffer nil '(("(FOO 1)" nil (("X" . "1")) nil) ("(BAR)" nil nil nil))
+                           "SBCL" "smoke"))
+
+(heml::defcommand "Smoke Completions" (p) "" ""
+  (declare (ignore p))
+  (heml::make-completelist-buffer
+   (mapcar #'heml::make-completelist-entry '("mapcar" "mapcan" "mapc"))))
 
 (defvar *driver*)
 
@@ -712,8 +875,8 @@ café λ 日本語 end")
 
 (bt:make-thread
  (lambda ()
-   (sleep 180)
-   (note "smoke: no result after three minutes")
+   (sleep 300)
+   (note "smoke: no result after five minutes")
    (sb-ext:exit :code 2 :abort t))
  :name "smoke watchdog")
 
