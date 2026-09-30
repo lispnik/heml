@@ -132,12 +132,15 @@ copies them to ~/.local/share/heml/tree-sitter/.")
   (indent-width 4)     ; columns a level of indentation is
   opens                ; a regex: a line ending so opens a block
   closes               ; a regex: a line starting so closes one
-  finishes)            ; a regex: a line starting so ends its block
+  finishes             ; a regex: a line starting so ends its block
+  inline               ; the language of what its (inline) nodes hold, or NIL
+  inline-node-query)   ; the query finding those nodes
 
 (defvar *languages* (make-hash-table :test 'equal))
 
 (defun define-tree-sitter-language (name &key mode (precedence :first) fallback
-                                                indent (indent-width 4) opens closes finishes)
+                                                indent (indent-width 4) opens closes finishes
+                                                inline)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
@@ -150,7 +153,8 @@ with spaces."
                                   :indent-width indent-width
                                   :opens (and opens (ppcre:create-scanner opens))
                                   :closes (and closes (ppcre:create-scanner closes))
-                                  :finishes (and finishes (ppcre:create-scanner finishes)))))
+                                  :finishes (and finishes (ppcre:create-scanner finishes))
+                                  :inline (and inline (%make-language :name inline :precedence :first)))))
     (setf (gethash name *languages*) language)
     (when (and mode indent)
       (heml-interface:defhvar "Indent Function"
@@ -277,7 +281,10 @@ with spaces."
     ("type" . 2) ("attribute" . 6) ("variable.builtin" . 3)
     ("text.title" . (:fg 4 :bold t)) ("markup.heading" . (:fg 4 :bold t))
     ("text.literal" . 2) ("markup.raw" . 2)
-    ("text.uri" . 6) ("text.reference" . 6) ("markup.link" . 6)
+    ("text.emphasis" . (:italic t)) ("markup.italic" . (:italic t))
+    ("text.strong" . (:bold t)) ("markup.strong" . (:bold t))
+    ("text.uri" . (:fg 6 :underline t)) ("markup.link.url" . (:fg 6 :underline t))
+    ("text.reference" . 6) ("markup.link" . 6)
     ("punctuation.special" . 5) ("markup.list" . 5))
   "Capture names, most specific first, to the fonts, which are colours, they
 are drawn in.  A name is matched by its leading components: @function.builtin
@@ -302,7 +309,9 @@ coloured.")
   octets               ; the buffer as UTF-8, which the tree indexes
   line-starts          ; line to the byte its text starts at
   lines                ; row to line
-  (indents :unmade))   ; node id to its indentation captures, made when needed
+  (indents :unmade)    ; node id to its indentation captures, made when needed
+  inline-tree          ; the inline language's tree, over the (inline) nodes
+  inline-root)         ; foreign memory holding its root node, or NIL
 
 (defvar *parses* (make-hash-table :test 'eq :weakness :key)
   "Buffer to its latest parse.")
@@ -334,7 +343,84 @@ coloured.")
 
 (defun free-parse (parse)
   (ts "ts_tree_delete" sb-alien:void (sb-sys:system-area-pointer (parse-tree parse)))
-  (sb-alien:free-alien (sb-alien:sap-alien (parse-root parse) (* (sb-alien:unsigned 8)))))
+  (sb-alien:free-alien (sb-alien:sap-alien (parse-root parse) (* (sb-alien:unsigned 8))))
+  (when (parse-inline-tree parse)
+    (ts "ts_tree_delete" sb-alien:void (sb-sys:system-area-pointer (parse-inline-tree parse)))
+    (sb-alien:free-alien (sb-alien:sap-alien (parse-inline-root parse) (* (sb-alien:unsigned 8))))))
+
+;;; Markdown is two grammars: the block grammar finds headings, lists and
+;;; paragraphs, whose text it leaves in (inline) nodes, and the inline
+;;; grammar parses that text for emphasis, code and links.  The inline
+;;; grammar parses only those nodes' ranges (ts_parser_set_included_ranges),
+;;; of the same text, so its tree indexes the buffer as the block tree does.
+
+(defvar *inline-parser* nil)
+
+(defconstant +range-size+ 24)           ; two points and two byte offsets
+
+(defun parse-inline (language octets root)
+  "The inline language's tree over the (inline) nodes of the tree whose root
+is at ROOT, and foreign memory holding its root; or NIL."
+  (let ((inline (language-inline language)))
+    (when (and inline (language-ready-p inline))
+      (unless (language-inline-node-query language)
+        (setf (language-inline-node-query language)
+              (make-query (language-pointer language) "(inline) @inline")))
+      (let ((ranges '())
+            (cursor (ts "ts_query_cursor_new" sb-sys:system-area-pointer)))
+        (unwind-protect
+             (progn
+               (ts "ts_query_cursor_exec" sb-alien:void
+                   (sb-sys:system-area-pointer cursor)
+                   (sb-sys:system-area-pointer (language-inline-node-query language))
+                   ((sb-alien:struct ts-node) (node-at root)))
+               (with-foreign-memory (match (+ +match-size+ 4))
+                 (let ((capture-index (sb-sys:sap+ match +match-size+)))
+                   (loop while (plusp (ts "ts_query_cursor_next_capture" (sb-alien:unsigned 8)
+                                          (sb-sys:system-area-pointer cursor)
+                                          (sb-sys:system-area-pointer match)
+                                          (sb-sys:system-area-pointer capture-index)))
+                         do (let* ((capture (sb-sys:sap+ (sb-sys:sap-ref-sap match 8)
+                                                         (* (sb-sys:sap-ref-32 capture-index 0)
+                                                            +capture-size+)))
+                                   (node (node-copy capture)))
+                              (multiple-value-bind (start end) (node-bytes capture)
+                                (multiple-value-bind (srow scol) (node-start node)
+                                  (multiple-value-bind (erow ecol) (node-end node)
+                                    (push (list srow scol erow ecol start end) ranges)))))))))
+          (ts "ts_query_cursor_delete" sb-alien:void (sb-sys:system-area-pointer cursor)))
+        (when ranges
+          (setf ranges (nreverse ranges))
+          (unless *inline-parser*
+            (setf *inline-parser* (ts "ts_parser_new" sb-sys:system-area-pointer)))
+          (ts "ts_parser_set_language" (sb-alien:unsigned 8)
+              (sb-sys:system-area-pointer *inline-parser*)
+              (sb-sys:system-area-pointer (language-pointer inline)))
+          (with-foreign-memory (memory (* +range-size+ (length ranges)))
+            (loop for (srow scol erow ecol start end) in ranges
+                  for offset from 0 by +range-size+
+                  do (setf (sb-sys:sap-ref-32 memory offset) srow
+                           (sb-sys:sap-ref-32 memory (+ offset 4)) scol
+                           (sb-sys:sap-ref-32 memory (+ offset 8)) erow
+                           (sb-sys:sap-ref-32 memory (+ offset 12)) ecol
+                           (sb-sys:sap-ref-32 memory (+ offset 16)) start
+                           (sb-sys:sap-ref-32 memory (+ offset 20)) end))
+            (ts "ts_parser_set_included_ranges" (sb-alien:unsigned 8)
+                (sb-sys:system-area-pointer *inline-parser*)
+                (sb-sys:system-area-pointer memory)
+                ((sb-alien:unsigned 32) (length ranges)))
+            (let ((tree (sb-sys:with-pinned-objects (octets)
+                          (ts "ts_parser_parse_string" sb-sys:system-area-pointer
+                              (sb-sys:system-area-pointer *inline-parser*)
+                              (sb-sys:system-area-pointer (sb-sys:int-sap 0))
+                              (sb-sys:system-area-pointer (sb-sys:vector-sap octets))
+                              ((sb-alien:unsigned 32) (length octets)))))
+                  (inline-root (sb-alien:alien-sap
+                                (sb-alien:make-alien (sb-alien:unsigned 8) +node-size+))))
+              (setf (node-at inline-root)
+                    (ts "ts_tree_root_node" (sb-alien:struct ts-node)
+                        (sb-sys:system-area-pointer tree)))
+              (values tree inline-root))))))))
 
 (defun buffer-parse (language buffer)
   "BUFFER parsed with LANGUAGE, parsing it again if it has changed."
@@ -361,10 +447,12 @@ coloured.")
               (setf (node-at root)
                     (ts "ts_tree_root_node" (sb-alien:struct ts-node)
                         (sb-sys:system-area-pointer tree)))
-              (setf (gethash buffer *parses*)
-                    (%make-parse :signature signature :tree tree :root root
-                                 :octets octets :line-starts starts
-                                 :lines lines))))))))
+              (multiple-value-bind (inline-tree inline-root) (parse-inline language octets root)
+                (setf (gethash buffer *parses*)
+                      (%make-parse :signature signature :tree tree :root root
+                                   :octets octets :line-starts starts
+                                   :lines lines
+                                   :inline-tree inline-tree :inline-root inline-root)))))))))
 
 
 ;;;; Colouring a line
@@ -450,14 +538,30 @@ become their regular-expression equivalents."
       (let ((code (char-code (char string i))))
         (incf bytes (cond ((< code #x80) 1) ((< code #x800) 2) ((< code #x10000) 3) (t 4)))))))
 
-(defun line-fonts (language parse line)
-  "A vector of the font each character of LINE is drawn in, NIL for none."
-  (let* ((string (heml-interface:line-string line))
-         (fonts (make-array (length string) :initial-element nil))
-         (line-start (gethash line (parse-line-starts parse)))
-         (line-end (+ line-start (babel:string-size-in-octets string :encoding :utf-8)))
-         (ascii (= (- line-end line-start) (length string)))
-         (spans '()))
+(defun merge-fonts (outer inner)
+  "INNER drawn within OUTER: its colour, and both's other styles."
+  (flet ((as-plist (font)
+           (cond ((null font) '())
+                 ((integerp font) (if (zerop font) '() (list :fg font)))
+                 (t font))))
+    (if (or (null outer) (integerp inner))
+        ;; A colour within replaces the colour without.
+        inner
+        (let ((merged (copy-list (as-plist outer))))
+          (loop for (key value) on (as-plist inner) by #'cddr
+                do (setf (getf merged key) value))
+          ;; Just a colour is a colour index.
+          (if (and (= (length merged) 2) (eq (first merged) :fg))
+              (second merged)
+              merged)))))
+
+(defun query-spans (language parse root string line-start line-end)
+  "LANGUAGE's highlight query's spans within one line, from the tree whose
+root is at ROOT, as (FROM TO PATTERN FONT) in characters, sorted to be laid
+down in order: wider first, so what is inside shows through, and of two on
+the same text, the one whose pattern wins last."
+  (let ((ascii (= (- line-end line-start) (length string)))
+        (spans '()))
     (unless *cursor*
       (setf *cursor* (ts "ts_query_cursor_new" sb-sys:system-area-pointer)))
     (ts "ts_query_cursor_set_byte_range" (sb-alien:unsigned 8)
@@ -467,7 +571,7 @@ become their regular-expression equivalents."
     (ts "ts_query_cursor_exec" sb-alien:void
         (sb-sys:system-area-pointer *cursor*)
         (sb-sys:system-area-pointer (language-query language))
-        ((sb-alien:struct ts-node) (node-at (parse-root parse))))
+        ((sb-alien:struct ts-node) (node-at root)))
     (with-foreign-memory (match (+ +match-size+ 4))
       (let ((capture-index (sb-sys:sap+ match +match-size+)))
         (loop while (plusp (ts "ts_query_cursor_next_capture" (sb-alien:unsigned 8)
@@ -493,21 +597,34 @@ become their regular-expression equivalents."
                                (setf from (line-char-index string from)
                                      to (line-char-index string to)))
                              (push (list from to pattern font) spans))))))))))
-    ;; Wider spans first, so that what is inside them shows through, and of
-    ;; two on the same text, the one whose pattern wins last.
-    (setf spans (sort spans (if (eq (language-precedence language) :last)
-                                (lambda (a b)
-                                  (let ((wa (- (second a) (first a)))
-                                        (wb (- (second b) (first b))))
-                                    (or (> wa wb) (and (= wa wb) (< (third a) (third b))))))
-                                (lambda (a b)
-                                  (let ((wa (- (second a) (first a)))
-                                        (wb (- (second b) (first b))))
-                                    (or (> wa wb) (and (= wa wb) (> (third a) (third b)))))))))
-    (dolist (span spans fonts)
-      (destructuring-bind (from to pattern font) span
-        (declare (ignore pattern))
-        (fill fonts font :start from :end to)))))
+    (sort spans (if (eq (language-precedence language) :last)
+                    (lambda (a b)
+                      (let ((wa (- (second a) (first a)))
+                            (wb (- (second b) (first b))))
+                        (or (> wa wb) (and (= wa wb) (< (third a) (third b))))))
+                    (lambda (a b)
+                      (let ((wa (- (second a) (first a)))
+                            (wb (- (second b) (first b))))
+                        (or (> wa wb) (and (= wa wb) (> (third a) (third b))))))))))
+
+(defun line-fonts (language parse line)
+  "A vector of the font each character of LINE is drawn in, NIL for none:
+the language's highlighting, then its inline language's within that."
+  (let* ((string (heml-interface:line-string line))
+         (fonts (make-array (length string) :initial-element nil))
+         (line-start (gethash line (parse-line-starts parse)))
+         (line-end (+ line-start (babel:string-size-in-octets string :encoding :utf-8))))
+    (flet ((lay-down (spans)
+             (dolist (span spans)
+               (destructuring-bind (from to pattern font) span
+                 (declare (ignore pattern))
+                 (loop for i from from below to
+                       do (setf (aref fonts i) (merge-fonts (aref fonts i) font)))))))
+      (lay-down (query-spans language parse (parse-root parse) string line-start line-end))
+      (when (parse-inline-root parse)
+        (lay-down (query-spans (language-inline language) parse (parse-inline-root parse)
+                               string line-start line-end))))
+    fonts))
 
 (defun highlight-line (language line)
   "Bring LINE's font marks up to date with LANGUAGE's highlighting."

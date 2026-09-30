@@ -1,7 +1,8 @@
 #!/bin/sh
 # scripts/tree-sitter-grammars.sh -- `make tree-sitter`: the tree-sitter
 # grammars Heml highlights with, built from source into build/tree-sitter/:
-# C, Markdown, Pascal, Bash (for shell scripts) and Common Lisp.
+# C, Markdown (its block and inline grammars), Pascal, Bash (for shell
+# scripts) and Common Lisp.
 #
 # Each grammar is fetched at a pinned tag, compiled into
 # lib/libtree-sitter-<name>.dylib, and its highlight query copied to
@@ -59,6 +60,7 @@ indents() {
 
 grammar c tree-sitter/tree-sitter-c v0.24.2
 grammar markdown tree-sitter-grammars/tree-sitter-markdown v0.5.3 tree-sitter-markdown
+grammar markdown_inline tree-sitter-grammars/tree-sitter-markdown v0.5.3 tree-sitter-markdown-inline
 grammar pascal Isopod/tree-sitter-pascal v0.10.2
 grammar bash tree-sitter/tree-sitter-bash v0.25.1
 # The Common Lisp grammar has no highlight query of its own; Neovim's is the
