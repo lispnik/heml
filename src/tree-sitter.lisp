@@ -231,6 +231,7 @@ copies them to ~/.local/share/heml/tree-sitter/.")
   opens                ; a regex: a line ending so opens a block
   closes               ; a regex: a line starting so closes one
   finishes             ; a regex: a line starting so ends its block
+  single               ; a regex: a line ending so governs just one statement
   inline               ; the language of what its (inline) nodes hold, or NIL
   inline-node-query    ; the query finding those nodes
   mode                 ; the major mode it colours
@@ -240,7 +241,7 @@ copies them to ~/.local/share/heml/tree-sitter/.")
 
 (defun define-tree-sitter-language (name &key mode (precedence :first) fallback
                                                 indent (indent-width 4) opens closes finishes
-                                                inline definitions)
+                                                single inline definitions)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
@@ -256,6 +257,7 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
                                   :opens (and opens (ppcre:create-scanner opens))
                                   :closes (and closes (ppcre:create-scanner closes))
                                   :finishes (and finishes (ppcre:create-scanner finishes))
+                                  :single (and single (ppcre:create-scanner single))
                                   :inline (and inline (%make-language :name inline :precedence :first)))))
     (setf (gethash name *languages*) language)
     (when (and mode indent)
@@ -1106,10 +1108,19 @@ opened on lines before belongs to the line that opened them."
                                        (svref lines (statement-start lines previous))))
                      0)))
     (when text
-      (cond ((and (language-opens language) (ppcre:scan (language-opens language) text))
-             (incf indent width))
-            ((and (language-finishes language) (ppcre:scan (language-finishes language) text))
-             (decf indent width))))
+      (let* ((start (statement-start lines previous))
+             (governor (loop for r from (1- start) downto 0
+                             unless (blank-string-p (heml-interface:line-string (svref lines r)))
+                               return (heml-interface:line-string (svref lines r)))))
+        (cond ((and (language-opens language) (ppcre:scan (language-opens language) text))
+               (incf indent width))
+              ((and (language-finishes language) (ppcre:scan (language-finishes language) text))
+               (decf indent width))
+              ;; The one statement a then or a do governed is over: back to
+              ;; the line that governed it.
+              ((and (language-single language) governor
+                    (ppcre:scan (language-single language) governor))
+               (setf indent (leading-columns governor))))))
     (when (and (language-closes language)
                (ppcre:scan (language-closes language)
                            (heml-interface:line-string (svref lines row))))

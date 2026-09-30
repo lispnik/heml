@@ -32,8 +32,8 @@ jobs:
         with:
           submodules: true
 
-      - name: Install SBCL, ECL, libfixposix, tmux and tree-sitter
-        run: brew install sbcl ecl libfixposix tmux tree-sitter tree-sitter-python
+      - name: Install SBCL, ECL, libfixposix, tmux, tree-sitter and Free Pascal
+        run: brew install sbcl ecl libfixposix tmux tree-sitter tree-sitter-python fpc
 
       - name: Install and configure ocicl
         run: |

@@ -513,6 +513,28 @@ gamma
     (settle)
     (check "C-c = demotes it"
            (equal "### Two" (point-line)))
+    (post (list :open (namestring (write-file "fill.md" "Intro." ""
+                                              (concatenate 'string "- " (format nil "~{~A~^ ~}" (loop repeat 30 collect "word")))
+                                              "- next item"))))
+    (settle)
+    (post-key #\n "Control") (post-key #\n "Control")
+    (post-key #\q "Meta")
+    (settle)
+    (check "M-q fills a Markdown list item, its lines hung under its text"
+           (let ((lines (uiop:split-string (buffer-text) :separator (string #\Newline))))
+             (and (every (lambda (l) (<= (length l) 75)) lines)
+                  (eql 0 (search "- word" (third lines)))
+                  (eql 0 (search "  word" (fourth lines)))
+                  (member "- next item" lines :test #'equal))))
+    (extended-command "Recursive Grep")
+    (post-key #\a "Control") (post-key #\k "Control")
+    (post-text "beta two
+")
+    (post (list :named "Return" '()))
+    (check "Recursive Grep searches the directory"
+           (wait-until (lambda () (and (search "Grep finished" (buffer-text))
+                                       (search "grep.txt:2:beta two" (buffer-text))))))
+    (post-key #\x "Control") (post-key #\1)
     (post (list :open (namestring (write-file "words.txt" "Hello wrold here"))))
     (settle)
     (extended-command "Auto Spell Mode")

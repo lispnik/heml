@@ -87,7 +87,8 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
  "pascal" :mode "Pascal" :indent t :indent-width 2
  :definitions '("defProc")
  :opens "(?i)(\\b(begin|then|do|else|of|repeat|record|try|except|finally|var|const|type|class|object|interface|implementation)|[(\\[])\\s*(\\{[^}]*\\}|\\(\\*.*\\*\\)|//.*)?$"
- :closes "(?i)^\\s*((end|until|else|except|finally)\\b|[)\\]])")
+ :closes "(?i)^\\s*((end|until|else|except|finally)\\b|[)\\]])"
+ :single "(?i)\\b(then|do|else)\\s*(\\{[^}]*\\}|\\(\\*.*\\*\\)|//.*)?$")
 
 ;;; Lisp is coloured by tree-sitter's Common Lisp grammar where it is
 ;;; installed, and otherwise by Heml's own parser (exp-syntax.lisp), which
@@ -508,3 +509,110 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
   ("Outline" "Outline")
   :separator
   ("Open Link" "Open Link"))
+
+
+;;;; Filling Markdown: a paragraph, a list item with its text hung under its
+;;;; marker, or a quotation, each line kept within "Fill Column".  Headings,
+;;;; tables and fenced code are left as they are.
+
+(defparameter *markdown-item-scanner*
+  (cl-ppcre:create-scanner "^(\\s*(?:>\\s*)*)([-*+]|\\d+[.)])(\\s+)"))
+
+(defparameter *markdown-quote-scanner*
+  (cl-ppcre:create-scanner "^(\\s*(?:>\\s*)+)"))
+
+(defun markdown-fixed-line-p (string)
+  "Whether STRING is a line filling leaves alone, and that ends a paragraph."
+  (let ((trimmed (string-left-trim " >" string)))
+    (or (zerop (length trimmed))
+        (char= (char trimmed 0) #\#)
+        (char= (char trimmed 0) #\|)
+        (eql 0 (search "```" trimmed))
+        (eql 0 (search "~~~" trimmed))
+        (every (lambda (c) (find c "-=*_ ")) trimmed))))
+
+(defun markdown-in-fence-p (line)
+  (let ((fence nil))
+    (do ((l (mark-line (buffer-start-mark (line-buffer line))) (line-next l)))
+        ((eq l line) fence)
+      (let ((trimmed (string-left-trim " " (line-string l))))
+        (when (or (eql 0 (search "```" trimmed)) (eql 0 (search "~~~" trimmed)))
+          (setf fence (not fence)))))))
+
+(defun markdown-item-start-p (string)
+  (cl-ppcre:scan *markdown-item-scanner* string))
+
+(defun markdown-paragraph-lines (line)
+  "The first and last lines of the paragraph or list item LINE is in."
+  (let ((first line) (last line))
+    ;; Back to the item's marker, or to the paragraph's first line.
+    (loop until (markdown-item-start-p (line-string first))
+          for previous = (line-previous first)
+          while (and previous (not (markdown-fixed-line-p (line-string previous))))
+          do (setf first previous))
+    (loop for next = (line-next last)
+          while (and next
+                     (not (markdown-fixed-line-p (line-string next)))
+                     (not (markdown-item-start-p (line-string next))))
+          do (setf last next))
+    (values first last)))
+
+(defun wrap-words (words first-prefix prefix column)
+  (let ((lines '()) (current first-prefix) (empty t))
+    (dolist (word words)
+      (cond (empty
+             (setf current (concatenate 'string current word) empty nil))
+            ((> (+ (length current) 1 (length word)) column)
+             (push current lines)
+             (setf current (concatenate 'string prefix word)))
+            (t (setf current (concatenate 'string current " " word)))))
+    (push current lines)
+    (nreverse lines)))
+
+(defcommand "Markdown Fill Paragraph" (p)
+  "Fill the paragraph or list item point is in to \"Fill Column\" (or the
+   argument's column): a list item's lines hang under its text, and a
+   quotation keeps its > on each line.  Headings, tables and code are left
+   alone."
+  "Fill this paragraph or list item."
+  (let* ((point (current-point))
+         (line (mark-line point))
+         (column (if p (abs p) (value fill-column))))
+    (when (or (markdown-fixed-line-p (line-string line)) (markdown-in-fence-p line))
+      (editor-error "Not in a paragraph."))
+    (multiple-value-bind (first last) (markdown-paragraph-lines line)
+      (let* ((head (line-string first))
+             (first-prefix
+               (multiple-value-bind (start end) (cl-ppcre:scan *markdown-item-scanner* head)
+                 (declare (ignore start))
+                 (if end
+                     (subseq head 0 end)
+                     (multiple-value-bind (qs qe) (cl-ppcre:scan *markdown-quote-scanner* head)
+                       (declare (ignore qs))
+                       (if qe
+                           (subseq head 0 qe)
+                           (subseq head 0 (or (position #\Space head :test-not #'char=) 0)))))))
+             (prefix (if (markdown-item-start-p head)
+                         ;; Hung under the item's text, within its quotation.
+                         (multiple-value-bind (qs qe) (cl-ppcre:scan *markdown-quote-scanner* head)
+                           (declare (ignore qs))
+                           (concatenate 'string (if qe (subseq head 0 qe) "")
+                                        (make-string (- (length first-prefix) (or qe 0))
+                                                     :initial-element #\Space)))
+                         first-prefix))
+             (words (loop for l = first then (line-next l)
+                          for string = (line-string l)
+                          for body = (if (eq l first)
+                                         (subseq string (length first-prefix))
+                                         (string-left-trim " >" string))
+                          append (cl-ppcre:split "\\s+" (string-trim " " body))
+                          until (eq l last)))
+             (text (format nil "~{~A~^~%~}" (wrap-words words first-prefix prefix column))))
+        (with-mark ((start (mark first 0) :left-inserting)
+                    (end (mark last (line-length last)) :left-inserting))
+          (let ((old (region-to-string (region start end))))
+            (unless (string= old text)
+              (delete-region (region start end))
+              (insert-string start text))))))))
+
+(bind-key "Markdown Fill Paragraph" #k"meta-q" :mode "Markdown")

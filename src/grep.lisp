@@ -290,7 +290,8 @@
 
 (defcommand "Recursive Grep" (p)
   "Search for a regular expression in the files under a directory, leaving
-   out version control's."
+   out version control's: with ripgrep (rg) where it is installed, which
+   also leaves out what .gitignore names, and grep otherwise."
   "Search the files under a directory."
   (declare (ignore p))
   (let* ((pattern (prompt-for-string :prompt "Search for: "
@@ -300,9 +301,19 @@
                                      :default (default-directory)
                                      :must-exist t)))
     (grep-command nil
-                  (format nil "grep -rnH -I --exclude-dir=.git --exclude-dir=.hg -e ~A ."
-                          (shell-quote pattern))
+                  (if (find-program "rg")
+                      ;; ripgrep leaves out what .gitignore does, and binaries.
+                      (format nil "rg -n --no-heading --color never -e ~A ." (shell-quote pattern))
+                      (format nil "grep -rnH -I --exclude-dir=.git --exclude-dir=.hg -e ~A ."
+                              (shell-quote pattern)))
                   (directory-namestring (merge-pathnames directory (default-directory))))))
+
+(defun find-program (name)
+  "Where the shell would find the program NAME, or NIL."
+  (loop for directory in (uiop:split-string (or (uiop:getenv "PATH") "") :separator ":")
+        for file = (and (plusp (length directory))
+                        (probe-file (merge-pathnames name (uiop:ensure-directory-pathname directory))))
+        when file return file))
 
 (defun shell-quote (string)
   (format nil "'~A'" (cl-ppcre:regex-replace-all "'" string "'\\\\''")))
