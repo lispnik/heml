@@ -169,6 +169,11 @@
 
 (defun point-column () (hi::mark-column (hi::current-point)))
 
+(defun menu-hidden-p (title)
+  (main (objc:invoke-bool (objc:invoke (objc:invoke (objc.runloop:shared-application) "mainMenu")
+                                       "itemWithTitle:" title)
+                          "isHidden")))
+
 (defun row-runs-containing (text)
   "The font runs of the first screen row that shows TEXT, or :NONE."
   (let ((row (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
@@ -493,7 +498,15 @@ café λ 日本語 end")
     (with-open-file (out (merge-pathnames "a-file.txt" directory)
                          :direction :output :if-exists :supersede)
       (write-line "x" out))
+    (check "the Dired menu is hidden outside Dired" (menu-hidden-p "Dired"))
     (post (list :command "Dired" (namestring directory)))
+    (settle)
+    (check "and shown in it" (not (menu-hidden-p "Dired")))
+    (choose-menu-item "Dired" "Mark")
+    (settle)
+    (check "Dired > Mark marks the file under point"
+           (not (eq :none (row-runs-containing "* "))))
+    (choose-menu-item "Dired" "Unmark All")
     (settle)
     (check "Dired lists a directory, with a header"
            (and (equal "Dired" (hi::buffer-major-mode (hi::current-buffer)))
@@ -517,7 +530,8 @@ café λ 日本語 end")
         (settle))
       (check "a double click in Dired visits the file"
              (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
-               (and pathname (equal "a-file.txt" (file-namestring pathname))))))
+               (and pathname (equal "a-file.txt" (file-namestring pathname)))))
+      (check "and the Dired menu is hidden again there" (menu-hidden-p "Dired")))
     (post-key #\x "Control") (post-key #\k)
     (settle)
     (post (list :named "Return" (quote ())))
@@ -525,6 +539,22 @@ café λ 日本語 end")
     (check "and nothing was deleted"
            (and (probe-file (merge-pathnames "a-file.txt" directory))
                 (probe-file (merge-pathnames "a-directory/" directory)))))
+
+  (note "bufed")
+  (post (list :command "Bufed"))
+  (settle)
+  (let* ((rows (heml.cocoa::screen-shown-rows heml.cocoa::*screen*))
+         (line (position-if (lambda (row) (search "opened.c" (heml.cocoa::row-text row))) rows))
+         (column (and line (search "opened.c" (heml.cocoa::row-text (svref rows line))))))
+    (check "Bufed lists the buffers, under a header"
+           (and line (not (eq :none (row-runs-containing "Buffers  (")))))
+    (when line
+      (mouse :down (+ column 2) line) (mouse :up (+ column 2) line)
+      (mouse :down (+ column 2) line :clicks 2) (mouse :up (+ column 2) line :clicks 2)
+      (settle))
+    (check "a double click in Bufed visits the buffer"
+           (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+             (and pathname (equal "opened.c" (file-namestring pathname))))))
 
   (note "text styles")
   (let ((file (merge-pathnames "styles.txt" *out*)))

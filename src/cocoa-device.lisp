@@ -239,6 +239,7 @@ that, and should not also reach the editor as a key."
     (hi::bind-key "Mouse Select Word" (key "Doubleleftdown"))
     ;; In Dired, a double click opens what it is on.
     (hi::bind-key "Dired Mouse Edit File" (key "Doubleleftdown") :mode "Dired")
+    (hi::bind-key "Bufed Mouse Goto" (key "Doubleleftdown") :mode "Bufed")
     (hi::bind-key "Mouse Select Line" (key "Tripleleftdown"))
     (hi::bind-key "Mouse Point Unless In Region" (key "Rightdown"))
     (hi::bind-key "Do Nothing" (key "Rightup"))
@@ -419,6 +420,11 @@ another window is on its right."
   (when (device-dirty device)
     (setf (device-dirty device) nil)
     (setf (screen-borders *screen*) (layout-borders))
+    ;; The mode the menus follow.  A prompt's echo area leaves them as they
+    ;; were, rather than hiding a mode's menu while it asks.
+    (let ((buffer (hi::current-buffer)))
+      (unless (eq buffer hi::*echo-area-buffer*)
+        (setf (screen-mode *screen*) (hi::buffer-major-mode buffer))))
     (present-screen *screen*)
     (request-redraw)))
 

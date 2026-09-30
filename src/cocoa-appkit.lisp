@@ -78,7 +78,10 @@ uses so as not to overwrite the user's clipboard.")
   ;; The edges a drag resizes windows by, as (DIRECTION COLUMN LINE COLUMNS
   ;; LINES) rectangles of cells, where the pointer is a resize cursor.
   (borders '())
-  (shown-borders '()))
+  (shown-borders '())
+  ;; The current buffer's major mode, for the menus that belong to one.
+  (mode nil)
+  (shown-mode nil))
 
 (defun make-screen (columns lines)
   (let ((screen (%make-screen columns lines)))
@@ -634,7 +637,11 @@ again."
             (screen-shown-cursor-y screen) (screen-cursor-y screen))
       (unless (equal (screen-borders screen) (screen-shown-borders screen))
         (setf (screen-shown-borders screen) (screen-borders screen)
-              borders-moved t)))
+              borders-moved t))
+      (unless (or (null (screen-mode screen))
+                  (equal (screen-mode screen) (screen-shown-mode screen)))
+        (let ((mode (setf (screen-shown-mode screen) (screen-mode screen))))
+          (on-main-thread (show-mode-menus mode)))))
     (when borders-moved
       (on-main-thread
         (let ((display *display*))
@@ -1000,6 +1007,9 @@ consume, and the keys they are.")
 
 (defvar *menu-actions* (make-array 0 :adjustable t :fill-pointer t))
 
+(defvar *mode-menus* '()
+  "Each mode's menu-bar item, as (MODE . ITEM).  Main thread only.")
+
 (defun menu-action-tag (action)
   (or (position action *menu-actions* :test #'equal)
       (vector-push-extend action *menu-actions*)))
@@ -1201,6 +1211,7 @@ exists of those Heml loads, or the first of them to create."
     ("File"
      ("New Buffer…" (:command "Select Buffer") :key "n")
      ("Open…" (:call choose-files-to-open) :key "o")
+     ("Directory…" (:command "Dired") :key "d" :modifiers (:shift))
      :separator
      ("Close Buffer…" (:command "Kill Buffer") :key "w")
      ("Save" (:command "Save File") :key "s")
@@ -1259,6 +1270,41 @@ exists of those Heml loads, or the first of them to create."
      ("Select Slave" (:command "Select Slave"))
      :separator
      ("Shell" (:command "Shell")))
+    ("Dired" (:mode "Dired")
+     ("Open" (:command "Dired Edit File"))
+     ("Open in Other Window" (:command "Dired Edit File Other Window"))
+     ("View" (:command "Dired View File"))
+     ("Open with Default Application" (:command "Dired Open Externally"))
+     :separator
+     ("Mark" (:command "Dired Mark"))
+     ("Unmark" (:command "Dired Unmark"))
+     ("Unmark All" (:command "Dired Unmark All"))
+     ("Toggle Marks" (:command "Dired Toggle Marks"))
+     ("Mark Matching…" (:command "Dired Mark with Pattern"))
+     :separator
+     ("Copy…" (:command "Dired Copy"))
+     ("Rename…" (:command "Dired Rename"))
+     ("Delete…" (:command "Dired Delete"))
+     ("Make Symbolic Link…" (:command "Dired Symlink"))
+     ("Change Mode…" (:command "Dired Change Mode"))
+     ("Compress or Uncompress" (:command "Dired Compress"))
+     ("Shell Command…" (:command "Dired Shell Command"))
+     ("New Directory…" (:command "Dired Create Directory"))
+     :separator
+     ("Flag for Deletion" (:command "Dired Delete File and Down Line"))
+     ("Delete Flagged…" (:command "Dired Expunge Files"))
+     :separator
+     ("Sort" (:command "Dired Sort"))
+     ("Show or Hide Hidden Files" (:command "Dired Toggle Hidden Files"))
+     ("Insert or Fold Subdirectory" (:command "Dired Insert Subdirectory"))
+     ("Edit Names" (:command "Dired Edit Names"))
+     ("Refresh" (:command "Dired Update Buffer"))
+     ("Up to Parent" (:command "Dired Up Directory"))
+     :separator
+     ("Quit Dired" (:command "Dired Quit")))
+    ("Edit Names" (:mode "Wdired")
+     ("Rename as Edited" (:command "Wdired Finish"))
+     ("Cancel" (:command "Wdired Abort")))
     ("Window" :windows
      ("Minimize" (:selector "performMiniaturize:") :key "m")
      ("Zoom" (:selector "performZoom:"))
@@ -1270,7 +1316,8 @@ exists of those Heml loads, or the first of them to create."
      ("Describe Command…" (:command "Describe Command"))
      ("Apropos…" (:command "Apropos"))))
   "The menu bar.  A menu is (title [role] entry ...), with ROLE :WINDOWS or
-:HELP for the menus AppKit keeps up itself; an entry is :SEPARATOR, or
+:HELP for the menus AppKit keeps up itself, or (:MODE name) for one shown
+only while the current buffer's major mode is NAME; an entry is :SEPARATOR, or
 (title action &key key modifiers hidden) -- KEY the Command-key equivalent,
 MODIFIERS any of :SHIFT, :OPTION and :CONTROL besides -- or (title
 :SERVICES).")
@@ -1284,6 +1331,21 @@ MODIFIERS any of :SHIFT, :OPTION and :CONTROL besides -- or (title
     ("Describe Symbol" (:command "Describe Symbol"))
     ("Evaluate Region" (:command "Evaluate Region")))
   "The right click's menu: entries as in *MENU-BAR*.")
+
+(defparameter *mode-context-menus*
+  '(("Dired"
+     ("Open" (:command "Dired Edit File"))
+     ("Open in Other Window" (:command "Dired Edit File Other Window"))
+     ("Open with Default Application" (:command "Dired Open Externally"))
+     :separator
+     ("Mark" (:command "Dired Mark"))
+     ("Unmark" (:command "Dired Unmark"))
+     :separator
+     ("Copy…" (:command "Dired Copy"))
+     ("Rename…" (:command "Dired Rename"))
+     ("Delete…" (:command "Dired Delete"))))
+  "A major mode's name and the right click's menu in its buffers, entries as
+in *MENU-BAR*; other buffers get *CONTEXT-MENU*.")
 
 (defconstant +shift-key-mask+ (ash 1 17))
 (defconstant +control-key-mask+ (ash 1 18))
@@ -1335,25 +1397,44 @@ from a REPL, or a bundle without a nib, has none."
     (let ((menubar (make-menu "")))
       (dolist (spec *menu-bar*)
         (destructuring-bind (title . entries) spec
-          (let* ((role (when (keywordp (first entries)) (pop entries)))
+          (let* ((role (when (or (keywordp (first entries))
+                                 (and (consp (first entries)) (eq (car (first entries)) :mode)))
+                         (pop entries)))
                  (menu (build-menu title entries target))
                  (item (objc:alloc-init-object "NSMenuItem")))
             (objc:invoke item "setTitle:" title)
             (objc:invoke item "setSubmenu:" menu)
             (objc:invoke menubar "addItem:" item)
-            (case role
-              (:windows (objc:invoke app "setWindowsMenu:" menu))
-              (:help (objc:invoke app "setHelpMenu:" menu))))))
+            (cond ((eq role :windows) (objc:invoke app "setWindowsMenu:" menu))
+                  ((eq role :help) (objc:invoke app "setHelpMenu:" menu))
+                  ((consp role)
+                   ;; A mode's menu: hidden until its mode is current.
+                   (push (cons (second role) (objc:retain item)) *mode-menus*)
+                   (objc:invoke item "setHidden:" t))))))
       (objc:invoke app "setMainMenu:" menubar))))
 
-(defvar *context-menu-object* nil)
+(defun show-mode-menus (mode)
+  "Show the menus of MODE, the current buffer's major mode, and hide the
+other modes'.  Main thread."
+  (loop for (menu-mode . item) in *mode-menus*
+        do (objc:invoke item "setHidden:" (not (equal menu-mode mode)))))
+
+(defvar *context-menu-objects* '()
+  "Each context menu made, as (MODE . MENU), MODE NIL for the general one.")
 
 (defun context-menu ()
-  (or *context-menu-object*
-      (setf *context-menu-object*
-            (objc:retain
-             (build-menu "" *context-menu*
-                         (objc:objc-object-pointer (display-app-delegate *display*)))))))
+  "The right click's menu for the current buffer's mode."
+  (let* ((screen *screen*)
+         (mode (and screen (screen-shown-mode screen)))
+         (key (and (assoc mode *mode-context-menus* :test #'equal) mode)))
+    (or (cdr (assoc key *context-menu-objects* :test #'equal))
+        (let ((menu (objc:retain
+                     (build-menu "" (if key
+                                        (cdr (assoc key *mode-context-menus* :test #'equal))
+                                        *context-menu*)
+                                 (objc:objc-object-pointer (display-app-delegate *display*))))))
+          (push (cons key menu) *context-menu-objects*)
+          menu))))
 
 (defun make-window (display)
   (let* ((width (+ (* 2 *margin*) (* *initial-columns* (display-char-width display))))

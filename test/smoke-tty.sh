@@ -150,13 +150,16 @@ fi
 # Visiting a file: its name is in the modeline.  (On ECL a namestring is
 # not a simple string, and the modeline once refused it.)  A file that does
 # not exist yet is a new one.
+# The prompt starts with the current directory: clear it for a full path.
 send C-x C-f
 sleep 0.5
+send C-a C-k
 type_text "$PWD/README.org"
 send Enter
 expect 'README.org' "C-x C-f visits a file"
 send C-x C-f
 sleep 0.5
+send C-a C-k
 type_text "$PWD/build/smoke-tty-new-file.txt"
 send Enter
 expect '(New File)' "C-x C-f on a new name starts a new file"
@@ -345,6 +348,95 @@ send C-x k
 sleep 0.5
 send Enter
 sleep 0.5
+
+# Bufed.
+send C-x C-b
+expect 'Buffers  (' "C-x C-b lists the buffers, under a header"
+expect_re 'README\.org  *[0-9.]*K  *Fundamental  *~/' "each with its size, mode and file"
+send s
+expect 'by name' "s sorts them by name"
+send /
+expect 'Show buffers' "/ asks which buffers to show"
+type_text 'Text'
+send Enter
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'showing "Text"' && ! screen | grep -q ' README\.org '; then
+    echo "  ok    and shows only those"
+else
+    echo "  FAIL  and shows only those"; screen | sed 's/^/        | /'; failures=$((failures + 1))
+fi
+send /
+sleep 0.3
+send Enter
+sleep 0.5
+send G
+expect '[no file]' "G groups the buffers by directory"
+send G
+sleep 0.5
+send 'M-<' C-n
+send m
+expect_re '^\* ' "m marks a buffer"
+send U
+sleep 0.5
+checks=$((checks + 1))
+if screen | grep -q '^\* '; then
+    echo "  FAIL  U unmarks it"; failures=$((failures + 1))
+else
+    echo "  ok    U unmarks it"
+fi
+# A buffer made while the list is shown appears in it.
+send C-x 2
+sleep 0.5
+send C-x o
+sleep 0.3
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-bufed.txt"
+send Enter
+expect_re 'smoke-tty-bufed\.txt  *0' "a buffer made while Bufed is shown appears in it" 10
+send C-x o
+sleep 0.3
+send C-x 1
+sleep 0.5
+send /
+sleep 0.3
+type_text 'smoke-tty-bufed'
+send Enter
+sleep 0.5
+send 'M-<' C-n
+send D
+expect 'Kill 1 buffer?' "D asks before killing a buffer"
+send y
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'smoke-tty-bufed.txt'; then
+    echo "  FAIL  and kills it"; screen | sed 's/^/        | /'; failures=$((failures + 1))
+else
+    echo "  ok    and kills it"
+fi
+send /
+sleep 0.3
+send Enter
+sleep 0.5
+send /
+sleep 0.3
+type_text 'README'
+send Enter
+sleep 0.5
+send 'M-<' C-n
+send Enter
+expect_re 'Heml CL-USER:.*README\.org' "Return visits the buffer under point"
+# Leave Bufed properly: q closes it.
+send C-x C-b
+sleep 0.5
+send /
+sleep 0.3
+send Enter
+sleep 0.3
+send q
+expect_re 'Heml CL-USER:.*README\.org' "q closes Bufed"
 
 send M-x
 expect 'Extended Command:' "Meta (ESC) prefixes: M-x prompts"
