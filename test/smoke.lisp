@@ -491,6 +491,18 @@ gamma
       (settle)
       (check "C-M-e goes past the end of this one"
              (equal "int b(void) {" (point-line))))
+    (when (probe-file "/opt/homebrew/bin/fpc")
+      (post (list :open (namestring (write-file "bad.pas" "program bad;" "begin" "  x := 1;" "end."))))
+      (settle)
+      (post-key #\c "Control") (post-key #\c "Control")
+      (check "C-c C-c compiles Pascal with fpc"
+             (wait-until (lambda () (search "Compilation finished" (buffer-text)))))
+      (post-key #\x "Control") (post-key #\`)
+      (settle)
+      (check "and C-x ` visits its error"
+             (and (eq (hi::current-buffer) (file-buffer "bad.pas"))
+                  (equal "  x := 1;" (point-line))))
+      (post-key #\x "Control") (post-key #\1))
     (post (list :open (namestring (write-file "heads.md" "# One" "text" "## Two" "more"))))
     (settle)
     (post-key #\c "Control") (post-key #\n "Control")

@@ -356,6 +356,14 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
                       "sh")))
     (run-buffer-file program)))
 
+(defcommand "Pascal Compile File" (p)
+  "Save this file and compile it with Free Pascal (fpc), showing what the
+   compiler says in the compilation buffer; Return on an error visits it."
+  "Compile this file with fpc."
+  (declare (ignore p))
+  (run-buffer-file "fpc"))
+
+(bind-key "Pascal Compile File" #k"control-c control-c" :mode "Pascal")
 (bind-key "Python Run File" #k"control-c control-c" :mode "Python")
 (bind-key "Shell Script Run File" #k"control-c control-c" :mode "Shell Script")
 
@@ -487,7 +495,10 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
 (define-menu "Pascal" (:mode "Pascal")
   ("Beginning of Procedure" "Beginning of Definition")
   ("End of Procedure" "End of Definition")
-  ("Outline" "Outline"))
+  ("Outline" "Outline")
+  :separator
+  ("Compile with fpc" "Pascal Compile File")
+  ("Next Error" "Next Result"))
 
 (define-menu "Markdown" (:mode "Markdown")
   ("Next Heading" "Markdown Next Heading")

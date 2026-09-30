@@ -173,7 +173,7 @@
                         (car (push (cons ,str nil) *file-type-hooks*))))
                #',fun)))))
 
-(define-file-type-hook ("pas" "pasmac" "macro" "defs" "spc" "bdy")
+(define-file-type-hook ("pas" "pp" "lpr" "dpr" "dpk" "pasmac" "macro" "defs" "spc" "bdy")
                        (buffer type)
   (declare (ignore type))
   (setf (buffer-major-mode buffer) "Pascal"))

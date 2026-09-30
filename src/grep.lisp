@@ -43,10 +43,12 @@
                    (parse-integer string :start (aref starts 2) :end (aref ends 2)))))))
 
 ;;; What else a compilation's lines may name a place with: a Python
-;;; traceback's File "x.py", line 12, and a shell's x.sh: line 3:.
+;;; traceback's File "x.py", line 12, a shell's x.sh: line 3:, and Free
+;;; Pascal's and Delphi's x.pas(3,5) Error:.
 ;;;
 (defparameter *other-location-scanners*
   (list (cl-ppcre:create-scanner "^\\s*File \"([^\"]+)\", line (\\d+)")
+        (cl-ppcre:create-scanner "^([^(\\s][^(]*)\\((\\d+)(?:,\\d+)?\\) (?:Fatal|Error|Warning|Hint|Note)")
         (cl-ppcre:create-scanner "^([^:\\s][^:]*): line (\\d+):")))
 
 (defun other-location-parts (string)
