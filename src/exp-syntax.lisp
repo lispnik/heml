@@ -189,6 +189,7 @@
         ((char= ch #\;) (call comment))
         ((char= ch #\") (call string))
         ((char= ch #\#) (call hash))
+        ((char= ch #\:) (call keyword))
         ((or (alphanumericp ch) (find ch "-+*/"))
          (call atom))
         (t
@@ -199,6 +200,7 @@
 (defstate hash ()
   (consume)
   (cond ((char= ch #\\) (call char-const))
+        ((char= ch #\|) (call block-comment))
         ((char= ch #\+) (call hash-plus))
         ((char= ch #\-) (call hash-minus))
         ((char= ch #\')
@@ -206,6 +208,29 @@
          (call sexp))
         (t
          (call sexp))))
+
+;;; #| ... |#, which may hold another.
+(defstate block-comment ()
+  (consume)                             ;consume |
+  loop
+  (cond ((char= ch #\|)
+         (consume)
+         (if (char= ch #\#)
+             (progn (consume) (return))
+             (go loop)))
+        ((char= ch #\#)
+         (consume)
+         (if (char= ch #\|)
+             (progn (call block-comment) (go loop))
+             (go loop)))
+        (t
+         (consume)
+         (go loop))))
+
+(defstate keyword ()
+  (consume)                             ;consume :
+  (while (or (alphanumericp ch) (find ch "-+*/"))
+    (consume)))
 
 (defstate char-const ()
   (consume)                             ;\\
@@ -379,9 +404,12 @@ a buffer in another mode must not be coloured as Lisp on that account."
   (cond ((member 'hash-plus state)
          6)
         (t
-         (let ((q (member-if (lambda (x) (member x '(string rq bq uq comment hash-plus hash-minus))) state)))
+         (let ((q (member-if (lambda (x) (member x '(string rq bq uq comment block-comment
+                                                       keyword hash-plus hash-minus)))
+                             state)))
            (case (car q)
-             (comment 1)
+             ((comment block-comment) 1)
+             (keyword 6)
              (rq 5)
              (bq 2)
              (uq 3)
