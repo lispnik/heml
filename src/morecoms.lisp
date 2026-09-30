@@ -1000,3 +1000,39 @@
     (if (and p (> p 1))
         (insert-string (current-point) (make-string p :initial-element char))
         (insert-character (current-point) char))))
+
+
+
+;;;; Links.
+
+(defun open-link (target)
+  "Follow TARGET: a web or mail address opens where the system opens it, and
+a file, named or file:, is visited."
+  (cond ((cl-ppcre:scan "^(https?|ftp|mailto):" target)
+         (uiop:launch-program (list (if (probe-file "/usr/bin/open") "/usr/bin/open" "xdg-open")
+                                    target))
+         (message "Opened ~A" target))
+        (t
+         (let ((path (if (uiop:string-prefix-p "file://" target) (subseq target 7) target)))
+           (change-to-buffer
+            (find-file-buffer (merge-pathnames path (or (buffer-default-pathname (current-buffer))
+                                                        (user-homedir-pathname)))))))))
+
+(defcommand "Open Link" (p)
+  "Follow the link at point: open a web or mail address as the system does,
+   or visit a file."
+  "Follow the link at point."
+  (declare (ignore p))
+  (let ((target (hi:link-at-mark (current-point))))
+    (unless target (editor-error "No link here."))
+    (open-link target)))
+
+(defcommand "Mouse Open Link" (p)
+  "Follow the link clicked."
+  "Follow the link clicked."
+  (let ((m (pointer-mark)))
+    (unless m (editor-error))
+    (let ((target (hi:link-at-mark m)))
+      (if target
+          (open-link target)
+          (mouse-set-point-command p)))))

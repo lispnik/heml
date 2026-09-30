@@ -342,7 +342,14 @@
                        (let ((underlinep (and (listp font) (getf font :underline))))
                          (when underlinep
                            (enter-underline-mode)))
-                       (device-write-string string posn new-posn))
+                       ;; A link is an OSC 8 hyperlink, which terminals that
+                       ;; know it make clickable, and the rest ignore.
+                       (let ((link (and (listp font) (getf font :link))))
+                         (when link
+                           (tty-write-cmd (format nil "~C]8;;~A~C\\" #\Esc link #\Esc)))
+                         (device-write-string string posn new-posn)
+                         (when link
+                           (tty-write-cmd (format nil "~C]8;;~C\\" #\Esc #\Esc)))))
                    (exit-attribute-mode)))
                 (t
                  (device-write-string string posn new-posn)))

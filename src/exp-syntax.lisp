@@ -419,10 +419,73 @@ mode is MODE.  NIL removes it."
   (let ((buffer (line-buffer line)))
     (when buffer
       (let ((function (gethash (buffer-major-mode buffer) *mode-highlighters*)))
-        (when function
-          (funcall function line))))))
+        (if function
+            (funcall function line)
+            (highlight-links line))))))
 
 (define-mode-highlighter "Lisp" 'line-tag)
+
+;;; Links.  A line's links are found in its text: a Markdown link
+;;; [text](url), an autolink <url>, and a bare URL.  Each is drawn in
+;;; LINK-FONT, whose :LINK says where it goes -- the terminal makes it a
+;;; hyperlink, and "Open Link" follows it.  A mode's highlighter lays links
+;;; into its colouring (tree-sitter's does); a buffer whose mode has none has
+;;; its links shown on their own, on lines without colours of their own.
+
+(defparameter *link-scanners*
+  (list (cons (cl-ppcre:create-scanner "\\[[^\\]\\n]+\\]\\(([^)\\s]+)\\)") 1)
+        (cons (cl-ppcre:create-scanner "<((?:https?|ftp|file|mailto):[^>\\s]+)>") 1)
+        (cons (cl-ppcre:create-scanner "(?:https?|ftp|file)://[^\\s<>\"'`]+") 0))
+  "Each scanner, and the register that is the link's target (0: the match).")
+
+(defun trim-url (url)
+  "URL without the punctuation that ends the sentence it is in."
+  (let ((end (length url)))
+    (loop while (and (plusp end)
+                     (or (find (char url (1- end)) ".,;:!?'\"")
+                         (and (char= (char url (1- end)) #\))
+                              (> (count #\) url :end end) (count #\( url :end end)))))
+          do (decf end))
+    (subseq url 0 end)))
+
+(defun line-links (string)
+  "The links in STRING, as ((START END TARGET) ...), in order and apart."
+  (let ((links '()))
+    (loop for (scanner . register) in *link-scanners*
+          do (cl-ppcre:do-scans (start end rstarts rends scanner string)
+               (let* ((target (if (zerop register)
+                                  (trim-url (subseq string start end))
+                                  (subseq string (aref rstarts (1- register))
+                                          (aref rends (1- register)))))
+                      (end (if (zerop register) (+ start (length target)) end)))
+                 (unless (find-if (lambda (link)
+                                    (and (< start (second link)) (< (first link) end)))
+                                  links)
+                   (push (list start end target) links)))))
+    (sort links #'< :key #'first)))
+
+(defun link-font (target)
+  "The font a link to TARGET is drawn in."
+  (list :fg 6 :underline t :link target))
+
+(defun link-at-mark (mark)
+  "The target of the link MARK is on, or NIL."
+  (let ((position (mark-charpos mark)))
+    (third (find-if (lambda (link) (and (<= (first link) position) (< position (second link))))
+                    (line-links (line-string (mark-line mark)))))))
+
+(defun highlight-links (line)
+  "Show LINE's links, unless the line has colours of its own."
+  (let ((old (getf (line-plist line) 'link-marks)))
+    (unless (and old (eq (car old) (line-signature line)))
+      (dolist (mark (cdr old))
+        (delete-font-mark mark))
+      (setf (getf (line-plist line) 'link-marks)
+            (cons (line-signature line)
+                  (unless (some (lambda (m) (fast-font-mark-p m)) (line-marks line))
+                    (loop for (start end target) in (line-links (line-string line))
+                          collect (font-mark line start (link-font target))
+                          collect (font-mark line end 0))))))))
 
 
 ;;;; Tag computation

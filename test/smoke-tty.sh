@@ -409,6 +409,38 @@ case $(basename "$LISP") in
         ;;
 esac
 
+# Links: C-c C-o follows the one at point, here to a file, and the terminal
+# is sent an OSC 8 hyperlink for it (tmux's pipe-pane sees what Heml writes).
+printf 'linked-file-contents\n' > build/smoke-tty-linked.txt
+printf 'See [the other file](smoke-tty-linked.txt) or https://example.com.\n' > build/smoke-tty-links.txt
+rm -f build/smoke-tty-raw.log
+tmux pipe-pane -t "$session" -o "cat >> $PWD/build/smoke-tty-raw.log"
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-links.txt"
+send Enter
+expect 'See [the other file]' "a file with links is visited"
+tmux pipe-pane -t "$session"
+checks=$((checks + 1))
+if grep -q "]8;;https://example.com" build/smoke-tty-raw.log 2>/dev/null; then
+    echo "  ok    the terminal is sent a hyperlink for a URL"
+else
+    echo "  FAIL  the terminal is sent a hyperlink for a URL"; failures=$((failures + 1))
+fi
+send 'M-<'
+send C-f C-f C-f C-f C-f C-f
+send C-c C-o
+expect 'linked-file-contents' "C-c C-o follows a link to a file"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.3
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # Bufed.
 send C-x C-b
 expect 'Buffers  (' "C-x C-b lists the buffers, under a header"

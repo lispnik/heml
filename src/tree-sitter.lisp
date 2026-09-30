@@ -624,6 +624,10 @@ the language's highlighting, then its inline language's within that."
       (when (parse-inline-root parse)
         (lay-down (query-spans (language-inline language) parse (parse-inline-root parse)
                                string line-start line-end))))
+    ;; Links, over whatever colours them.
+    (loop for (start end target) in (hi:line-links string)
+          do (loop for i from start below (min end (length fonts))
+                   do (setf (aref fonts i) (merge-fonts (aref fonts i) (hi:link-font target)))))
     fonts))
 
 (defun highlight-line (language line)

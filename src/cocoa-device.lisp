@@ -237,6 +237,8 @@ that, and should not also reach the editor as a key."
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift"))
     (hi::bind-key "Mouse Select Word" (key "Doubleleftdown"))
+    ;; Command-click follows a link.
+    (hi::bind-key "Mouse Open Link" (key "Leftdown" "Super"))
     ;; In Dired, a double click opens what it is on.
     (hi::bind-key "Dired Mouse Edit File" (key "Doubleleftdown") :mode "Dired")
     (hi::bind-key "Bufed Mouse Goto" (key "Doubleleftdown") :mode "Bufed")

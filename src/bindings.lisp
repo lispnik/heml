@@ -659,6 +659,7 @@
 ;;;; Dired.
 
 (bind-key "Menu Bar" #k"meta-`")
+(bind-key "Open Link" #k"control-c control-o")
 (bind-key "Dired" #k"control-x d")
 (bind-key "Dired" #k"control-x control-meta-d")
 
