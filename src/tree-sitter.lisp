@@ -9,13 +9,17 @@
 ;;;; and its buffers are coloured when the library, the grammar and the query
 ;;;; can be found; otherwise they are not coloured, and nothing complains.
 ;;;;
-;;;; A buffer is parsed whole, again whenever its signature changes, and a
-;;;; line is coloured when redisplay draws it, from the captures of the query
-;;;; within the line's bytes.  Redisplay draws only what is visible, so only
-;;;; visible lines are coloured.
+;;;; A buffer is parsed when its signature changes: the old tree is told what
+;;;; span of the text changed, found by comparing the old text with the new,
+;;;; and tree-sitter reuses what it can of it.  A line is coloured when
+;;;; redisplay draws it, from the captures of the query within the line's
+;;;; bytes.  Redisplay draws only what is visible, so only visible lines are
+;;;; coloured.
 ;;;;
-;;;; SBCL only.  Much of tree-sitter's interface passes a node, a 32-byte
-;;;; struct, by value, which sb-alien does and CFFI cannot without libffi.
+;;;; Much of tree-sitter's interface passes a node, a 32-byte struct, by
+;;;; value, which CFFI cannot do without libffi.  TS calls a function either
+;;;; way: through sb-alien on SBCL, and through a C function pointer in
+;;;; inline C on ECL, which compiles through C.  Memory is CFFI's.
 
 (defpackage :heml.tree-sitter
   (:use :common-lisp)
@@ -62,9 +66,7 @@ copies them to ~/.local/share/heml/tree-sitter/.")
     (setf *library-state*
           (let ((library (find-in-directories "lib/libtree-sitter.dylib")))
             (if (and library
-                     (ignore-errors
-                      (sb-alien:load-shared-object library :dont-save t)
-                      t))
+                     (ignore-errors (load-library library) t))
                 :loaded
                 :missing))))
   (eq *library-state* :loaded))
@@ -72,49 +74,143 @@ copies them to ~/.local/share/heml/tree-sitter/.")
 
 ;;;; Calling it
 
-(sb-alien:define-alien-type nil
-    (sb-alien:struct ts-node
-      (context (sb-alien:array (sb-alien:unsigned 32) 4))
-      (id sb-sys:system-area-pointer)
-      (tree sb-sys:system-area-pointer)))
-
 (defconstant +node-size+ 32)
+(defconstant +point-size+ 8)
 (defconstant +capture-size+ 40)         ; a node, a uint32, and padding
 (defconstant +match-size+ 16)           ; id, pattern, count, captures
+
+#+sbcl
+(progn
+  (sb-alien:define-alien-type nil
+      (sb-alien:struct ts-node
+        (context (sb-alien:array (sb-alien:unsigned 32) 4))
+        (id sb-sys:system-area-pointer)
+        (tree sb-sys:system-area-pointer)))
+  (sb-alien:define-alien-type nil
+      (sb-alien:struct ts-point
+        (row (sb-alien:unsigned 32))
+        (column (sb-alien:unsigned 32)))))
 
 (defvar *addresses* (make-hash-table :test 'equal))
 
 (defun address (name)
   (or (gethash name *addresses*)
       (setf (gethash name *addresses*)
-            (or (sb-sys:find-dynamic-foreign-symbol-address name)
-                (error "No ~A in the loaded tree-sitter libraries." name)))))
+            (let ((pointer (cffi:foreign-symbol-pointer name)))
+              (if (and pointer (not (cffi:null-pointer-p pointer)))
+                  pointer
+                  (error "No ~A in the loaded tree-sitter libraries." name))))))
 
-;;; (TS NAME RESULT-TYPE (TYPE ARGUMENT)*) calls the C function NAME.
+(defun load-library (pathname)
+  #+sbcl (sb-alien:load-shared-object pathname :dont-save t)
+  #-sbcl (cffi:load-foreign-library pathname))
+
+;;; (TS NAME RESULT (TYPE ARGUMENT)*) calls the C function NAME.  A TYPE is
+;;; :POINTER, :UINT32, or :NODE or :POINT, whose ARGUMENT is a pointer to the
+;;; struct, passed by value.  RESULT is :VOID, :POINTER, :UINT32, :BOOL,
+;;; :STRING, or (:NODE POINTER) or (:POINT POINTER), a struct returned into
+;;; the memory at POINTER.
 ;;;
-(defmacro ts (name result-type &rest arguments)
-  `(sb-alien:alien-funcall
-    (sb-alien:sap-alien (sb-sys:int-sap (address ,name))
-                        (function ,result-type ,@(mapcar #'first arguments)))
-    ,@(mapcar #'second arguments)))
+#+sbcl
+(defmacro ts (name result &rest arguments)
+  (labels ((alien-type (type)
+             (ecase type
+               (:pointer 'sb-sys:system-area-pointer)
+               (:uint32 '(sb-alien:unsigned 32))
+               (:node '(sb-alien:struct ts-node))
+               (:point '(sb-alien:struct ts-point))))
+           (deref (type pointer)
+             `(sb-alien:deref (sb-alien:sap-alien ,pointer (* ,(alien-type type))))))
+    (let* ((kind (if (consp result) (first result) result))
+           (call `(sb-alien:alien-funcall
+                   (sb-alien:sap-alien (address ,name)
+                                       (function ,(ecase kind
+                                                    (:void 'sb-alien:void)
+                                                    (:pointer 'sb-sys:system-area-pointer)
+                                                    (:uint32 '(sb-alien:unsigned 32))
+                                                    (:bool '(sb-alien:unsigned 8))
+                                                    (:string 'sb-alien:c-string)
+                                                    ((:node :point) (alien-type kind)))
+                                                 ,@(mapcar (lambda (a) (alien-type (first a)))
+                                                           arguments)))
+                   ,@(mapcar (lambda (a)
+                               (destructuring-bind (type value) a
+                                 (if (member type '(:node :point)) (deref type value) value)))
+                             arguments))))
+      (case kind
+        (:bool `(plusp ,call))
+        ((:node :point) `(setf ,(deref kind (second result)) ,call))
+        (t call)))))
 
-(defmacro node-at (sap)
-  "The node stored at SAP, as an argument passed by value."
-  `(sb-alien:deref (sb-alien:sap-alien ,sap (* (sb-alien:struct ts-node)))))
+#+ecl
+(defmacro ts (name result &rest arguments)
+  (let* ((kind (if (consp result) (first result) result))
+         (out (and (consp result) (second result)))
+         (c-types (mapcar (lambda (a) (ecase (first a)
+                                        (:pointer "void*") (:uint32 "unsigned int")
+                                        (:node "TSNode") (:point "TSPoint")))
+                          arguments))
+         (c-result (ecase kind
+                     (:void "void") ((:pointer :string) "void*") (:uint32 "unsigned int")
+                     (:bool "unsigned char") (:node "TSNode") (:point "TSPoint")))
+         ;; #0 is the function, #1 the result's memory if any, then the arguments.
+         (first-argument (if out 2 1))
+         (call (format nil "((~A (*)(~{~A~^, ~}))#0)(~{~A~^, ~})"
+                       c-result c-types
+                       (loop for a in arguments
+                             for i from first-argument
+                             collect (let ((code (string-downcase (format nil "#~36R" i))))
+                                       (case (first a)
+                                         (:node (format nil "*(TSNode*)~A" code))
+                                         (:point (format nil "*(TSPoint*)~A" code))
+                                         (t code))))))
+         (code (format nil "{ typedef struct { unsigned int context[4]; const void *id; const void *tree; } TSNode; typedef struct { unsigned int row; unsigned int column; } TSPoint; ~A }"
+                       (case kind
+                         (:void (format nil "~A;" call))
+                         ((:node :point) (format nil "*(~A*)#1 = ~A;" c-result call))
+                         (t (format nil "@(return) = ~A;" call)))))
+         (form `(ffi:c-inline ((address ,name) ,@(and out (list out)) ,@(mapcar #'second arguments))
+                              (:pointer-void ,@(and out '(:pointer-void))
+                                             ,@(mapcar (lambda (a) (if (eq (first a) :uint32)
+                                                                       :unsigned-int
+                                                                       :pointer-void))
+                                                       arguments))
+                              ,(ecase kind
+                                 ((:void :node :point) :void)
+                                 ((:pointer :string) :pointer-void)
+                                 (:uint32 :unsigned-int)
+                                 ;; An unsigned char would come back a character.
+                                 (:bool :int))
+                              ,code
+                              :one-liner nil :side-effects t)))
+    (case kind
+      (:bool `(plusp ,form))
+      (:string `(let ((p ,form)) (if (cffi:null-pointer-p p) nil (cffi:foreign-string-to-lisp p))))
+      ((:node :point) `(progn ,form nil))
+      (t form))))
 
-(defun foreign-string (sap length)
+;;; Foreign memory, which the calls take and fill.
+
+(defmacro u16 (pointer offset) `(cffi:mem-ref ,pointer :uint16 ,offset))
+(defmacro u32 (pointer offset) `(cffi:mem-ref ,pointer :uint32 ,offset))
+(defmacro pointer-at (pointer offset) `(cffi:mem-ref ,pointer :pointer ,offset))
+(defmacro ptr+ (pointer offset) `(cffi:inc-pointer ,pointer ,offset))
+
+(defmacro with-foreign-memory ((pointer size) &body body)
+  `(cffi:with-foreign-pointer (,pointer ,size) ,@body))
+
+(defun allocate (size) (cffi:foreign-alloc :uint8 :count size))
+(defun deallocate (pointer) (cffi:foreign-free pointer))
+
+(defmacro with-vector-pointer ((pointer vector) &body body)
+  "POINTER to the bytes of VECTOR, an (unsigned-byte 8) vector, while BODY runs."
+  `(cffi:with-pointer-to-vector-data (,pointer ,vector) ,@body))
+
+(defun foreign-string (pointer length)
   (let ((octets (make-array length :element-type '(unsigned-byte 8))))
     (dotimes (i length)
-      (setf (aref octets i) (sb-sys:sap-ref-8 sap i)))
+      (setf (aref octets i) (cffi:mem-aref pointer :uint8 i)))
     (babel:octets-to-string octets :encoding :utf-8)))
-
-(defun call-with-foreign-memory (size function)
-  (let ((sap (sb-alien:alien-sap (sb-alien:make-alien (sb-alien:unsigned 8) size))))
-    (unwind-protect (funcall function sap)
-      (sb-alien:free-alien (sb-alien:sap-alien sap (* (sb-alien:unsigned 8)))))))
-
-(defmacro with-foreign-memory ((sap size) &body body)
-  `(call-with-foreign-memory ,size (lambda (,sap) ,@body)))
 
 
 ;;;; Languages
@@ -201,9 +297,8 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
       (error "the tree-sitter library is not installed"))
     (unless grammar (error "its grammar is not installed"))
     (unless query-file (error "its highlight query is not installed"))
-    (sb-alien:load-shared-object grammar :dont-save t)
-    (let ((pointer (ts (format nil "tree_sitter_~A" (substitute #\_ #\- name))
-                       sb-sys:system-area-pointer)))
+    (load-library grammar)
+    (let ((pointer (ts (format nil "tree_sitter_~A" (substitute #\_ #\- name)) :pointer)))
       (setf (language-pointer language) pointer
             (language-query language) (make-query pointer (uiop:read-file-string query-file)))
       (read-captures language)
@@ -212,33 +307,23 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
 (defun make-query (language source)
   (let ((octets (babel:string-to-octets source :encoding :utf-8)))
     (with-foreign-memory (out 8)
-      (let ((query (sb-sys:with-pinned-objects (octets)
-                     (ts "ts_query_new" sb-sys:system-area-pointer
-                         (sb-sys:system-area-pointer language)
-                         (sb-sys:system-area-pointer (sb-sys:vector-sap octets))
-                         ((sb-alien:unsigned 32) (length octets))
-                         (sb-sys:system-area-pointer out)
-                         (sb-sys:system-area-pointer (sb-sys:sap+ out 4))))))
-        (when (zerop (sb-sys:sap-int query))
+      (let ((query (with-vector-pointer (text octets)
+                     (ts "ts_query_new" :pointer
+                         (:pointer language) (:pointer text) (:uint32 (length octets))
+                         (:pointer out) (:pointer (ptr+ out 4))))))
+        (when (cffi:null-pointer-p query)
           (error "its highlight query does not suit the grammar (error ~D at byte ~D)"
-                 (sb-sys:sap-ref-32 out 4) (sb-sys:sap-ref-32 out 0)))
+                 (u32 out 4) (u32 out 0)))
         query))))
 
 (defun query-string (function query id)
   (with-foreign-memory (length 4)
-    (let ((sap (sb-alien:alien-funcall
-                (sb-alien:sap-alien (sb-sys:int-sap (address function))
-                                    (function sb-sys:system-area-pointer
-                                              sb-sys:system-area-pointer
-                                              (sb-alien:unsigned 32)
-                                              sb-sys:system-area-pointer))
-                query id length)))
-      (foreign-string sap (sb-sys:sap-ref-32 length 0)))))
+    (let ((pointer (ts function :pointer (:pointer query) (:uint32 id) (:pointer length))))
+      (foreign-string pointer (u32 length 0)))))
 
 (defun read-captures (language)
   (let* ((query (language-query language))
-         (count (ts "ts_query_capture_count" (sb-alien:unsigned 32)
-                    (sb-sys:system-area-pointer query)))
+         (count (ts "ts_query_capture_count" :uint32 (:pointer query)))
          (fonts (make-array count)))
     (dotimes (i count)
       (setf (aref fonts i)
@@ -249,29 +334,7 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
 ;;; index, as (:CAPTURE . INDEX), or a string.
 ;;;
 (defun read-predicates (language)
-  (let* ((query (language-query language))
-         (count (ts "ts_query_pattern_count" (sb-alien:unsigned 32)
-                    (sb-sys:system-area-pointer query)))
-         (predicates (make-array count)))
-    (dotimes (pattern count)
-      (with-foreign-memory (step-count 4)
-        (let ((steps (ts "ts_query_predicates_for_pattern" sb-sys:system-area-pointer
-                         (sb-sys:system-area-pointer query)
-                         ((sb-alien:unsigned 32) pattern)
-                         (sb-sys:system-area-pointer step-count)))
-              (current '())
-              (all '()))
-          (dotimes (i (sb-sys:sap-ref-32 step-count 0))
-            (let ((type (sb-sys:sap-ref-32 steps (* i 8)))
-                  (value (sb-sys:sap-ref-32 steps (+ 4 (* i 8)))))
-              (ecase type
-                (0 (push (nreverse current) all)
-                   (setf current '()))
-                (1 (push (cons :capture value) current))
-                (2 (push (query-string "ts_query_string_value_for_id" query value)
-                         current)))))
-          (setf (aref predicates pattern) (nreverse all)))))
-    (setf (language-predicates language) predicates)))
+  (setf (language-predicates language) (query-predicates (language-query language))))
 
 
 ;;;; Colours
@@ -310,6 +373,7 @@ coloured.")
 
 (defstruct (parse (:constructor %make-parse))
   signature            ; the buffer's signature when parsed
+  language             ; the language it was parsed with
   tree                 ; the TSTree
   root                 ; foreign memory holding the root node
   octets               ; the buffer as UTF-8, which the tree indexes
@@ -347,12 +411,16 @@ coloured.")
         (incf position (1+ (length octets))))
       (values all starts (coerce (nreverse lines) 'simple-vector)))))
 
-(defun free-parse (parse)
-  (ts "ts_tree_delete" sb-alien:void (sb-sys:system-area-pointer (parse-tree parse)))
-  (sb-alien:free-alien (sb-alien:sap-alien (parse-root parse) (* (sb-alien:unsigned 8))))
+(defun free-inline (parse)
   (when (parse-inline-tree parse)
-    (ts "ts_tree_delete" sb-alien:void (sb-sys:system-area-pointer (parse-inline-tree parse)))
-    (sb-alien:free-alien (sb-alien:sap-alien (parse-inline-root parse) (* (sb-alien:unsigned 8))))))
+    (ts "ts_tree_delete" :void (:pointer (parse-inline-tree parse)))
+    (deallocate (parse-inline-root parse))
+    (setf (parse-inline-tree parse) nil (parse-inline-root parse) nil)))
+
+(defun free-parse (parse)
+  (ts "ts_tree_delete" :void (:pointer (parse-tree parse)))
+  (deallocate (parse-root parse))
+  (free-inline parse))
 
 ;;; Markdown is two grammars: the block grammar finds headings, lists and
 ;;; paragraphs, whose text it leaves in (inline) nodes, and the inline
@@ -373,89 +441,126 @@ is at ROOT, and foreign memory holding its root; or NIL."
         (setf (language-inline-node-query language)
               (make-query (language-pointer language) "(inline) @inline")))
       (let ((ranges '())
-            (cursor (ts "ts_query_cursor_new" sb-sys:system-area-pointer)))
+            (cursor (ts "ts_query_cursor_new" :pointer)))
         (unwind-protect
              (progn
-               (ts "ts_query_cursor_exec" sb-alien:void
-                   (sb-sys:system-area-pointer cursor)
-                   (sb-sys:system-area-pointer (language-inline-node-query language))
-                   ((sb-alien:struct ts-node) (node-at root)))
+               (ts "ts_query_cursor_exec" :void
+                   (:pointer cursor)
+                   (:pointer (language-inline-node-query language))
+                   (:node root))
                (with-foreign-memory (match (+ +match-size+ 4))
-                 (let ((capture-index (sb-sys:sap+ match +match-size+)))
-                   (loop while (plusp (ts "ts_query_cursor_next_capture" (sb-alien:unsigned 8)
-                                          (sb-sys:system-area-pointer cursor)
-                                          (sb-sys:system-area-pointer match)
-                                          (sb-sys:system-area-pointer capture-index)))
-                         do (let* ((capture (sb-sys:sap+ (sb-sys:sap-ref-sap match 8)
-                                                         (* (sb-sys:sap-ref-32 capture-index 0)
-                                                            +capture-size+)))
+                 (let ((capture-index (ptr+ match +match-size+)))
+                   (loop while (ts "ts_query_cursor_next_capture" :bool
+                                   (:pointer cursor) (:pointer match) (:pointer capture-index))
+                         do (let* ((capture (ptr+ (pointer-at match 8)
+                                                  (* (u32 capture-index 0) +capture-size+)))
                                    (node (node-copy capture)))
                               (multiple-value-bind (start end) (node-bytes capture)
                                 (multiple-value-bind (srow scol) (node-start node)
                                   (multiple-value-bind (erow ecol) (node-end node)
                                     (push (list srow scol erow ecol start end) ranges)))))))))
-          (ts "ts_query_cursor_delete" sb-alien:void (sb-sys:system-area-pointer cursor)))
+          (ts "ts_query_cursor_delete" :void (:pointer cursor)))
         (when ranges
           (setf ranges (nreverse ranges))
           (unless *inline-parser*
-            (setf *inline-parser* (ts "ts_parser_new" sb-sys:system-area-pointer)))
-          (ts "ts_parser_set_language" (sb-alien:unsigned 8)
-              (sb-sys:system-area-pointer *inline-parser*)
-              (sb-sys:system-area-pointer (language-pointer inline)))
+            (setf *inline-parser* (ts "ts_parser_new" :pointer)))
+          (ts "ts_parser_set_language" :bool
+              (:pointer *inline-parser*) (:pointer (language-pointer inline)))
           (with-foreign-memory (memory (* +range-size+ (length ranges)))
             (loop for (srow scol erow ecol start end) in ranges
                   for offset from 0 by +range-size+
-                  do (setf (sb-sys:sap-ref-32 memory offset) srow
-                           (sb-sys:sap-ref-32 memory (+ offset 4)) scol
-                           (sb-sys:sap-ref-32 memory (+ offset 8)) erow
-                           (sb-sys:sap-ref-32 memory (+ offset 12)) ecol
-                           (sb-sys:sap-ref-32 memory (+ offset 16)) start
-                           (sb-sys:sap-ref-32 memory (+ offset 20)) end))
-            (ts "ts_parser_set_included_ranges" (sb-alien:unsigned 8)
-                (sb-sys:system-area-pointer *inline-parser*)
-                (sb-sys:system-area-pointer memory)
-                ((sb-alien:unsigned 32) (length ranges)))
-            (let ((tree (sb-sys:with-pinned-objects (octets)
-                          (ts "ts_parser_parse_string" sb-sys:system-area-pointer
-                              (sb-sys:system-area-pointer *inline-parser*)
-                              (sb-sys:system-area-pointer (sb-sys:int-sap 0))
-                              (sb-sys:system-area-pointer (sb-sys:vector-sap octets))
-                              ((sb-alien:unsigned 32) (length octets)))))
-                  (inline-root (sb-alien:alien-sap
-                                (sb-alien:make-alien (sb-alien:unsigned 8) +node-size+))))
-              (setf (node-at inline-root)
-                    (ts "ts_tree_root_node" (sb-alien:struct ts-node)
-                        (sb-sys:system-area-pointer tree)))
+                  do (setf (u32 memory offset) srow
+                           (u32 memory (+ offset 4)) scol
+                           (u32 memory (+ offset 8)) erow
+                           (u32 memory (+ offset 12)) ecol
+                           (u32 memory (+ offset 16)) start
+                           (u32 memory (+ offset 20)) end))
+            (ts "ts_parser_set_included_ranges" :bool
+                (:pointer *inline-parser*) (:pointer memory) (:uint32 (length ranges)))
+            (let ((tree (with-vector-pointer (text octets)
+                          (ts "ts_parser_parse_string" :pointer
+                              (:pointer *inline-parser*) (:pointer (cffi:null-pointer))
+                              (:pointer text) (:uint32 (length octets)))))
+                  (inline-root (allocate +node-size+)))
+              (ts "ts_tree_root_node" (:node inline-root) (:pointer tree))
               (values tree inline-root))))))))
 
+;;; The span of text an edit changed: where the old and new text first
+;;; differ, and where each ends before what they share at the end.  A
+;;; point is a row and a byte in the row.
+;;;
+(deftype octets () '(simple-array (unsigned-byte 8) (*)))
+
+(defun text-point (octets offset)
+  (declare (type octets octets) (fixnum offset) (optimize speed))
+  (let ((rows 0) (newline -1))
+    (declare (fixnum rows newline))
+    (dotimes (i offset)
+      (when (= (aref octets i) 10)
+        (incf rows)
+        (setf newline i)))
+    (values rows (- offset newline 1))))
+
+(defun edit-tree (tree old new)
+  "Tell TREE, parsed from the text OLD, that it is now NEW."
+  (declare (type octets old new))
+  (let* ((old-length (length old))
+         (new-length (length new))
+         (shorter (min old-length new-length))
+         (start (let ((i 0))
+                  (declare (fixnum i) (optimize speed))
+                  (loop while (and (< i shorter) (= (aref old i) (aref new i)))
+                        do (incf i))
+                  i))
+         (common (- shorter start))
+         (suffix (let ((k 0))
+                   (declare (fixnum k) (optimize speed))
+                   (loop while (and (< k common)
+                                    (= (aref old (- old-length k 1))
+                                       (aref new (- new-length k 1))))
+                         do (incf k))
+                   k))
+         (old-end (- old-length suffix))
+         (new-end (- new-length suffix)))
+    (with-foreign-memory (edit 36)
+      (setf (u32 edit 0) start (u32 edit 4) old-end (u32 edit 8) new-end)
+      (loop for (octets offset at) in (list (list new start 12)
+                                            (list old old-end 20)
+                                            (list new new-end 28))
+            do (multiple-value-bind (row column) (text-point octets offset)
+                 (setf (u32 edit at) row (u32 edit (+ at 4)) column)))
+      (ts "ts_tree_edit" :void (:pointer tree) (:pointer edit)))))
+
 (defun buffer-parse (language buffer)
-  "BUFFER parsed with LANGUAGE, parsing it again if it has changed."
+  "BUFFER parsed with LANGUAGE, parsing it again if it has changed, from the
+last parse when it was parsed with LANGUAGE too."
   (let ((parse (gethash buffer *parses*))
         (signature (heml-interface:buffer-signature buffer)))
-    (if (and parse (eql (parse-signature parse) signature))
+    (if (and parse (eql (parse-signature parse) signature)
+             (eq (parse-language parse) language))
         parse
         (progn
-          (when parse (free-parse parse))
           (unless *parser*
-            (setf *parser* (ts "ts_parser_new" sb-sys:system-area-pointer)))
-          (ts "ts_parser_set_language" (sb-alien:unsigned 8)
-              (sb-sys:system-area-pointer *parser*)
-              (sb-sys:system-area-pointer (language-pointer language)))
+            (setf *parser* (ts "ts_parser_new" :pointer)))
+          (ts "ts_parser_set_language" :bool
+              (:pointer *parser*) (:pointer (language-pointer language)))
           (multiple-value-bind (octets starts lines) (buffer-octets buffer)
-            (let* ((tree (sb-sys:with-pinned-objects (octets)
-                           (ts "ts_parser_parse_string" sb-sys:system-area-pointer
-                               (sb-sys:system-area-pointer *parser*)
-                               (sb-sys:system-area-pointer (sb-sys:int-sap 0))
-                               (sb-sys:system-area-pointer (sb-sys:vector-sap octets))
-                               ((sb-alien:unsigned 32) (length octets)))))
-                   (root (sb-alien:alien-sap
-                          (sb-alien:make-alien (sb-alien:unsigned 8) +node-size+))))
-              (setf (node-at root)
-                    (ts "ts_tree_root_node" (sb-alien:struct ts-node)
-                        (sb-sys:system-area-pointer tree)))
+            (let* ((old (and parse (eq (parse-language parse) language) parse))
+                   (tree (progn
+                           (when old
+                             (edit-tree (parse-tree old) (parse-octets old) octets))
+                           (with-vector-pointer (text octets)
+                             (ts "ts_parser_parse_string" :pointer
+                                 (:pointer *parser*)
+                                 (:pointer (if old (parse-tree old) (cffi:null-pointer)))
+                                 (:pointer text) (:uint32 (length octets))))))
+                   (root (allocate +node-size+)))
+              (when parse (free-parse parse))
+              (ts "ts_tree_root_node" (:node root) (:pointer tree))
               (multiple-value-bind (inline-tree inline-root) (parse-inline language octets root)
                 (setf (gethash buffer *parses*)
-                      (%make-parse :signature signature :tree tree :root root
+                      (%make-parse :signature signature :language language
+                                   :tree tree :root root
                                    :octets octets :line-starts starts
                                    :lines lines
                                    :inline-tree inline-tree :inline-root inline-root)))))))))
@@ -466,14 +571,14 @@ is at ROOT, and foreign memory holding its root; or NIL."
 (defvar *cursor* nil)
 
 (defun node-bytes (sap)
-  (values (ts "ts_node_start_byte" (sb-alien:unsigned 32) ((sb-alien:struct ts-node) (node-at sap)))
-          (ts "ts_node_end_byte" (sb-alien:unsigned 32) ((sb-alien:struct ts-node) (node-at sap)))))
+  (values (ts "ts_node_start_byte" :uint32 (:node sap))
+          (ts "ts_node_end_byte" :uint32 (:node sap))))
 
 (defun match-texts (parse captures count index)
   "The text of each capture numbered INDEX in a match."
   (loop for k below count
-        for capture = (sb-sys:sap+ captures (* k +capture-size+))
-        when (= index (sb-sys:sap-ref-32 capture +node-size+))
+        for capture = (ptr+ captures (* k +capture-size+))
+        when (= index (u32 capture +node-size+))
           collect (multiple-value-bind (start end) (node-bytes capture)
                     (babel:octets-to-string (parse-octets parse)
                                             :start start :end end :encoding :utf-8))))
@@ -499,9 +604,9 @@ become their regular-expression equivalents."
 (defun match-kinds (captures count index)
   "The node type of each capture numbered INDEX in a match."
   (loop for k below count
-        for capture = (sb-sys:sap+ captures (* k +capture-size+))
-        when (= index (sb-sys:sap-ref-32 capture +node-size+))
-          collect (ts "ts_node_type" sb-alien:c-string ((sb-alien:struct ts-node) (node-at capture)))))
+        for capture = (ptr+ captures (* k +capture-size+))
+        when (= index (u32 capture +node-size+))
+          collect (ts "ts_node_type" :string (:node capture))))
 
 (defun predicates-hold-p (language parse pattern captures count
                           &optional (predicates (language-predicates language)))
@@ -569,28 +674,20 @@ the same text, the one whose pattern wins last."
   (let ((ascii (= (- line-end line-start) (length string)))
         (spans '()))
     (unless *cursor*
-      (setf *cursor* (ts "ts_query_cursor_new" sb-sys:system-area-pointer)))
-    (ts "ts_query_cursor_set_byte_range" (sb-alien:unsigned 8)
-        (sb-sys:system-area-pointer *cursor*)
-        ((sb-alien:unsigned 32) line-start)
-        ((sb-alien:unsigned 32) (1+ line-end)))
-    (ts "ts_query_cursor_exec" sb-alien:void
-        (sb-sys:system-area-pointer *cursor*)
-        (sb-sys:system-area-pointer (language-query language))
-        ((sb-alien:struct ts-node) (node-at root)))
+      (setf *cursor* (ts "ts_query_cursor_new" :pointer)))
+    (ts "ts_query_cursor_set_byte_range" :bool
+        (:pointer *cursor*) (:uint32 line-start) (:uint32 (1+ line-end)))
+    (ts "ts_query_cursor_exec" :void
+        (:pointer *cursor*) (:pointer (language-query language)) (:node root))
     (with-foreign-memory (match (+ +match-size+ 4))
-      (let ((capture-index (sb-sys:sap+ match +match-size+)))
-        (loop while (plusp (ts "ts_query_cursor_next_capture" (sb-alien:unsigned 8)
-                               (sb-sys:system-area-pointer *cursor*)
-                               (sb-sys:system-area-pointer match)
-                               (sb-sys:system-area-pointer capture-index)))
-              do (let* ((pattern (sb-sys:sap-ref-16 match 4))
-                        (count (sb-sys:sap-ref-16 match 6))
-                        (captures (sb-sys:sap-ref-sap match 8))
-                        (capture (sb-sys:sap+ captures (* (sb-sys:sap-ref-32 capture-index 0)
-                                                          +capture-size+)))
-                        (font (aref (language-fonts language)
-                                    (sb-sys:sap-ref-32 capture +node-size+))))
+      (let ((capture-index (ptr+ match +match-size+)))
+        (loop while (ts "ts_query_cursor_next_capture" :bool
+                        (:pointer *cursor*) (:pointer match) (:pointer capture-index))
+              do (let* ((pattern (u16 match 4))
+                        (count (u16 match 6))
+                        (captures (pointer-at match 8))
+                        (capture (ptr+ captures (* (u32 capture-index 0) +capture-size+)))
+                        (font (aref (language-fonts language) (u32 capture +node-size+))))
                    (when font
                      (multiple-value-bind (start end) (node-bytes capture)
                        (let ((start (max start line-start))
@@ -668,109 +765,85 @@ the language's highlighting, then its inline language's within that."
 ;;; node the line starts with -- for a blank line, the one the line before
 ;;; ends with -- and each node enclosing it.
 
-(sb-alien:define-alien-type nil
-    (sb-alien:struct ts-point
-      (row (sb-alien:unsigned 32))
-      (column (sb-alien:unsigned 32))))
-
-;;; A node, while Lisp holds it, is its 32 bytes in a vector, pinned while
-;;; they are passed by value.
+;;; A node, while Lisp holds it, is its 32 bytes in a vector, pointed to
+;;; while they are passed by value.
 
 (defun make-node () (make-array +node-size+ :element-type '(unsigned-byte 8)))
 
-(defun node-copy (sap)
+(defun node-copy (pointer)
   (let ((node (make-node)))
     (dotimes (i +node-size+ node)
-      (setf (aref node i) (sb-sys:sap-ref-8 sap i)))))
+      (setf (aref node i) (cffi:mem-aref pointer :uint8 i)))))
 
-(defmacro with-node ((sap node) &body body)
-  `(let ((%node ,node))
-     (sb-sys:with-pinned-objects (%node)
-       (let ((,sap (sb-sys:vector-sap %node)))
-         ,@body))))
+(defmacro with-node ((pointer node) &body body)
+  `(with-vector-pointer (,pointer ,node) ,@body))
 
 (defun node-null-p (node)
-  (with-node (sap node)
-    (plusp (ts "ts_node_is_null" (sb-alien:unsigned 8) ((sb-alien:struct ts-node) (node-at sap))))))
+  (with-node (p node) (ts "ts_node_is_null" :bool (:node p))))
 
 (defun node-returning (name node &rest more)
   "The node the C function NAME returns for NODE, or NIL for its null node."
   (let ((result (make-node)))
     (with-node (in node)
       (with-node (out result)
-        (setf (node-at out)
-              (if more
-                  (ts name (sb-alien:struct ts-node) ((sb-alien:struct ts-node) (node-at in))
-                      ((sb-alien:unsigned 32) (first more)))
-                  (ts name (sb-alien:struct ts-node) ((sb-alien:struct ts-node) (node-at in)))))))
+        (if more
+            (ts name (:node out) (:node in) (:uint32 (first more)))
+            (ts name (:node out) (:node in)))))
     (unless (node-null-p result) result)))
 
 (defun node-parent (node) (node-returning "ts_node_parent" node))
 
 (defun node-children (node)
-  (let ((count (with-node (sap node)
-                 (ts "ts_node_child_count" (sb-alien:unsigned 32) ((sb-alien:struct ts-node) (node-at sap))))))
+  (let ((count (with-node (p node) (ts "ts_node_child_count" :uint32 (:node p)))))
     (loop for i below count
           for child = (node-returning "ts_node_child" node i)
           when child collect child)))
 
 (defun node-point (name node)
-  (let ((point (make-array 8 :element-type '(unsigned-byte 8))))
-    (with-node (sap node)
-      (sb-sys:with-pinned-objects (point)
-        (let ((psap (sb-sys:vector-sap point)))
-          (setf (sb-alien:deref (sb-alien:sap-alien psap (* (sb-alien:struct ts-point))))
-                (ts name (sb-alien:struct ts-point) ((sb-alien:struct ts-node) (node-at sap))))
-          (values (sb-sys:sap-ref-32 psap 0) (sb-sys:sap-ref-32 psap 4)))))))
+  (with-foreign-memory (point +point-size+)
+    (with-node (p node)
+      (ts name (:point point) (:node p)))
+    (values (u32 point 0) (u32 point 4))))
 
 (defun node-start (node) (node-point "ts_node_start_point" node))
 (defun node-end (node) (node-point "ts_node_end_point" node))
 
 (defun node-type (node)
-  (with-node (sap node) (ts "ts_node_type" sb-alien:c-string ((sb-alien:struct ts-node) (node-at sap)))))
+  (with-node (p node) (ts "ts_node_type" :string (:node p))))
 
 (defun node-has-error-p (node)
-  (with-node (sap node) (plusp (ts "ts_node_has_error" (sb-alien:unsigned 8) ((sb-alien:struct ts-node) (node-at sap))))))
+  (with-node (p node) (ts "ts_node_has_error" :bool (:node p))))
 
 (defun node-id (node)
-  (with-node (sap node) (sb-sys:sap-int (sb-sys:sap-ref-sap sap 16))))
+  (with-node (p node) (cffi:pointer-address (pointer-at p 16))))
 
 (defun descendant-at (root row column)
   "The smallest node of ROOT's tree at ROW and COLUMN, a byte in that row."
-  (let ((point (make-array 8 :element-type '(unsigned-byte 8)))
-        (result (make-node)))
-    (sb-sys:with-pinned-objects (point)
-      (let ((psap (sb-sys:vector-sap point)))
-        (setf (sb-sys:sap-ref-32 psap 0) row
-              (sb-sys:sap-ref-32 psap 4) column)
-        (with-node (in root)
-          (with-node (out result)
-            (setf (node-at out)
-                  (ts "ts_node_descendant_for_point_range" (sb-alien:struct ts-node)
-                      ((sb-alien:struct ts-node) (node-at in))
-                      ((sb-alien:struct ts-point)
-                       (sb-alien:deref (sb-alien:sap-alien psap (* (sb-alien:struct ts-point)))))
-                      ((sb-alien:struct ts-point)
-                       (sb-alien:deref (sb-alien:sap-alien psap (* (sb-alien:struct ts-point)))))))))))
+  (let ((result (make-node)))
+    (with-foreign-memory (point +point-size+)
+      (setf (u32 point 0) row (u32 point 4) column)
+      (with-node (in root)
+        (with-node (out result)
+          (ts "ts_node_descendant_for_point_range" (:node out)
+              (:node in) (:point point) (:point point)))))
     result))
 
 ;;; The query, read the first time a line is indented.
 
 (defun query-predicates (query)
-  (let* ((count (ts "ts_query_pattern_count" (sb-alien:unsigned 32)
-                    (sb-sys:system-area-pointer query)))
+  "A query's patterns' predicates, each (NAME ARGUMENT*), an argument a
+capture's index, as (:CAPTURE . INDEX), or a string."
+  (let* ((count (ts "ts_query_pattern_count" :uint32 (:pointer query)))
          (predicates (make-array count)))
     (dotimes (pattern count predicates)
       (with-foreign-memory (step-count 4)
-        (let ((steps (ts "ts_query_predicates_for_pattern" sb-sys:system-area-pointer
-                         (sb-sys:system-area-pointer query)
-                         ((sb-alien:unsigned 32) pattern)
-                         (sb-sys:system-area-pointer step-count)))
+        (let ((steps (ts "ts_query_predicates_for_pattern" :pointer
+                         (:pointer query) (:uint32 pattern) (:pointer step-count)))
               (current '())
               (all '()))
-          (dotimes (i (sb-sys:sap-ref-32 step-count 0))
-            (let ((type (sb-sys:sap-ref-32 steps (* i 8)))
-                  (value (sb-sys:sap-ref-32 steps (+ 4 (* i 8)))))
+          (dotimes (i (u32 step-count 0))
+            (let ((type (u32 steps (* i 8)))
+                  (value (u32 steps (+ 4 (* i 8)))))
               (ecase type
                 (0 (push (nreverse current) all)
                    (setf current '()))
@@ -790,8 +863,7 @@ the language's highlighting, then its inline language's within that."
               (handler-case
                   (let* ((query (make-query (language-pointer language)
                                             (uiop:read-file-string file)))
-                         (count (ts "ts_query_capture_count" (sb-alien:unsigned 32)
-                                    (sb-sys:system-area-pointer query)))
+                         (count (ts "ts_query_capture_count" :uint32 (:pointer query)))
                          (kinds (make-array count)))
                     (dotimes (i count)
                       (let ((name (query-string "ts_query_capture_name_for_id" query i)))
@@ -818,33 +890,29 @@ the language's highlighting, then its inline language's within that."
 whole of PARSE's tree."
   (when (eq (parse-indents parse) :unmade)
     (let ((map (make-hash-table))
-          (cursor (ts "ts_query_cursor_new" sb-sys:system-area-pointer))
+          (cursor (ts "ts_query_cursor_new" :pointer))
           (kinds (language-indent-kinds language))
           (predicates (language-indent-predicates language)))
       (unwind-protect
            (progn
-             (ts "ts_query_cursor_exec" sb-alien:void
-                 (sb-sys:system-area-pointer cursor)
-                 (sb-sys:system-area-pointer (language-indent-query language))
-                 ((sb-alien:struct ts-node) (node-at (parse-root parse))))
+             (ts "ts_query_cursor_exec" :void
+                 (:pointer cursor) (:pointer (language-indent-query language))
+                 (:node (parse-root parse)))
              (with-foreign-memory (match (+ +match-size+ 4))
-               (let ((capture-index (sb-sys:sap+ match +match-size+)))
-                 (loop while (plusp (ts "ts_query_cursor_next_capture" (sb-alien:unsigned 8)
-                                        (sb-sys:system-area-pointer cursor)
-                                        (sb-sys:system-area-pointer match)
-                                        (sb-sys:system-area-pointer capture-index)))
-                       do (let* ((pattern (sb-sys:sap-ref-16 match 4))
-                                 (count (sb-sys:sap-ref-16 match 6))
-                                 (captures (sb-sys:sap-ref-sap match 8))
-                                 (capture (sb-sys:sap+ captures (* (sb-sys:sap-ref-32 capture-index 0)
-                                                                   +capture-size+)))
-                                 (kind (aref kinds (sb-sys:sap-ref-32 capture +node-size+))))
+               (let ((capture-index (ptr+ match +match-size+)))
+                 (loop while (ts "ts_query_cursor_next_capture" :bool
+                                 (:pointer cursor) (:pointer match) (:pointer capture-index))
+                       do (let* ((pattern (u16 match 4))
+                                 (count (u16 match 6))
+                                 (captures (pointer-at match 8))
+                                 (capture (ptr+ captures (* (u32 capture-index 0) +capture-size+)))
+                                 (kind (aref kinds (u32 capture +node-size+))))
                             (when (and kind
                                        (predicates-hold-p language parse pattern captures count
                                                           predicates))
                               (push (cons kind (pattern-settings (aref predicates pattern)))
-                                    (gethash (sb-sys:sap-int (sb-sys:sap-ref-sap capture 16)) map))))))))
-        (ts "ts_query_cursor_delete" sb-alien:void (sb-sys:system-area-pointer cursor)))
+                                    (gethash (cffi:pointer-address (pointer-at capture 16)) map))))))))
+        (ts "ts_query_cursor_delete" :void (:pointer cursor)))
       (setf (parse-indents parse) map)))
   (parse-indents parse))
 

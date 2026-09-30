@@ -373,10 +373,9 @@ sleep 0.5
 send Enter
 sleep 0.5
 
-# Tree-sitter indentation, where there is tree-sitter (SBCL): Return
-# indents the new line, and a closing brace goes back out.
+# Tree-sitter indentation, under SBCL and ECL alike: Return indents the new
+# line, and a closing brace goes back out.
 case $(basename "$LISP") in
-    ecl*) ;;
     *)
         rm -f build/smoke-tty-indent.c
         send C-x C-f
