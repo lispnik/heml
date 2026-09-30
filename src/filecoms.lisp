@@ -953,8 +953,50 @@
   (let ((*standard-output* (out-synonym-of stream))
         (pathname pathname))
     (if verbose
-        (print-directory-verbose pathname all return-list)
+        ;; Each column is as wide as its widest entry.
+        (let* ((result nil)
+               (text (with-output-to-string (*standard-output*)
+                       (setf result (print-directory-verbose pathname all return-list)))))
+          (format t "~{~A~%~}"
+                  (align-listing-lines
+                   (butlast (uiop:split-string text :separator (string #\Newline)))))
+          result)
         (print-directory-formatted pathname all return-list))))
+
+;;; A long listing's line: the mode, the link count, the owner, the size,
+;;; the date (twelve characters) and the name.
+;;;
+(defparameter *listing-line-scanner*
+  (cl-ppcre:create-scanner
+   (concatenate 'string "^(\\S{10}) +(\\d+) (\\S+) +(\\S+) (.{12}) (.*)$")))
+
+(defun align-listing-lines (lines &key (prefix ""))
+  "LINES of a long listing with the link count, owner and size columns each
+as wide as its widest entry.  A line that is not a file's is left alone.
+PREFIX is before each line's mode, as Dired's flag column is."
+  (let* ((rows (mapcar (lambda (line)
+                         (if (uiop:string-prefix-p prefix line)
+                             (multiple-value-bind (match groups)
+                                 (cl-ppcre:scan-to-strings *listing-line-scanner*
+                                                           (subseq line (length prefix)))
+                               (if match
+                                   (cons (subseq line 0 (length prefix)) groups)
+                                   line))
+                             line))
+                       lines))
+         (fields (remove-if-not #'consp rows)))
+    (flet ((width (i)
+             (reduce #'max fields :key (lambda (row) (length (aref (cdr row) i)))
+                                  :initial-value 0)))
+      (let ((links (width 1)) (owner (width 2)) (size (width 3)))
+        (mapcar (lambda (row)
+                  (if (consp row)
+                      (let ((g (cdr row)))
+                        (format nil "~A~A ~v@A ~vA ~v@A ~A ~A"
+                                (car row) (aref g 0) links (aref g 1) owner (aref g 2)
+                                size (aref g 3) (aref g 4) (aref g 5)))
+                      row))
+                rows)))))
 
 (defun %directory (directory &optional all)
   (setf directory (directory-namestring directory))

@@ -491,6 +491,11 @@ is the size of what the top directory holds."
             (error (condition)
               (delete-buffer-if-possible buffer)
               (editor-error "~A" condition)))
+        ;; Inserted subdirectories were listed on their own: line all the
+        ;; columns up together.
+        (loop for entry in entries
+              for line in (align-listing-lines (mapcar #'cdr entries))
+              do (setf (cdr entry) line))
         (let ((pathnames (mapcar #'car entries))
               (dired-files (map 'simple-vector (lambda (entry) (make-dired-file (car entry)))
                                 entries)))
