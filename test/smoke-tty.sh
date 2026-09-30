@@ -22,7 +22,13 @@ cd "$(dirname "$0")/.." || exit 1
 
 screen() { tmux capture-pane -p -t "$session"; }
 send() { tmux send-keys -t "$session" "$@"; }
-type_text() { tmux send-keys -t "$session" -l "$1"; }
+# A ; ending an argument separates tmux commands: escape it to type it.
+type_text() {
+    case $1 in
+        *\;) tmux send-keys -t "$session" -l "${1%;}\\;" ;;
+        *) tmux send-keys -t "$session" -l "$1" ;;
+    esac
+}
 
 # expect PATTERN DESCRIPTION [SECONDS]: wait for PATTERN (a fixed string) on
 # the screen.
@@ -366,6 +372,42 @@ send C-x k
 sleep 0.5
 send Enter
 sleep 0.5
+
+# Tree-sitter indentation, where there is tree-sitter (SBCL): Return
+# indents the new line, and a closing brace goes back out.
+case $(basename "$LISP") in
+    ecl*) ;;
+    *)
+        rm -f build/smoke-tty-indent.c
+        send C-x C-f
+        sleep 0.5
+        send C-a C-k
+        type_text "$PWD/build/smoke-tty-indent.c"
+        send Enter
+        sleep 1
+        for line in 'int f(int x) {' 'if (x) {' 'x--;' '}' 'return x;' '}'; do
+            type_text "$line"
+            send Enter
+            sleep 0.3
+        done
+        sleep 0.5
+        checks=$((checks + 1))
+        if screen | grep -q '^    if (x) {' && screen | grep -q '^        x--;' \
+                && screen | grep -q '^    }' && screen | grep -q '^    return x;' \
+                && screen | grep -q '^}'; then
+            echo "  ok    C is indented as it is typed"
+        else
+            echo "  FAIL  C is indented as it is typed"; screen | sed 's/^/        | /'
+            failures=$((failures + 1))
+        fi
+        send C-x k
+        sleep 0.3
+        send Enter
+        sleep 0.3
+        send n
+        sleep 0.5
+        ;;
+esac
 
 # Bufed.
 send C-x C-b

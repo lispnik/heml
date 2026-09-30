@@ -46,6 +46,17 @@ grammar() {
     echo "built $name $tag"
 }
 
+# indents NAME SOURCE: the indentation query for a language, from a URL or a
+# file in the repository.
+indents() {
+    mkdir -p "$OUT/share/tree-sitter/queries/$1"
+    case $2 in
+        http*) curl -sfL -o "$OUT/share/tree-sitter/queries/$1/indents.scm" "$2" ;;
+        *) cp "$2" "$OUT/share/tree-sitter/queries/$1/indents.scm" ;;
+    esac
+    echo "indents for $1"
+}
+
 grammar c tree-sitter/tree-sitter-c v0.24.2
 grammar markdown tree-sitter-grammars/tree-sitter-markdown v0.5.3 tree-sitter-markdown
 grammar pascal Isopod/tree-sitter-pascal v0.10.2
@@ -55,3 +66,10 @@ grammar bash tree-sitter/tree-sitter-bash v0.25.1
 # earlier one, which heml.tree-sitter knows.
 grammar commonlisp theHamsta/tree-sitter-commonlisp v0.4.1 . \
         https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3414fa1b06af75c79faebe7f76df080a/queries/commonlisp/highlights.scm
+
+# Indentation: Neovim's queries for C and Python (whose grammar comes from
+# Homebrew), and Heml's own for shell scripts, which Neovim has none for.
+NVIM=https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3414fa1b06af75c79faebe7f76df080a/queries
+indents c $NVIM/c/indents.scm
+indents python $NVIM/python/indents.scm
+indents bash scripts/tree-sitter-queries/bash/indents.scm
