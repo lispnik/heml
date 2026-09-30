@@ -75,4 +75,5 @@ NVIM=https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/cf12346a3
 indents c $NVIM/c/indents.scm
 indents python $NVIM/python/indents.scm
 indents pascal $NVIM/pascal/indents.scm
+cat scripts/tree-sitter-queries/pascal/indents-extra.scm >> "$OUT/share/tree-sitter/queries/pascal/indents.scm"
 indents bash scripts/tree-sitter-queries/bash/indents.scm

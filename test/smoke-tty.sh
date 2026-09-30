@@ -406,6 +406,34 @@ case $(basename "$LISP") in
         sleep 0.3
         send n
         sleep 0.5
+        rm -f build/smoke-tty-indent.pas
+        send C-x C-f
+        sleep 0.5
+        send C-a C-k
+        type_text "$PWD/build/smoke-tty-indent.pas"
+        send Enter
+        sleep 1
+        for line in 'program P;' 'begin' 'if x then' 'y := 1;' 'z := 2;' 'end.'; do
+            type_text "$line"
+            send Enter
+            sleep 0.3
+        done
+        sleep 0.5
+        checks=$((checks + 1))
+        if screen | grep -q '^begin' && screen | grep -q '^  if x then' \
+                && screen | grep -q '^    y := 1;' && screen | grep -q '^  z := 2;' \
+                && screen | grep -q '^end\.'; then
+            echo "  ok    Pascal is indented as it is typed"
+        else
+            echo "  FAIL  Pascal is indented as it is typed"; screen | sed 's/^/        | /'
+            failures=$((failures + 1))
+        fi
+        send C-x k
+        sleep 0.3
+        send Enter
+        sleep 0.3
+        send n
+        sleep 0.5
         ;;
 esac
 
