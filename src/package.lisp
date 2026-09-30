@@ -20,6 +20,11 @@
    #:line-plist
    #:line-signature
    #:define-mode-highlighter
+   #:define-menu
+   #:add-menu-item
+   #:remove-menu-item
+   #:remove-menu
+   #:define-context-menu
    #:markp
    #:mark-line
    #:mark-charpos

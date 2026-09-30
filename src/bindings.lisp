@@ -658,6 +658,7 @@
 
 ;;;; Dired.
 
+(bind-key "Menu Bar" #k"meta-`")
 (bind-key "Dired" #k"control-x d")
 (bind-key "Dired" #k"control-x control-meta-d")
 

@@ -223,6 +223,7 @@
                (:file "shell")
                (:file "debug")
                (:file "dabbrev")
+               (:file "menus")
                (:file "bindings")
                (:file "slave-list")))
      ;; The iolib event loop and connections, which every backend uses.

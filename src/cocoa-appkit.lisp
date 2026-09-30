@@ -1010,6 +1010,9 @@ consume, and the keys they are.")
 (defvar *mode-menus* '()
   "Each mode's menu-bar item, as (MODE . ITEM).  Main thread only.")
 
+(defvar *context-menu-objects* '()
+  "Each context menu made, as (MODE . MENU), MODE NIL for the general one.")
+
 (defun menu-action-tag (action)
   (or (position action *menu-actions* :test #'equal)
       (vector-push-extend action *menu-actions*)))
@@ -1195,158 +1198,6 @@ exists of those Heml loads, or the first of them to create."
 
 ;;;; The menus
 
-(defparameter *menu-bar*
-  '(("Heml"
-     ("About Heml" (:call show-about))
-     :separator
-     ("Settings…" (:call open-settings) :key ",")
-     :separator
-     ("Services" :services)
-     :separator
-     ("Hide Heml" (:selector "hide:") :key "h")
-     ("Hide Others" (:selector "hideOtherApplications:") :key "h" :modifiers (:option))
-     ("Show All" (:selector "unhideAllApplications:"))
-     :separator
-     ("Quit Heml" (:selector "terminate:") :key "q"))
-    ("File"
-     ("New Buffer…" (:command "Select Buffer") :key "n")
-     ("Open…" (:call choose-files-to-open) :key "o")
-     ("Directory…" (:command "Dired") :key "d" :modifiers (:shift))
-     :separator
-     ("Close Buffer…" (:command "Kill Buffer") :key "w")
-     ("Save" (:command "Save File") :key "s")
-     ("Save As…" (:call choose-file-to-save-as) :key "s" :modifiers (:shift))
-     ("Save All" (:command "Save All Files") :key "s" :modifiers (:option))
-     ("Revert to Saved" (:command "Revert File")))
-    ("Edit"
-     ("Undo" (:command "Undo") :key "z")
-     :separator
-     ("Cut" (:command "Kill Region") :key "x")
-     ("Copy" (:command "Save Region") :key "c")
-     ("Paste" (:command "Un-Kill") :key "v")
-     ("Select All" (:command "Mark Whole Buffer") :key "a")
-     :separator
-     ("Find…" (:command "Incremental Search") :key "f")
-     ("Find Backward…" (:command "Reverse Incremental Search") :key "f" :modifiers (:shift))
-     ("Replace…" (:command "Query Replace") :key "f" :modifiers (:option))
-     :separator
-     ("Emoji & Symbols" (:selector "orderFrontCharacterPalette:")
-      :key " " :modifiers (:control)))
-    ("View"
-     ("Show Fonts" (:call show-font-panel) :key "t")
-     ("Bigger" (:font-size 1) :key "+")
-     ;; Cmd-= is Cmd-+ without the Shift nobody presses.
-     ("Bigger" (:font-size 1) :key "=" :hidden t)
-     ("Smaller" (:font-size -1) :key "-")
-     ("Default Size" (:font-size nil) :key "0")
-     :separator
-     ("Split Window" (:command "Split Window"))
-     ("Split Window Side by Side" (:command "Split Window Horizontally"))
-     ("Balance Windows" (:command "Balance Windows"))
-     ("Next Window" (:command "Next Window"))
-     ("Delete Window" (:command "Delete Window"))
-     ("Delete Other Windows" (:command "Delete Other Windows"))
-     :separator
-     ("Enter Full Screen" (:selector "toggleFullScreen:") :key "f" :modifiers (:control)))
-    ("Buffer"
-     ("Switch to Buffer…" (:command "Select Buffer") :key "b")
-     ("List Buffers" (:command "Bufed"))
-     ("Kill Buffer…" (:command "Kill Buffer"))
-     :separator
-     ("Lisp Mode" (:command "Lisp Mode"))
-     ("Fundamental Mode" (:command "Fundamental Mode")))
-    ("Lisp"
-     ("Evaluate Defun" (:command "Evaluate Defun"))
-     ("Evaluate Region" (:command "Evaluate Region"))
-     ("Evaluate Expression…" (:command "Evaluate Expression"))
-     ("Compile File" (:command "Compile File"))
-     ("Load File…" (:command "Load File"))
-     :separator
-     ("Edit Definition…" (:command "Edit Definition"))
-     ("Describe Symbol" (:command "Describe Symbol"))
-     :separator
-     ("Start Slave Thread" (:command "Start Slave Thread"))
-     ("Start Slave Process" (:command "Start Slave Process"))
-     ("Select Slave" (:command "Select Slave"))
-     :separator
-     ("Shell" (:command "Shell")))
-    ("Dired" (:mode "Dired")
-     ("Open" (:command "Dired Edit File"))
-     ("Open in Other Window" (:command "Dired Edit File Other Window"))
-     ("View" (:command "Dired View File"))
-     ("Open with Default Application" (:command "Dired Open Externally"))
-     :separator
-     ("Mark" (:command "Dired Mark"))
-     ("Unmark" (:command "Dired Unmark"))
-     ("Unmark All" (:command "Dired Unmark All"))
-     ("Toggle Marks" (:command "Dired Toggle Marks"))
-     ("Mark Matching…" (:command "Dired Mark with Pattern"))
-     :separator
-     ("Copy…" (:command "Dired Copy"))
-     ("Rename…" (:command "Dired Rename"))
-     ("Delete…" (:command "Dired Delete"))
-     ("Make Symbolic Link…" (:command "Dired Symlink"))
-     ("Change Mode…" (:command "Dired Change Mode"))
-     ("Compress or Uncompress" (:command "Dired Compress"))
-     ("Shell Command…" (:command "Dired Shell Command"))
-     ("New Directory…" (:command "Dired Create Directory"))
-     :separator
-     ("Flag for Deletion" (:command "Dired Delete File and Down Line"))
-     ("Delete Flagged…" (:command "Dired Expunge Files"))
-     :separator
-     ("Sort" (:command "Dired Sort"))
-     ("Show or Hide Hidden Files" (:command "Dired Toggle Hidden Files"))
-     ("Insert or Fold Subdirectory" (:command "Dired Insert Subdirectory"))
-     ("Edit Names" (:command "Dired Edit Names"))
-     ("Refresh" (:command "Dired Update Buffer"))
-     ("Up to Parent" (:command "Dired Up Directory"))
-     :separator
-     ("Quit Dired" (:command "Dired Quit")))
-    ("Edit Names" (:mode "Wdired")
-     ("Rename as Edited" (:command "Wdired Finish"))
-     ("Cancel" (:command "Wdired Abort")))
-    ("Window" :windows
-     ("Minimize" (:selector "performMiniaturize:") :key "m")
-     ("Zoom" (:selector "performZoom:"))
-     :separator
-     ("Bring All to Front" (:selector "arrangeInFront:")))
-    ("Help" :help
-     ("Heml Help" (:command "Help") :key "?")
-     ("Describe Key…" (:command "Describe Key"))
-     ("Describe Command…" (:command "Describe Command"))
-     ("Apropos…" (:command "Apropos"))))
-  "The menu bar.  A menu is (title [role] entry ...), with ROLE :WINDOWS or
-:HELP for the menus AppKit keeps up itself, or (:MODE name) for one shown
-only while the current buffer's major mode is NAME; an entry is :SEPARATOR, or
-(title action &key key modifiers hidden) -- KEY the Command-key equivalent,
-MODIFIERS any of :SHIFT, :OPTION and :CONTROL besides -- or (title
-:SERVICES).")
-
-(defparameter *context-menu*
-  '(("Cut" (:command "Kill Region"))
-    ("Copy" (:command "Save Region"))
-    ("Paste" (:command "Un-Kill"))
-    :separator
-    ("Edit Definition" (:command "Edit Definition"))
-    ("Describe Symbol" (:command "Describe Symbol"))
-    ("Evaluate Region" (:command "Evaluate Region")))
-  "The right click's menu: entries as in *MENU-BAR*.")
-
-(defparameter *mode-context-menus*
-  '(("Dired"
-     ("Open" (:command "Dired Edit File"))
-     ("Open in Other Window" (:command "Dired Edit File Other Window"))
-     ("Open with Default Application" (:command "Dired Open Externally"))
-     :separator
-     ("Mark" (:command "Dired Mark"))
-     ("Unmark" (:command "Dired Unmark"))
-     :separator
-     ("Copy…" (:command "Dired Copy"))
-     ("Rename…" (:command "Dired Rename"))
-     ("Delete…" (:command "Dired Delete"))))
-  "A major mode's name and the right click's menu in its buffers, entries as
-in *MENU-BAR*; other buffers get *CONTEXT-MENU*.")
-
 (defconstant +shift-key-mask+ (ash 1 17))
 (defconstant +control-key-mask+ (ash 1 18))
 (defconstant +option-key-mask+ (ash 1 19))
@@ -1360,6 +1211,8 @@ in *MENU-BAR*; other buffers get *CONTEXT-MENU*.")
   (if (eq entry :separator)
       (objc:invoke "NSMenuItem" "separatorItem")
       (destructuring-bind (title action &key key modifiers hidden) entry
+        (when (stringp action)
+          (setf action (list :command action)))
         (let ((item (objc:alloc-init-object "NSMenuItem")))
           (objc:invoke item "setTitle:" title)
           (cond ((eq action :services)
@@ -1390,28 +1243,45 @@ in *MENU-BAR*; other buffers get *CONTEXT-MENU*.")
     (dolist (entry entries menu)
       (objc:invoke menu "addItem:" (menu-entry entry target)))))
 
-(defun install-main-menu (app target)
-  "The menu bar of *MENU-BAR*, when there is no menu yet: a process started
-from a REPL, or a bundle without a nib, has none."
-  (when (null-pointer-p (objc:invoke app "mainMenu"))
-    (let ((menubar (make-menu "")))
-      (dolist (spec *menu-bar*)
-        (destructuring-bind (title . entries) spec
-          (let* ((role (when (or (keywordp (first entries))
-                                 (and (consp (first entries)) (eq (car (first entries)) :mode)))
-                         (pop entries)))
-                 (menu (build-menu title entries target))
-                 (item (objc:alloc-init-object "NSMenuItem")))
-            (objc:invoke item "setTitle:" title)
-            (objc:invoke item "setSubmenu:" menu)
-            (objc:invoke menubar "addItem:" item)
-            (cond ((eq role :windows) (objc:invoke app "setWindowsMenu:" menu))
-                  ((eq role :help) (objc:invoke app "setHelpMenu:" menu))
-                  ((consp role)
-                   ;; A mode's menu: hidden until its mode is current.
-                   (push (cons (second role) (objc:retain item)) *mode-menus*)
-                   (objc:invoke item "setHidden:" t))))))
-      (objc:invoke app "setMainMenu:" menubar))))
+(defvar *context-menu-specs* '()
+  "The right-click menus the menu bar was last built with, as (MODE . ENTRIES).
+Main thread only.")
+
+(defun rebuild-main-menu (menus context-menus)
+  "Make the menu bar from MENUS, as HEML::COPY-MENUS gives them, and keep
+CONTEXT-MENUS for the right click.  Main thread."
+  (let* ((app (objc.runloop:shared-application))
+         (target (objc:objc-object-pointer (display-app-delegate *display*)))
+         (menubar (make-menu "")))
+    (setf *mode-menus* '())
+    (dolist (spec menus)
+      (destructuring-bind (title mode role entries) spec
+        (let ((menu (build-menu title entries target))
+              (item (objc:alloc-init-object "NSMenuItem")))
+          (objc:invoke item "setTitle:" title)
+          (objc:invoke item "setSubmenu:" menu)
+          (objc:invoke menubar "addItem:" item)
+          (case role
+            (:windows (objc:invoke app "setWindowsMenu:" menu))
+            (:help (objc:invoke app "setHelpMenu:" menu)))
+          (when mode
+            ;; A mode's menu: hidden until its mode is current.
+            (push (cons mode (objc:retain item)) *mode-menus*)
+            (objc:invoke item "setHidden:" t)))))
+    (objc:invoke app "setMainMenu:" menubar)
+    (show-mode-menus (and *screen* (screen-shown-mode *screen*)))
+    (setf *context-menu-specs* context-menus
+          *context-menu-objects* '())))
+
+(defun menus-changed ()
+  "The menus changed, on the editor thread or while loading: build the menu
+bar again, from a copy, on the main thread."
+  (when *display*
+    (let ((menus (heml::copy-menus))
+          (context-menus (copy-tree heml::*context-menus*)))
+      (on-main-thread (rebuild-main-menu menus context-menus)))))
+
+(pushnew 'menus-changed heml::*menu-change-functions*)
 
 (defun show-mode-menus (mode)
   "Show the menus of MODE, the current buffer's major mode, and hide the
@@ -1419,22 +1289,60 @@ other modes'.  Main thread."
   (loop for (menu-mode . item) in *mode-menus*
         do (objc:invoke item "setHidden:" (not (equal menu-mode mode)))))
 
-(defvar *context-menu-objects* '()
-  "Each context menu made, as (MODE . MENU), MODE NIL for the general one.")
-
 (defun context-menu ()
   "The right click's menu for the current buffer's mode."
   (let* ((screen *screen*)
          (mode (and screen (screen-shown-mode screen)))
-         (key (and (assoc mode *mode-context-menus* :test #'equal) mode)))
+         (key (and (assoc mode *context-menu-specs* :test #'equal) mode)))
     (or (cdr (assoc key *context-menu-objects* :test #'equal))
         (let ((menu (objc:retain
-                     (build-menu "" (if key
-                                        (cdr (assoc key *mode-context-menus* :test #'equal))
-                                        *context-menu*)
+                     (build-menu "" (cdr (assoc key *context-menu-specs* :test #'equal))
                                  (objc:objc-object-pointer (display-app-delegate *display*))))))
           (push (cons key menu) *context-menu-objects*)
           menu))))
+
+;;; What only the Mac editor can do: its application and Window menus, the
+;;; Open and Save panels, the font, full screen and the character palette.
+;;; The rest of the menus are Heml's own (menus.lisp).
+
+(heml-interface:define-menu "Heml" (:role :application)
+  ("About Heml" (:call show-about))
+  :separator
+  ("Settings…" (:call open-settings) :key ",")
+  :separator
+  ("Services" :services)
+  :separator
+  ("Hide Heml" (:selector "hide:") :key "h")
+  ("Hide Others" (:selector "hideOtherApplications:") :key "h" :modifiers (:option))
+  ("Show All" (:selector "unhideAllApplications:"))
+  :separator
+  ("Quit Heml" (:selector "terminate:") :key "q"))
+
+(heml-interface:define-menu "Window" (:role :windows)
+  ("Minimize" (:selector "performMiniaturize:") :key "m")
+  ("Zoom" (:selector "performZoom:"))
+  :separator
+  ("Bring All to Front" (:selector "arrangeInFront:")))
+
+(heml-interface:add-menu-item "File" '("Open…" (:call choose-files-to-open) :key "o")
+                              :after "New Buffer…")
+(heml-interface:add-menu-item "File" '("Save As…" (:call choose-file-to-save-as)
+                                       :key "s" :modifiers (:shift))
+                              :after "Save")
+(heml-interface:add-menu-item "Edit" :separator)
+(heml-interface:add-menu-item "Edit" '("Emoji & Symbols" (:selector "orderFrontCharacterPalette:")
+                                       :key " " :modifiers (:control)))
+(dolist (entry '(("Show Fonts" (:call show-font-panel) :key "t")
+                 ("Bigger" (:font-size 1) :key "+")
+                 ;; Cmd-= is Cmd-+ without the Shift nobody presses.
+                 ("Bigger (=)" (:font-size 1) :key "=" :hidden t)
+                 ("Smaller" (:font-size -1) :key "-")
+                 ("Default Size" (:font-size nil) :key "0")))
+  (heml-interface:add-menu-item "View" entry :before "Split Window"))
+(heml-interface:add-menu-item "View" :separator :before "Split Window")
+(heml-interface:add-menu-item "View" :separator)
+(heml-interface:add-menu-item "View" '("Enter Full Screen" (:selector "toggleFullScreen:")
+                                       :key "f" :modifiers (:control)))
 
 (defun make-window (display)
   (let* ((width (+ (* 2 *margin*) (* *initial-columns* (display-char-width display))))
@@ -1485,8 +1393,7 @@ window and the screen.  Main thread only."
               (display (make-instance 'display)))
           (let ((app-delegate (make-instance 'app-delegate)))
             (setf (display-app-delegate display) app-delegate)
-            (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate))
-            (install-main-menu app (objc:objc-object-pointer app-delegate)))
+            (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate)))
           (use-icon-if-unbundled app)
           (restore-font-choice)
           (install-fonts display)
@@ -1494,7 +1401,9 @@ window and the screen.  Main thread only."
           (multiple-value-bind (columns lines) (grid-size display)
             (setf *screen* (make-screen columns lines)))
           (ensure-wakeup-pipe)
-          (setf *display* display)))))
+          (setf *display* display)
+          (rebuild-main-menu (heml::copy-menus) (copy-tree heml::*context-menus*))
+          display))))
 
 (defun show-window ()
   (let ((display *display*))

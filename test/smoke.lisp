@@ -540,6 +540,28 @@ café λ 日本語 end")
            (and (probe-file (merge-pathnames "a-file.txt" directory))
                 (probe-file (merge-pathnames "a-directory/" directory)))))
 
+  (note "menus from lisp")
+  (heml-interface:define-menu "Smoke" ()
+    ("Split Side by Side" "Split Window Horizontally"))
+  (settle)
+  (check "define-menu puts a menu in the menu bar" (not (menu-hidden-p "Smoke")))
+  (choose-menu-item "Smoke" "Split Side by Side")
+  (settle)
+  (check "and its item runs its command"
+         (= 2 (length (remove hi::*echo-area-window* hi::*window-list*))))
+  (heml-interface:add-menu-item "Smoke" '("One Window" "Delete Other Windows"))
+  (settle)
+  (choose-menu-item "Smoke" "One Window")
+  (settle)
+  (check "add-menu-item adds an item that works"
+         (= 1 (length (remove hi::*echo-area-window* hi::*window-list*))))
+  (heml-interface:remove-menu "Smoke")
+  (settle)
+  (check "remove-menu takes it away"
+         (main (cffi:null-pointer-p
+                (objc:invoke (objc:invoke (objc.runloop:shared-application) "mainMenu")
+                             "itemWithTitle:" "Smoke"))))
+
   (note "bufed")
   (post (list :command "Bufed"))
   (settle)

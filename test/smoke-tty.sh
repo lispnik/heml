@@ -147,6 +147,24 @@ else
     failures=$((failures + 1))
 fi
 
+# The menus from the keyboard: M-` picks a menu, then an item.
+send 'M-`'
+expect 'Menu:' "M-\` asks for a menu"
+type_text 'View'
+send Enter
+expect 'View:' "then for one of its items"
+type_text 'Split Window Side by Side'
+send Enter
+sleep 1
+checks=$((checks + 1))
+if screen | grep -q 'Heml CL-USER:.*|Heml CL-USER:'; then
+    echo "  ok    and runs it"
+else
+    echo "  FAIL  and runs it"; screen | sed 's/^/        | /'; failures=$((failures + 1))
+fi
+send C-x 1
+sleep 0.5
+
 # Visiting a file: its name is in the modeline.  (On ECL a namestring is
 # not a simple string, and the modeline once refused it.)  A file that does
 # not exist yet is a new one.
