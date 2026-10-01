@@ -691,6 +691,49 @@ gamma
     (settle)
     (check "and the one chosen is put in"
            (search "fake_function" (buffer-text)))
+    ;; Only the span that changed is sent: the server's copy keeps up, here
+    ;; through a line added at the end with a character past the BMP, then
+    ;; one changed at the start.
+    (check "the change between two texts is one span of the old"
+           (flet ((changed (old new)
+                    ;; OLD with the span TEXT-CHANGE names replaced.
+                    (multiple-value-bind (sl sc el ec text) (heml::text-change old new)
+                      (flet ((index (line character)
+                               (let ((i 0) (units 0))
+                                 (dotimes (k line) (setf i (1+ (position #\Newline old :start i))))
+                                 (loop while (< units character)
+                                       do (incf units (if (> (char-code (char old i)) #xFFFF) 2 1))
+                                          (incf i))
+                                 i)))
+                        (concatenate 'string (subseq old 0 (index sl sc)) text
+                                     (subseq old (index el ec)))))))
+             (let ((face (string (code-char #x1F600))))
+               (every (lambda (pair) (string= (second pair) (changed (first pair) (second pair))))
+                      (list (list "abc" "abXc")
+                            (list (format nil "one~%two~%three") (format nil "one~%2~%three"))
+                            (list (format nil "one~%two~%") (format nil "one~%"))
+                            (list "" "new")
+                            (list "same" "same")
+                            (list (format nil "a~Ab~%c" face) (format nil "a~Ab~%Xc" face))
+                            (list (format nil "aaa~%aaa") (format nil "aaa~%aaa~%aaa")))))))
+    (post-key #\> "Meta")
+    (post-text (format nil "~%tail ~A end" (code-char #x1F600)))
+    (post-key #\< "Meta")
+    (post-text "X")
+    (post-key #\c "Control") (post-key #\d "Control")
+    (check "after edits, the server has the text the buffer has"
+           (wait-until (lambda ()
+                         (let ((rows (map 'list #'heml.cocoa::row-text
+                                          (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                               (lines (uiop:split-string (buffer-text) :separator (string #\Newline))))
+                           (and (find (format nil " first: ~A" (first lines)) rows :test #'search)
+                                (find (format nil " length: ~D" (length (buffer-text))) rows
+                                      :test #'search))))
+                       10))
+    (post (list :named "Escape" '()))
+    (settle)
+    (post-key #\d "Control")
+    (settle)
     (extended-command "LSP Rename")
     (post-key #\a "Control") (post-key #\k "Control")
     (post-text "renamed

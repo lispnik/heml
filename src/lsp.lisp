@@ -8,9 +8,10 @@
 ;;; time a file of that mode is edited in that project, when its program is
 ;;; installed.  Heml talks to it over its standard input and output: JSON
 ;;; messages (read and written with jzon), each after a Content-Length
-;;; header.  The buffer's whole text is sent when it is opened and when it
-;;; has changed -- before each request, and, so that the server's errors
-;;; keep up, a moment after typing stops.
+;;; header.  The buffer's text is sent when it is opened, and after that
+;;; what has changed in it -- the span that changed, for a server that takes
+;;; that, or else the whole text -- before each request, and, so that the
+;;; server's errors keep up, a moment after typing stops.
 ;;;
 ;;; What it gives: the errors and warnings it finds, underlined where they
 ;;; are and listed; the definition of what is at point, and its references;
@@ -65,7 +66,7 @@
   (pending (make-hash-table))           ; request id to the function its answer goes to
   (input (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   capabilities
-  (documents (make-hash-table :test 'eq)) ; buffer to (VERSION . SIGNATURE)
+  (documents (make-hash-table :test 'eq)) ; buffer to a DOCUMENT
   (diagnostics (make-hash-table :test 'equal))) ; file to ((LINE COLUMN SEVERITY MESSAGE) ...)
 
 (defvar *lsp-servers* '()
@@ -352,26 +353,92 @@
 
 ;;;; Keeping the server's copy of a buffer up to date.
 
+;;; What the server has of a buffer: the version last sent, the buffer's
+;;; signature then, and, for a server that takes changes, the text, so that
+;;; the next change can be told as a span of it.
+;;;
+(defstruct (document (:constructor make-document (version signature text)))
+  version signature text)
+
+(defun incremental-sync-p (server)
+  "Whether SERVER takes a change as the span that changed (the protocol's
+   TextDocumentSyncKind.Incremental) rather than the whole text again."
+  (let ((sync (jref (lsp-server-capabilities server) "textDocumentSync")))
+    (eql 2 (if (hash-table-p sync) (jref sync "change") sync))))
+
+(defun text-position (text index)
+  "The protocol's position of the character at INDEX in TEXT: its line, and
+   how many UTF-16 code units into the line it is."
+  (let ((line 0) (line-start 0))
+    (loop for i below index
+          when (char= (char text i) #\Newline)
+            do (incf line) (setf line-start (1+ i)))
+    (values line
+            (loop for i from line-start below index
+                  sum (if (> (char-code (char text i)) #xFFFF) 2 1)))))
+
+(defun text-change (old new)
+  "The one span of OLD that must be replaced to make it NEW: where it
+   starts and ends in OLD, as lines and characters, and the text that
+   replaces it.  What OLD and NEW share at their start and at their end is
+   left out."
+  (let* ((old-length (length old))
+         (new-length (length new))
+         (prefix (or (mismatch old new) old-length))
+         (room (- (min old-length new-length) prefix))
+         (suffix (let ((k 0))
+                   (loop while (and (< k room)
+                                    (char= (char old (- old-length k 1))
+                                           (char new (- new-length k 1))))
+                         do (incf k))
+                   k)))
+    (multiple-value-bind (start-line start-character) (text-position old prefix)
+      (multiple-value-bind (end-line end-character) (text-position old (- old-length suffix))
+        (values start-line start-character end-line end-character
+                (subseq new prefix (- new-length suffix)))))))
+
 (defun lsp-sync (server buffer)
-  "Tell SERVER of BUFFER, or of its text now if it has changed."
+  "Tell SERVER of BUFFER, or, if its text has changed, of the change: the
+   span that changed, for a server that takes that, and the whole text for
+   one that does not."
   (when (eq (lsp-server-state server) :ready)
     (let ((document (gethash buffer (lsp-server-documents server)))
-          (signature (buffer-signature buffer)))
+          (signature (buffer-signature buffer))
+          (incremental (incremental-sync-p server)))
       (cond ((null document)
-             (setf (gethash buffer (lsp-server-documents server)) (cons 1 signature))
-             (lsp-notify server "textDocument/didOpen"
-                         (json "textDocument"
-                               (json "uri" (file-uri (buffer-pathname buffer))
-                                     "languageId" (lsp-server-language-id server)
-                                     "version" 1
-                                     "text" (region-to-string (buffer-region buffer))))))
-            ((not (eql (cdr document) signature))
-             (setf (cdr document) signature)
-             (lsp-notify server "textDocument/didChange"
-                         (json "textDocument" (json "uri" (file-uri (buffer-pathname buffer))
-                                                    "version" (incf (car document)))
-                               "contentChanges"
-                               (vector (json "text" (region-to-string (buffer-region buffer)))))))))))
+             (let ((text (region-to-string (buffer-region buffer))))
+               (setf (gethash buffer (lsp-server-documents server))
+                     (make-document 1 signature (and incremental text)))
+               (lsp-notify server "textDocument/didOpen"
+                           (json "textDocument"
+                                 (json "uri" (file-uri (buffer-pathname buffer))
+                                       "languageId" (lsp-server-language-id server)
+                                       "version" 1
+                                       "text" text)))))
+            ((not (eql (document-signature document) signature))
+             (let ((text (region-to-string (buffer-region buffer)))
+                   (old (document-text document)))
+               (setf (document-signature document) signature)
+               ;; A signature changes for more than text: say nothing then.
+               (unless (and old (string= old text))
+                 (lsp-notify
+                  server "textDocument/didChange"
+                  (json "textDocument" (json "uri" (file-uri (buffer-pathname buffer))
+                                             "version" (incf (document-version document)))
+                        "contentChanges"
+                        (vector
+                         (if old
+                             (multiple-value-bind (start-line start-character
+                                                   end-line end-character inserted)
+                                 (text-change old text)
+                               (json "range" (json "start" (json "line" start-line
+                                                                 "character" start-character)
+                                                   "end" (json "line" end-line
+                                                               "character" end-character))
+                                     "text" inserted))
+                             (json "text" text)))))
+                 (when incremental
+                   (setf (document-text document) text)))))))))
 
 (defun lsp-buffer-closed (buffer)
   (dolist (server *lsp-servers*)
