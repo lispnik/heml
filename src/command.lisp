@@ -44,6 +44,11 @@
 
 ;;;; Simple character manipulation:
 
+(defhvar "Self Insert Hook"
+  "This hook is called, with no arguments, after \"Self Insert\" has
+   inserted the character typed."
+  :value nil)
+
 (defcommand "Self Insert" (p)
   "Insert the last character typed.
   With prefix argument insert the character that many times."
@@ -54,7 +59,8 @@
         (insert-string
          (current-point)
          (make-string p :initial-element char))
-        (insert-character (current-point) char))))
+        (insert-character (current-point) char))
+    (invoke-hook self-insert-hook)))
 
 (defcommand "Quoted Insert" (p)
   "Read a character from the terminal and insert it.

@@ -120,7 +120,14 @@
       (delete-region *parse-input-region*)
       (insert-string (region-start *parse-input-region*)
                      (namestring result)))
-    (when (and (not win) (value beep-on-ambiguity))
+    ;; Several files start so: they are shown in a popup to choose from
+    ;; (popup.lisp), and only if none is chosen is the ambiguity complained of.
+    (when (and (not win)
+               (not (and result
+                         (heml::choose-file-completion
+                          (region-to-string *parse-input-region*)
+                          (directory-namestring *parse-default*))))
+               (value beep-on-ambiguity))
       (editor-error))))
 
 (defcommand "Complete Keyword" (p)

@@ -552,10 +552,15 @@ gamma
     (post-key #\i "Control" "Meta")
     (flet ((popup-row-font (text)
              ;; The font of the popup's row showing TEXT, a row that starts
-             ;; with it, or NIL when there is no such row.
-             (let ((row (find-if (lambda (row) (eql 0 (search text (heml.cocoa::row-text row))))
-                                 (heml.cocoa::screen-rows heml.cocoa::*screen*))))
-               (and row (cddr (first (heml.cocoa::row-runs row)))))))
+             ;; nothing else, or NIL when there is no such row.
+             (let* ((bare (string-trim " " text))
+                    (row (find-if (lambda (row)
+                                    (string= bare (string-trim " " (heml.cocoa::row-text row))))
+                                  (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+               (when row
+                 (let ((column (search bare (heml.cocoa::row-text row))))
+                   (loop for (start end . font) in (heml.cocoa::row-runs row)
+                         when (and (<= start column) (< column end)) return font))))))
       (check "C-M-i shows the completions in a popup under the word"
              (wait-until (lambda ()
                            (and (equal heml::*popup-selected-font* (popup-row-font " zebraone "))
@@ -572,7 +577,49 @@ gamma
       (check "and Return puts the chosen one in"
              (and (search (format nil "~%zebratwo") (buffer-text))
                   (null hi::*popup*)
-                  (null (popup-row-font " zebratwo ")))))
+                  (null (popup-row-font " zebratwo "))))
+      ;; As one types, when that is asked for: Tab puts the choice in.
+      (extended-command "Complete as You Type")
+      (settle)
+      (post-key #\e "Control")
+      (post-text " zeb")
+      (settle)
+      (check "with Complete as You Type on, the popup comes up by itself"
+             (wait-until (lambda () (popup-row-font " zebraone ")) 10))
+      (post (list :named "Tab" '()))
+      (settle)
+      (check "and Tab puts the choice in"
+             (search "zebratwo zebraone" (buffer-text)))
+      (extended-command "Complete as You Type")
+      (settle)
+      ;; Lisp's symbols say what they name.
+      (post (list :open (namestring (write-file "kinds.lisp" "(mapc"))))
+      (settle)
+      (post-key #\e "Control")
+      (post-key #\i "Control" "Meta")
+      (check "a Lisp symbol's completions say what each names"
+             (wait-until (lambda ()
+                           (find-if (lambda (row)
+                                      (let ((text (heml.cocoa::row-text row)))
+                                        (and (search " mapcar " text) (search "function" text))))
+                                    (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                         10))
+      (post (list :named "Escape" '()))
+      (settle)
+      ;; The file prompt: the files that start so, at the foot of the window.
+      (post-key #\x "Control") (post-key #\f "Control")
+      (post-text "gre")
+      (post (list :named "Tab" '()))
+      (check "at a file prompt, Tab shows the files that start so in a popup"
+             (wait-until (lambda () (and (popup-row-font " greet") (popup-row-font " grep.txt"))) 10))
+      (post-text "p")
+      (post (list :named "Return" '()))
+      (post (list :named "Return" '()))
+      (check "and the one chosen is visited"
+             (wait-until (lambda ()
+                           (equal (hi::buffer-pathname (hi::current-buffer))
+                                  (merge-pathnames "grep.txt" *out*)))
+                         10)))
     (post (list :open (namestring (write-file "words.txt" "Hello wrold here"))))
     (settle)
     (extended-command "Auto Spell Mode")
@@ -985,6 +1032,16 @@ gamma
 
   (note "shell")
   (extended-command "Shell")
+  (settle)
+  ;; Tab completes a file name, from the shell's directory.
+  (post-text "ls gre")
+  (post (list :named "Tab" '()))
+  (settle)
+  (post-text "e")
+  (post (list :named "Return" '()))
+  (check "in a shell, Tab completes a file's name from a popup"
+         (wait-until (lambda () (search "ls greet" (buffer-text))) 10))
+  (post (list :named "Return" '()))
   (settle)
   (post-text "echo smoke-$((6*7)); printf '\\033[31mred\\033[0m plain\\n'
 ")

@@ -76,8 +76,10 @@
 
 ;;; Convert the symbol name 'string to the standard character case for the
 ;;; lisp implementation which is uppercase for standard CL.
+;;; A copy: the string is often a literal, a variable's or a command's name,
+;;; which must stay as it was written.
 (defun canonical-case (string)
-  (nstring-upcase string))
+  (string-upcase string))
 
 (defun bash-string-to-symbol (name suffix)
   (intern (nsubstitute #\- #\space (canonical-case
