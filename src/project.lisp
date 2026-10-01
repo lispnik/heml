@@ -19,7 +19,7 @@
 
 ;;;; Finding a project.
 
-(defvar *project-markers* '(".git" ".hg" ".svn" "_darcs" ".fossil")
+(defvar *project-markers* '(".heml-project" ".git" ".hg" ".svn" "_darcs" ".fossil")
   "What makes a directory a project's root, nearest first.")
 
 (defvar *project-build-markers*
@@ -67,7 +67,8 @@
     (and pathname (project-root (directory-namestring pathname)))))
 
 (defun project-name (root)
-  (car (last (pathname-directory (pathname root)))))
+  (or (getf (project-settings root) :name)
+      (car (last (pathname-directory (pathname root))))))
 
 (defun current-project-root ()
   (or (buffer-project-root (current-buffer))
@@ -81,6 +82,88 @@
   "The buffers visiting files in ROOT's project, most recent first."
   (remove-if-not (lambda (buffer) (under-root-p (buffer-pathname buffer) root))
                  (remove-duplicates (append *buffer-history* *buffer-list*) :from-end t)))
+
+
+;;;; A project's settings.
+
+;;; A file .heml-project at a project's root says things about it, as a
+;;; property list, read as data and never evaluated:
+;;;
+;;;   (:name "Heml"                        ; what the modeline calls it
+;;;    :compile "make smoke-tty"           ; what C-x p c offers at first
+;;;    :ignore ("build/" "*.fasl")         ; files C-x p f leaves out
+;;;    :variables (("Fill Column" . 100)   ; Heml variables, set in each of
+;;;                ("Indent with Tabs" . nil))) ; the project's file buffers
+;;;
+;;; Its presence also makes its directory a project's root.
+
+(defvar *project-settings* (make-hash-table :test 'equal)
+  "Root to (WRITE-DATE . SETTINGS), as last read.")
+
+(defun project-settings-file (root)
+  (concatenate 'string root ".heml-project"))
+
+(defun project-settings (root)
+  "ROOT's project's settings, a property list, read again when its file
+   has changed."
+  (let* ((file (project-settings-file root))
+         (date (and (probe-file file) (ignore-errors (file-write-date file))))
+         (cached (gethash root *project-settings*)))
+    (cond ((null date) nil)
+          ((and cached (eql (car cached) date)) (cdr cached))
+          (t (cdr (setf (gethash root *project-settings*)
+                        (cons date
+                              (let ((form (ignore-errors
+                                           (with-open-file (in file :external-format :utf-8)
+                                             (with-standard-io-syntax
+                                               (let ((*read-eval* nil)
+                                                     (*package* (find-package :keyword)))
+                                                 (read in nil nil)))))))
+                                (and (listp form) (evenp (length form)) form)))))))))
+
+(defun ignored-file-p (file patterns)
+  "Whether FILE, relative to its root, is one PATTERNS leave out: a pattern
+   ending in / is a directory anywhere in the path, one starting with * the
+   end of the name, and any other the start of the path."
+  (some (lambda (pattern)
+          (let ((length (length pattern)))
+            (cond ((zerop length) nil)
+                  ((char= (char pattern 0) #\*)
+                   (let ((tail (subseq pattern 1)))
+                     (and (>= (length file) (length tail))
+                          (string= tail file :start2 (- (length file) (length tail))))))
+                  ((char= (char pattern (1- length)) #\/)
+                   (or (eql 0 (search pattern file))
+                       (search (concatenate 'string "/" pattern) file)))
+                  (t (eql 0 (search pattern file))))))
+        patterns))
+
+(defun apply-project-variables (buffer root)
+  "Give BUFFER, a buffer of ROOT's project, the project's :VARIABLES."
+  (loop for (name . value) in (getf (project-settings root) :variables)
+        do (ignore-errors
+            (let ((symbol (hi::string-to-variable name)))
+              (when (heml-bound-p symbol)
+                (defhvar name (variable-documentation symbol)
+                  :buffer buffer :value value))))))
+
+(defcommand "Edit Project Settings" (p)
+  "Visit this project's settings, the file .heml-project at its root, made
+   with an example the first time."
+  "Visit this project's settings file."
+  (declare (ignore p))
+  (let* ((root (current-project-root))
+         (file (project-settings-file root))
+         (new (not (probe-file file))))
+    (find-file-command nil file)
+    (when (and new (zerop (count-characters (buffer-region (current-buffer)))))
+      (insert-string (current-point)
+                     (format nil ";;; Settings for this project: a property list, read as data.~%~
+                                  (:name ~S~%~
+                                  ~1T:compile \"make -k \"~%~
+                                  ~1T:ignore ()                 ; (\"build/\" \"*.o\")~%~
+                                  ~1T:variables ())             ; ((\"Fill Column\" . 100))~%"
+                             (project-name root))))))
 
 
 ;;;; A project's files.
@@ -118,6 +201,15 @@
     (nreverse files)))
 
 (defun project-files (root)
+  "The files in ROOT's project, relative to ROOT, less those its settings
+   :IGNORE."
+  (let ((files (all-project-files root))
+        (ignore (getf (project-settings root) :ignore)))
+    (if ignore
+        (remove-if (lambda (file) (ignored-file-p file ignore)) files)
+        files)))
+
+(defun all-project-files (root)
   "The files in ROOT's project, relative to ROOT: those git knows of, or
    ripgrep finds, or a walk of the tree does."
   (or (and (probe-file (concatenate 'string root ".git"))
@@ -239,11 +331,12 @@
     (save-known-projects)))
 
 (defun note-buffer-project (buffer pathname)
-  (declare (ignore buffer))
   (when pathname
     (let ((root (project-root (directory-namestring pathname))))
-      (when (and root (not (eq root (car (first (known-projects))))))
-        (note-project root)))))
+      (when root
+        (apply-project-variables buffer root)
+        (unless (equal root (car (first (known-projects))))
+          (note-project root))))))
 
 (add-hook buffer-pathname-hook 'note-buffer-project)
 
@@ -264,16 +357,52 @@
                             :help "A file of the project, or text in the names of several.")
       (if exact
           (visit-project-file root exact)
-          (let ((matches (remove-if-not (lambda (f) (search input f :test #'char-equal)) files)))
+          (let ((matches (fuzzy-file-matches input files)))
             (cond ((null matches) (editor-error "No file in ~A matches ~A." (project-name root) input))
                   ((null (rest matches)) (visit-project-file root (first matches)))
                   (t (list-project-files root input matches))))))))
+
+;;; Text that is no file's name finds the files it is in, its characters in
+;;; order though not together, the best first: a file is better the more of
+;;; the characters are together, start a word, and are in its name rather
+;;; than its directories, and the shorter it is.
+;;;
+(defun fuzzy-file-score (input file)
+  "How well INPUT matches FILE, or NIL if its characters are not in FILE in
+   order."
+  (let* ((name-start (let ((slash (position #\/ file :from-end t))) (if slash (1+ slash) 0)))
+         (score 0)
+         (at 0)
+         (last -2))
+    (flet ((match-from (start)
+             (setf score 0 at start last -2)
+             (loop for char across input
+                   do (let ((hit (position char file :start at :test #'char-equal)))
+                        (unless hit (return nil))
+                        (incf score (cond ((= hit (1+ last)) 12)
+                                          ((or (zerop hit)
+                                               (find (char file (1- hit)) "/-_. "))
+                                           8)
+                                          (t 1)))
+                        (when (>= hit name-start) (incf score 3))
+                        (setf last hit at (1+ hit)))
+                   finally (return t))))
+      (when (or (match-from name-start) (match-from 0))
+        (- (* 10 score) (length file))))))
+
+(defun fuzzy-file-matches (input files)
+  "The FILES that INPUT matches, the best first."
+  (mapcar #'cdr
+          (stable-sort (loop for file in files
+                             for score = (fuzzy-file-score input file)
+                             when score collect (cons score file))
+                       #'> :key #'car)))
 
 (defun list-project-files (root input files)
   (let ((buffer (make-result-buffer "*Project Files*" "Outline" 'plist-line-location)))
     (with-writable-buffer (buffer)
       (let ((point (buffer-point buffer)))
-        (insert-string point (format nil "Files in ~A matching ~S: ~D~%~%"
+        (insert-string point (format nil "Files in ~A matching ~S, the best first: ~D~%~%"
                                      (project-name root) input (length files)))
         (dolist (file files)
           (let ((line (mark-line point)))
@@ -307,7 +436,10 @@
   (declare (ignore p))
   (let* ((root (current-project-root))
          (command (prompt-for-string :prompt (format nil "Compile ~A: " (project-name root))
-                                     :default (project-property root :compile "make -k "))))
+                                     :default (project-property
+                                               root :compile
+                                               (or (getf (project-settings root) :compile)
+                                                   "make -k ")))))
     (setf (project-property root :compile) command)
     (compile-command nil command root)))
 
@@ -323,12 +455,9 @@
 (defvar *project-shells* (make-hash-table :test 'equal)
   "Root to its project's shell buffer.")
 
-(defcommand "Project Shell" (p)
-  "Go to this project's shell, started in its root the first time."
-  "Go to this project's shell."
-  (declare (ignore p))
-  (let* ((root (current-project-root))
-         (shell (gethash root *project-shells*)))
+(defun project-shell (root)
+  "Go to ROOT's project's shell, started in ROOT the first time."
+  (let ((shell (gethash root *project-shells*)))
     (if (and shell (member shell *buffer-list*))
         (change-to-buffer shell)
         (progn
@@ -337,6 +466,17 @@
             (when (heml-bound-p 'current-working-directory :buffer buffer)
               (setf (variable-value 'current-working-directory :buffer buffer) root))
             (setf (gethash root *project-shells*) buffer))))))
+
+(defcommand "Project Shell" (p)
+  "Go to this project's shell, started in its root the first time."
+  "Go to this project's shell."
+  (declare (ignore p))
+  (project-shell (current-project-root)))
+
+(defun dired-buffer-directory (buffer)
+  "The directory BUFFER edits in Dired, or NIL."
+  (and (heml-bound-p 'dired-information :buffer buffer)
+       (namestring (dired-info-pathname (variable-value 'dired-information :buffer buffer)))))
 
 (defcommand "Project Dired" (p)
   "Edit this project's root directory in Dired."
@@ -377,6 +517,9 @@
          (shell (gethash root *project-shells*)))
     (when (and shell (member shell *buffer-list*))
       (push shell buffers))
+    (dolist (buffer *buffer-list*)
+      (when (under-root-p (dired-buffer-directory buffer) root)
+        (push buffer buffers)))
     (unless buffers (editor-error "No buffers in ~A." (project-name root)))
     (when (prompt-for-y-or-n :prompt (format nil "Kill ~D buffer~:P of ~A? "
                                              (length buffers) (project-name root))
@@ -443,8 +586,10 @@
 
 ;;; A session is (:FILES ((FILE LINE COLUMN) ...) :CURRENT FILE
 ;;; :LAYOUT NODE), FILE relative to the root, LINE and START counting from 1;
-;;; a NODE is (:WINDOW FILE LINE COLUMN START) or (:SPLIT DIRECTION SIZES
-;;; NODE ...), as the device's layout tree is (layout.lisp).
+;;; a NODE is (:WINDOW FILE LINE COLUMN START), (:DIRED DIRECTORY) for a
+;;; window on a directory of the project, (:SHELL) for one on its shell, or
+;;; (:SPLIT DIRECTION SIZES NODE ...), as the device's layout tree is
+;;; (layout.lisp).
 
 (defun session-file-name (root)
   (format nil "sessions/~A.lisp"
@@ -462,11 +607,15 @@
 
 (defun session-window (window root)
   (let ((buffer (window-buffer window)))
-    (when (under-root-p (buffer-pathname buffer) root)
-      (let ((point (window-session-point window)))
-        (list :window (enough-namestring (buffer-pathname buffer) root)
-              (mark-line-number point) (mark-charpos point)
-              (mark-line-number (window-display-start window)))))))
+    (cond ((under-root-p (buffer-pathname buffer) root)
+           (let ((point (window-session-point window)))
+             (list :window (enough-namestring (buffer-pathname buffer) root)
+                   (mark-line-number point) (mark-charpos point)
+                   (mark-line-number (window-display-start window)))))
+          ((under-root-p (dired-buffer-directory buffer) root)
+           (list :dired (enough-namestring (dired-buffer-directory buffer) root)))
+          ((eq buffer (gethash root *project-shells*))
+           (list :shell)))))
 
 (defun session-layout (node root)
   (if (hi::layout-split-p node)
@@ -510,16 +659,24 @@
       (find-file-buffer pathname))))
 
 (defun restore-session-window (window node root)
-  (destructuring-bind (file line column start) (rest node)
-    (let ((buffer (session-buffer root file)))
-      (when buffer
-        (select-window window)
-        (change-to-buffer buffer)
-        (move-to-line (current-point) line column)
-        (move-to-line (window-display-start window) start 0)))))
+  (select-window window)
+  (ecase (first node)
+    (:window
+     (destructuring-bind (file line column start) (rest node)
+       (let ((buffer (session-buffer root file)))
+         (when buffer
+           (change-to-buffer buffer)
+           (move-to-line (current-point) line column)
+           (move-to-line (window-display-start window) start 0)))))
+    (:dired
+     (let ((directory (merge-pathnames (second node) root)))
+       (when (probe-file directory)
+         (dired-command nil (namestring directory)))))
+    (:shell
+     (project-shell root))))
 
 (defun restore-session-layout (window node root)
-  (if (eq (first node) :window)
+  (if (member (first node) '(:window :dired :shell))
       (restore-session-window window node root)
       (destructuring-bind (direction sizes &rest children) (rest node)
         (let ((windows (list window))

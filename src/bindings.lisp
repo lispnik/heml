@@ -125,6 +125,7 @@
 (bind-key "List Project Buffers" #k"control-x p l")
 (bind-key "Kill Project Buffers" #k"control-x p k")
 (bind-key "Forget Project" #k"control-x p F")
+(bind-key "Edit Project Settings" #k"control-x p e")
 (bind-key "Split Window" #k"control-x 2")
 (bind-key "Split Window Horizontally" #k"control-x 3")
 (bind-key "Enlarge Window Horizontally" #k"control-x }")

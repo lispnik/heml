@@ -264,6 +264,7 @@ while the current buffer is in the mode."
   :separator
   ("Save Session" "Save Project Session")
   ("Reopen Session" "Restore Project Session")
+  ("Settings" "Edit Project Settings")
   ("Forget Project" "Forget Project"))
 
 (define-menu "Results" (:mode "Grep")

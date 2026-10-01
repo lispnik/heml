@@ -602,13 +602,26 @@ gamma
       (file "src/a.c" "int a(void) {" "  return 1;" "}")
       (file "src/b.c" "int b(void) {" "  return 2;" "}")
       (file "README.md" "# proj")
+      (file ".heml-project"
+            "(:name \"Proj X\" :ignore (\"README.md\") :variables ((\"Fill Column\" . 42)))")
       (post-key #\x "Control") (post-key #\1)
       (post (list :open (namestring (merge-pathnames "src/a.c" root))))
       (settle)
-      (check "a project's file names the project in its modeline"
-             (not (eq :none (row-runs-containing "[proj]"))))
+      (check "a project's file names the project in its modeline, as its settings name it"
+             (not (eq :none (row-runs-containing "[Proj X]"))))
+      (check "its settings' variables are set in its buffers"
+             (eql 42 (hi::variable-value 'heml::fill-column :buffer (hi::current-buffer))))
+      (check "and its files are found, less those its settings ignore"
+             (let ((files (heml::project-files (namestring root))))
+               (and (member "src/a.c" files :test #'equal)
+                    (not (member "README.md" files :test #'equal)))))
+      (check "text finds files with its characters in order, the best first"
+             (equal "src/tree-sitter-modes.lisp"
+                    (first (heml::fuzzy-file-matches
+                            "tsm" '("test/smoke.lisp" "notes/tasks-more.md"
+                                    "src/tree-sitter-modes.lisp")))))
       (post-key #\x "Control") (post-key #\p) (post-key #\f)
-      (post-text "b.c
+      (post-text "sbc
 ")
       (settle)
       (check "C-x p f finds a file from text in its name"
@@ -644,6 +657,8 @@ gamma
       (post-key #\x "Control") (post-key #\1)
       (extended-command "Kill Project Buffers")
       (post-key #\y)
+      ;; An :open is taken at once, ahead of keys still queued: wait for them.
+      (settle)
       (settle)
       (check "Kill Project Buffers kills them"
              (not (find "a.c" hi::*buffer-list* :key #'hi::buffer-name :test #'search)))
@@ -658,9 +673,38 @@ gamma
              (let ((w (file-shown-p "a.c")))
                (and w (equal "  return 1;"
                              (hi::line-string (hi::mark-line (hi::window-point w)))))))
+      ;; A window on one of the project's directories comes back too.
+      (post-key #\x "Control") (post-key #\p) (post-key #\d)
+      (settle)
+      (extended-command "Save Project Session")
+      (post-key #\x "Control") (post-key #\1)
+      (extended-command "Kill Project Buffers")
+      (post-key #\y)
+      ;; An :open is taken at once, ahead of keys still queued: wait for them.
+      (settle)
+      (post (list :open (namestring (merge-pathnames "README.md" root))))
+      (settle)
+      (extended-command "Restore Project Session")
+      (settle)
+      (check "a Dired window of the project is reopened with its session"
+             (find "Dired" (remove hi::*echo-area-window* hi::*window-list*)
+                   :key (lambda (w) (hi::buffer-major-mode (hi::window-buffer w)))
+                   :test #'equal))
+      ;; Back to the two files side by side, for what follows.
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (post-key #\x "Control") (post-key #\3)
+      (post-key #\x "Control") (post-key #\p) (post-key #\f)
+      (post-text "src/b.c
+")
+      (settle)
+      (extended-command "Save Project Session")
       ;; Switching away and back reopens it without asking.
       (extended-command "Kill Project Buffers")
       (post-key #\y)
+      ;; An :open is taken at once, ahead of keys still queued: wait for them.
+      (settle)
       (post-key #\x "Control") (post-key #\1)
       (post (list :open (namestring (merge-pathnames "README.org"
                                                      (asdf:system-source-directory :heml.cocoa)))))
@@ -672,6 +716,8 @@ gamma
              (and (file-shown-p "a.c") (file-shown-p "b.c")))
       (extended-command "Kill Project Buffers")
       (post-key #\y)
+      ;; An :open is taken at once, ahead of keys still queued: wait for them.
+      (settle)
       (post-key #\x "Control") (post-key #\1)
       ;; Back to where the checks after these expect to be.
       (post (list :open (namestring (merge-pathnames "words.txt" *out*))))
