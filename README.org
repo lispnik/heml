@@ -99,7 +99,8 @@
 
    The menu bar has the File, Edit, View, Buffer, Lisp, Window and Help
    menus a Mac user looks for: Open and Save As use the standard panels,
-   Settings opens the init file, and every other item is a Heml
+   Settings opens the init file (=~/.config/heml/init.lisp=, as XDG
+   says, or an older =~/.heml.lisp=), and every other item is a Heml
    command (=*menu-bar*= in =src/cocoa-appkit.lisp=).
 
    Shells show their colours, and the escape sequences that are not

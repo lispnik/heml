@@ -42,15 +42,14 @@
                (uiop:split-string path :separator ":")))
            (list (ignore-errors
                   (namestring (asdf:system-relative-pathname :heml.base "build/tree-sitter/")))
-                 (namestring (merge-pathnames ".local/share/heml/tree-sitter/"
-                                              (user-homedir-pathname)))
+                 (namestring (merge-pathnames "tree-sitter/" (hi::heml-data-directory)))
                  "/opt/homebrew/"
                  "/usr/local/")))
   "Where tree-sitter things are looked for, each laid out as Homebrew lays
 them out: lib/libtree-sitter.dylib, lib/libtree-sitter-<language>.dylib and
 share/tree-sitter/queries/<language>/highlights.scm.  `make tree-sitter'
 builds Heml's grammars into build/tree-sitter/, and `make install-tree-sitter'
-copies them to ~/.local/share/heml/tree-sitter/.")
+copies them to $XDG_DATA_HOME/heml/tree-sitter/ (~/.local/share/heml/).")
 
 (defun find-in-directories (relative)
   (loop for directory in *tree-sitter-directories*

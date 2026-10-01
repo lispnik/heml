@@ -387,10 +387,9 @@ GB
    definition of X is put into a buffer, and that buffer is selected.  If X is
    a pathname, the file specified by X is visited in a new buffer.  If X is not
    supplied or Nil, the editor is entered in the same state as when last
-   exited.  When :init is supplied as t (the default), the file
-   \"heml-init.lisp\", or \".heml-init.lisp\" is loaded from the home
-   directory, but the Lisp command line switch -hinit can be used to specify a
-   different name.  Any compiled version of the source is preferred when
+   exited.  When :init is supplied as t (the default), the init file is
+   loaded: $XDG_CONFIG_HOME/heml/init.lisp (~/.config/heml/init.lisp), or
+   failing that ~/.heml.lisp, ~/.heml/heml.lisp or ~/.heml-init.lisp.  Any compiled version of the source is preferred when
    choosing the file to load.  If the argument is non-nil and not t, then it
    should be a pathname that will be merged with the home directory."
   (cond
@@ -512,17 +511,52 @@ GB
 (pushnew 'heml-ed-function #+sbcl sb-ext:*ed-functions* #+ecl ext:*ed-functions*)
 
 
+;;; Where Heml keeps things, as the XDG Base Directory specification says:
+;;; its init file in $XDG_CONFIG_HOME/heml/ (~/.config/heml/), what it
+;;; remembers -- projects and their sessions -- in $XDG_STATE_HOME/heml/
+;;; (~/.local/state/heml/), and data such as tree-sitter's grammars in
+;;; $XDG_DATA_HOME/heml/ (~/.local/share/heml/).  A variable that is unset,
+;;; empty or not an absolute pathname is ignored, as the specification says.
+
+(defun xdg-directory (variable default)
+  (let ((value (uiop:getenv variable)))
+    (uiop:ensure-directory-pathname
+     (if (and value (plusp (length value)) (char= (char value 0) #\/))
+         value
+         (merge-pathnames default (user-homedir-pathname))))))
+
+(defun heml-config-directory ()
+  (merge-pathnames "heml/" (xdg-directory "XDG_CONFIG_HOME" ".config/")))
+
+(defun heml-state-directory ()
+  (merge-pathnames "heml/" (xdg-directory "XDG_STATE_HOME" ".local/state/")))
+
+(defun heml-data-directory ()
+  (merge-pathnames "heml/" (xdg-directory "XDG_DATA_HOME" ".local/share/")))
+
+(defun init-file-names ()
+  "The init files Heml looks for, in order: the first that exists is loaded.
+   Its own, in the XDG configuration directory, then the older names in the
+   home directory."
+  (let ((home (user-homedir-pathname)))
+    (list (merge-pathnames "init.lisp" (heml-config-directory))
+          (merge-pathnames ".heml.lisp" home)
+          (merge-pathnames ".heml/heml.lisp" home)
+          ;; One of the traditional names, as CMUCL had.
+          (merge-pathnames ".heml-init.lisp" home))))
+
+(defun init-file ()
+  "The init file loaded, or the one to make: the first that exists, or
+   the XDG one."
+  (let ((names (init-file-names)))
+    (or (find-if #'probe-file names) (first names))))
+
 (defun maybe-load-heml-init (init)
   (when init
     (let ((names
            (if (typep init '(or string pathname))
                (list init)
-               (let ((home (user-homedir-pathname)))
-                 (list (merge-pathnames ".heml.lisp" home)
-                       (merge-pathnames ".heml/heml.lisp" home)
-                       ;; Also support one of the traditional pathnames for
-                       ;; CMUCL compatibility:
-                       (merge-pathnames ".heml-init.lisp" home))))))
+               (init-file-names))))
       (dolist (name names)
         (when (probe-file name)
           (load name :verbose t)

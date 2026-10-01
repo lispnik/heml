@@ -121,11 +121,12 @@ run-app: app
 tree-sitter:
 	scripts/tree-sitter-grammars.sh
 
-# The grammars where the installed app finds them.
+# The grammars where the installed app finds them: $XDG_DATA_HOME/heml/.
+TREE_SITTER_DIR ?= $(or $(XDG_DATA_HOME),$(HOME)/.local/share)/heml/tree-sitter
 install-tree-sitter: tree-sitter
-	@mkdir -p "$(HOME)/.local/share/heml/tree-sitter"
-	cp -R build/tree-sitter/lib build/tree-sitter/share "$(HOME)/.local/share/heml/tree-sitter/"
-	@echo "installed $(HOME)/.local/share/heml/tree-sitter"
+	@mkdir -p "$(TREE_SITTER_DIR)"
+	cp -R build/tree-sitter/lib build/tree-sitter/share "$(TREE_SITTER_DIR)/"
+	@echo "installed $(TREE_SITTER_DIR)"
 
 # The heml command, linked onto the PATH from the installed app.
 CLI_DIR ?= $(HOME)/.local/bin

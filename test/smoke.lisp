@@ -970,6 +970,23 @@ gamma
          (and (eql 7 (run-font-at "mapcar" 0))
               (equal (quote (:fg 4 :bold t)) (run-font-at "mapcar" 4))))
 
+  (note "settings")
+  ;; A home of its own, so that the real init file is not touched.
+  (let ((home (merge-pathnames "home/" *out*)))
+    (uiop:delete-directory-tree home :validate t :if-does-not-exist :ignore)
+    (ensure-directories-exist home)
+    (sb-posix:setenv "HOME" (namestring home) 1)
+    (sb-posix:unsetenv "XDG_CONFIG_HOME")
+    (choose-menu-item "Heml" "Settings…")
+    (settle)
+    (check "Settings… opens the init file, ~/.config/heml/init.lisp"
+           (wait-until (lambda ()
+                         (equal (hi::buffer-pathname (hi::current-buffer))
+                                (merge-pathnames ".config/heml/init.lisp" home)))
+                       10))
+    (check "in a directory made for it"
+           (probe-file (merge-pathnames ".config/heml/" home))))
+
   (note "quitting")
   (post :quit)
   ;; Answer whatever Save All Files and Exit asks.

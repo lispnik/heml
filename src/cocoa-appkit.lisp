@@ -1066,13 +1066,12 @@ consume, and the keys they are.")
              (objc:ns-string-to-string (objc:invoke (objc:invoke panel "URL") "path")))))))
 
 (defun open-settings ()
-  "The init file, which is where Heml's settings are: the first that
-exists of those Heml loads, or the first of them to create."
-  (let* ((home (user-homedir-pathname))
-         (names (mapcar (lambda (name) (merge-pathnames name home))
-                        '(".heml.lisp" ".heml/heml.lisp" ".heml-init.lisp"))))
-    (post-to-editor
-     (list :open (namestring (or (find-if #'probe-file names) (first names)))))))
+  "The init file, which is where Heml's settings are: the first that exists
+of those Heml loads, or else ~/.config/heml/init.lisp, made in a directory
+that exists, ready to save."
+  (let ((file (hi::init-file)))
+    (ensure-directories-exist file)
+    (post-to-editor (list :open (namestring file)))))
 
 (defun show-about ()
   (let ((options (objc:alloc-init-object "NSMutableDictionary")))

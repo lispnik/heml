@@ -11,7 +11,8 @@
 ;;; window layout -- is saved when the editor leaves the project or exits,
 ;;; and reopened when it switches to the project, or starts in it with no
 ;;; files to edit.  The projects known and their sessions are kept in
-;;; *PROJECT-STATE-DIRECTORY*, ~/.heml/ unless HEML_STATE_DIRECTORY says.
+;;; *PROJECT-STATE-DIRECTORY*: $XDG_STATE_HOME/heml/ (~/.local/state/heml/)
+;;; unless HEML_STATE_DIRECTORY says.
 
 (in-package :heml)
 
@@ -143,7 +144,7 @@
 
 (defvar *project-state-directory* nil
   "Where the projects known and their sessions are kept: NIL for
-   HEML_STATE_DIRECTORY, or ~/.heml/ without it.")
+   HEML_STATE_DIRECTORY, or $XDG_STATE_HOME/heml/ without it.")
 
 (defhvar "Project Sessions"
   "When true, a project's open files and windows are saved when the editor
@@ -155,7 +156,25 @@
    (or *project-state-directory*
        (let ((variable (uiop:getenv "HEML_STATE_DIRECTORY")))
          (and (plusp (length variable)) variable))
-       (merge-pathnames ".heml/" (user-homedir-pathname)))))
+       (let ((directory (hi::heml-state-directory)))
+         (move-old-state directory)
+         directory))))
+
+(defun move-old-state (directory)
+  "Move what Heml kept in ~/.heml/ before it followed XDG into DIRECTORY,
+   the first time DIRECTORY is wanted and does not exist."
+  (let* ((old (merge-pathnames ".heml/" (user-homedir-pathname)))
+         (projects (merge-pathnames "projects.lisp" old)))
+    (when (and (probe-file projects) (not (probe-file directory)))
+      (ignore-errors
+       (ensure-directories-exist directory)
+       (rename-file projects (merge-pathnames "projects.lisp" directory))
+       (let ((sessions (merge-pathnames "sessions/" old)))
+         (when (probe-file sessions)
+           (rename-file (uiop:ensure-directory-pathname sessions)
+                        (merge-pathnames "sessions/" directory))))
+       ;; ~/.heml/ goes too, if nothing else was in it.
+       (uiop:delete-empty-directory old)))))
 
 (defun state-file (name)
   (merge-pathnames name (project-state-directory)))
