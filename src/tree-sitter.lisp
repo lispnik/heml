@@ -732,6 +732,10 @@ the language's highlighting, then its inline language's within that."
     (loop for (start end target) in (hi:line-links string)
           do (loop for i from start below (min end (length fonts))
                    do (setf (aref fonts i) (merge-fonts (aref fonts i) (hi:link-font target)))))
+    ;; And what else there is to draw on the line: a language server's errors.
+    (loop for (start end font) in (hi:line-decorations line)
+          do (loop for i from (max 0 start) below (min end (length fonts))
+                   do (setf (aref fonts i) (merge-fonts (aref fonts i) font))))
     fonts))
 
 (defun highlight-line (language line)
@@ -741,7 +745,9 @@ the language's highlighting, then its inline language's within that."
       (let* ((parse (buffer-parse language buffer))
              (plist (heml-interface:line-plist line))
              (old (getf plist 'tree-sitter)))
-        (unless (and old (eq (car old) parse))
+        (unless (and old (eq (car old) parse)
+                     (eql (getf plist 'decoration-tick) hi:*decoration-tick*))
+          (setf (getf (heml-interface:line-plist line) 'decoration-tick) hi:*decoration-tick*)
           (dolist (mark (cdr old))
             (hi:delete-font-mark mark))
           (let ((fonts (line-fonts language parse line))

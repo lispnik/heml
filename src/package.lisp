@@ -590,6 +590,7 @@
    ;; font.lisp
    #:font-mark #:delete-font-mark #:delete-line-font-marks #:move-font-mark
    #:line-links #:link-font #:link-at-mark
+   #:line-decorations #:*line-decoration-functions* #:*decoration-tick*
 
    ;; htext1.lisp
    #:line-length #:line-buffer #:line-string #:line-character #:mark #:mark-kind

@@ -12,7 +12,7 @@
                         :directory
                         (pathname-directory *heml-base-directory*)
                         :defaults *heml-base-directory*)
-     :depends-on (:heml.base :heml.tree-sitter :objc :bordeaux-threads)
+     :depends-on (:heml.base :heml.tree-sitter :heml.lsp :objc :bordeaux-threads)
     :components
     ((:module cocoa-1
               :pathname #.(merge-pathnames

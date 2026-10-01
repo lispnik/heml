@@ -628,6 +628,78 @@ gamma
            (and (equal '(:fg 1 :underline t) (run-font-at "wrold" 1))
                 (null (run-font-at "Hello" 1)))))
 
+  (note "language servers")
+  ;; A stand-in server (test/fake-lsp.py), which says the same every time,
+  ;; serves Pascal for the run.
+  (heml::define-language-server
+   "Pascal" (list (list "python3"
+                        (namestring (merge-pathnames "test/fake-lsp.py"
+                                                     (asdf:system-source-directory :heml.cocoa)))))
+   :language-id "pascal")
+  (with-open-file (out (merge-pathnames "fake.pas" *out*) :direction :output :if-exists :supersede)
+    (write-line "program fake;" out)
+    (write-line "  wrongthing here" out)
+    (write-line "begin end." out))
+  (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
+  (settle)
+  (flet ((point-line () (hi::line-string (hi::mark-line (hi::current-point)))))
+    (check "a language server's error is underlined where it is"
+           (wait-until (lambda ()
+                         (and (getf (run-font-at "wrongthing here" 1) :underline)
+                              (not (getf (run-font-at "wrongthing here" 7) :underline))))
+                       30))
+    (shot "language-server")
+    (post-key #\n "Control")
+    (post-key #\c "Control") (post-key #\d "Control")
+    (check "C-c C-d says what is wrong there, and what the server says of it, in a popup"
+           (wait-until (lambda ()
+                         (let ((rows (map 'list #'heml.cocoa::row-text
+                                          (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                           (and (find " fake error" rows :test #'search)
+                                (find " fake hover text" rows :test #'search))))
+                       10))
+    (post (list :named "Escape" '()))
+    (settle)
+    (check "which the next key puts away"
+           (null hi::*popup*))
+    (post-key #\. "Meta")
+    (check "M-. goes to the definition the server names"
+           (wait-until (lambda () (equal "begin end." (point-line))) 10))
+    (post-key #\? "Meta")
+    (check "M-? lists the references it names"
+           (wait-until (lambda ()
+                         (and (equal "*References*" (hi::buffer-name (hi::current-buffer)))
+                              (search "fake.pas:1: program fake;" (buffer-text))
+                              (search "fake.pas:3: begin end." (buffer-text))))
+                       10))
+    (post (list :named "Return" '()))
+    (settle)
+    (check "and Return visits one"
+           (equal "program fake;" (point-line)))
+    (post-key #\x "Control") (post-key #\1)
+    (post-key #\> "Meta")
+    (post-text "fake_")
+    (post-key #\i "Control" "Meta")
+    (check "the server's completions are in the popup, each with its kind"
+           (wait-until (lambda ()
+                         (find-if (lambda (row)
+                                    (let ((text (heml.cocoa::row-text row)))
+                                      (and (search " fake_function " text) (search "function" text :start2 16))))
+                                  (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                       10))
+    (post (list :named "Return" '()))
+    (settle)
+    (check "and the one chosen is put in"
+           (search "fake_function" (buffer-text)))
+    (extended-command "LSP Rename")
+    (post-key #\a "Control") (post-key #\k "Control")
+    (post-text "renamed
+")
+    (check "LSP Rename makes the server's edits"
+           (wait-until (lambda () (search "renamedgram fake;" (buffer-text))) 10))
+    ;; Left unsaved, and not asked about on the way out.
+    (setf (hi::buffer-modified (hi::current-buffer)) nil))
+
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))
     (flet ((file (name &rest lines)
@@ -658,10 +730,16 @@ gamma
              (not (eq :none (row-runs-containing "[Proj X]"))))
       (check "its settings' variables are set in its buffers"
              (eql 42 (hi::variable-value 'heml::fill-column :buffer (hi::current-buffer))))
+      ;; Asked of the editor's thread: listing files runs a program, and so
+      ;; may the editor at any moment, which two threads must not do at once.
+      (setf *project-files* :unknown)
+      (post (list :command "Smoke Project Files"))
       (check "and its files are found, less those its settings ignore"
-             (let ((files (heml::project-files (namestring root))))
-               (and (member "src/a.c" files :test #'equal)
-                    (not (member "README.md" files :test #'equal)))))
+             (wait-until (lambda ()
+                           (and (listp *project-files*)
+                                (member "src/a.c" *project-files* :test #'equal)
+                                (not (member "README.md" *project-files* :test #'equal))))
+                         20))
       (check "text finds files with its characters in order, the best first"
              (equal "src/tree-sitter-modes.lisp"
                     (first (heml::fuzzy-file-matches
@@ -1194,6 +1272,13 @@ gamma
   (heml::make-debug-buffer nil '(("(FOO 1)" nil (("X" . "1")) nil) ("(BAR)" nil nil nil))
                            "SBCL" "smoke"))
 
+(defvar *project-files* :unknown)
+
+(heml::defcommand "Smoke Project Files" (p) "" ""
+  (declare (ignore p))
+  (setf *project-files*
+        (heml::project-files (heml::current-project-root))))
+
 (heml::defcommand "Smoke Completions" (p) "" ""
   (declare (ignore p))
   (heml::make-completelist-buffer
@@ -1213,8 +1298,8 @@ gamma
 
 (bt:make-thread
  (lambda ()
-   (sleep 300)
-   (note "smoke: no result after five minutes")
+   (sleep 600)
+   (note "smoke: no result after ten minutes")
    (sb-ext:exit :code 2 :abort t))
  :name "smoke watchdog")
 

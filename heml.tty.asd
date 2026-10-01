@@ -9,7 +9,7 @@
                         :directory
                         (pathname-directory *heml-base-directory*)
                         :defaults *heml-base-directory*)
-     :depends-on (:heml.base :heml.tree-sitter)
+     :depends-on (:heml.base :heml.tree-sitter (:feature :sbcl :heml.lsp))
     :components
     ((:module tty-1
               :pathname #.(merge-pathnames

@@ -502,6 +502,21 @@ mode is MODE.  NIL removes it."
     (third (find-if (lambda (link) (and (<= (first link) position) (< position (second link))))
                     (line-links (line-string (mark-line mark)))))))
 
+;;; Decorations: what something other than a line's text says to draw on
+;;; it, such as a language server's errors, underlined.  Each function in
+;;; *LINE-DECORATION-FUNCTIONS* is called with a line and returns ((START
+;;; END FONT) ...); a highlighter lays them over its colours, and draws the
+;;; line again when *DECORATION-TICK* has changed, which whoever changes
+;;; what the functions would return must increment.
+
+(defvar *line-decoration-functions* '())
+
+(defvar *decoration-tick* 0)
+
+(defun line-decorations (line)
+  (loop for function in *line-decoration-functions*
+        append (funcall function line)))
+
 (defun highlight-links (line)
   "Show LINE's links, unless the line has colours of its own."
   (let ((old (getf (line-plist line) 'link-marks)))

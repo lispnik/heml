@@ -136,6 +136,54 @@
       (setf hi::*popup* nil))))
 
 
+;;; Text to read and be done with -- what a name is, what is wrong on a
+;;; line -- is shown the same way, until the next key.
+
+(defparameter *popup-text-rows* 14)
+
+(defun popup-text-lines (text width)
+  "TEXT's lines, none longer than WIDTH: a longer one is broken at a space."
+  (let ((lines '()))
+    (dolist (line (uiop:split-string text :separator '(#\Newline)))
+      (loop while (> (length line) width)
+            do (let ((break (or (position #\Space line :end width :from-end t) width)))
+                 (push (subseq line 0 break) lines)
+                 (setf line (string-left-trim " " (subseq line break)))))
+      (push line lines))
+    (nreverse lines)))
+
+(defun show-text-popup (text &optional (mark (current-point)))
+  "Show TEXT in a popup under MARK in the current window until a key is
+   typed; the key then does what it does, unless it is Escape or C-g."
+  (let* ((window (current-window))
+         (height (window-height window))
+         (lines (popup-text-lines text (max 10 (min *popup-width* (- (window-width window) 2)))))
+         (width (+ 2 (reduce #'max lines :key #'length :initial-value 1))))
+    (redisplay)
+    (multiple-value-bind (x y) (hi::mark-to-cursorpos mark window)
+      (when x
+        (let* ((below (- height y 1))
+               (under (or (>= below (length lines)) (>= below y)))
+               (count (min (length lines) *popup-text-rows* (max 1 (if under below y))))
+               (rows (loop for line in lines
+                           repeat count
+                           collect (cons (let ((row (make-string width :initial-element #\Space)))
+                                           (replace row line :start1 1 :end1 (1- width))
+                                           row)
+                                         *popup-font*))))
+          (unwind-protect
+               (progn
+                 (setf hi::*popup*
+                       (hi::make-popup window (max 0 (min (1- x) (- (window-width window) width)))
+                                       (if under (1+ y) (- y count))
+                                       rows))
+                 (redisplay)
+                 (let ((key (get-key-event hi::*editor-input*)))
+                   (unless (member key (list #k"escape" #k"control-g"))
+                     (unget-key-event key hi::*editor-input*))))
+            (setf hi::*popup* nil)))))))
+
+
 ;;;; What completes a word.
 
 (defun lisp-symbol-char-p (char)
