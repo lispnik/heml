@@ -1054,6 +1054,51 @@ gamma
          (and (eql 7 (run-font-at "mapcar" 0))
               (equal (quote (:fg 4 :bold t)) (run-font-at "mapcar" 4))))
 
+  (note "file names and the environment")
+  (let ((home (string-right-trim "/" (namestring (user-homedir-pathname)))))
+    (check "~ and ~user start a file name with a home directory"
+           (and (equal (heml-ext:expand-file-name "~/notes") (concatenate 'string home "/notes"))
+                (equal (heml-ext:expand-file-name (format nil "~~~A/.profile" (uiop:getenv "USER")))
+                       (concatenate 'string home "/.profile"))
+                (equal (heml-ext:expand-file-name "~") home)))
+    (check "a ~ after a /, or a second /, starts the name again"
+           (and (equal (heml-ext:expand-file-name "/some/dir/~/notes")
+                       (concatenate 'string home "/notes"))
+                (equal (heml-ext:expand-file-name "/some/dir//etc/hosts") "/etc/hosts")))
+    (check "and other names are left as they are"
+           (and (equal (heml-ext:expand-file-name "/tmp/backup~") "/tmp/backup~")
+                (equal (heml-ext:expand-file-name "~no-such-user-here/x") "~no-such-user-here/x")
+                (equal (heml-ext:expand-file-name "relative/file.txt") "relative/file.txt")))
+    ;; Typed at the file prompt, after the directory it offers.
+    (let ((out (namestring *out*)))
+      (when (eql 0 (search home out))
+        (post-key #\x "Control") (post-key #\f "Control")
+        (post-text (format nil "~~~Agrep.txt~%" (subseq out (length home))))
+        (check "C-x C-f takes a ~/ name typed after the directory offered"
+               (wait-until (lambda ()
+                             (equal (hi::buffer-pathname (hi::current-buffer))
+                                    (merge-pathnames "grep.txt" *out*)))
+                           10)))))
+  ;; A stand-in for the user's shell, which says what its environment is.
+  (let ((shell (merge-pathnames "fake-shell" *out*))
+        (real (uiop:getenv "SHELL")))
+    (with-open-file (out shell :direction :output :if-exists :supersede)
+      (format out "#!/bin/sh~%echo 'noise from a startup file'~%echo 'PATH=/fake/bin:/usr/bin'~%echo 'HEML_SMOKE_VARIABLE=from the shell'~%"))
+    (sb-posix:chmod (namestring shell) #o755)
+    (setf (uiop:getenv "SHELL") (namestring shell))
+    (unwind-protect
+         (progn
+           (check "the login shell's environment is read"
+                  (equal (hi::shell-environment '("PATH" "HEML_SMOKE_VARIABLE"))
+                         '(("PATH" . "/fake/bin:/usr/bin")
+                           ("HEML_SMOKE_VARIABLE" . "from the shell"))))
+           (hi::import-shell-environment '("HEML_SMOKE_VARIABLE"))
+           (check "and its variables are set in the editor's process"
+                  (equal "from the shell" (uiop:getenv "HEML_SMOKE_VARIABLE")))
+           (check "a shell is the user's own, not /bin/bash"
+                  (eql 0 (search (namestring shell) (heml::get-command-line)))))
+      (setf (uiop:getenv "SHELL") (or real "/bin/sh"))))
+
   (note "settings")
   ;; A home of its own, so that the real init file is not touched.
   (let ((home (merge-pathnames "home/" *out*)))

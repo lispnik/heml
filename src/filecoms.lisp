@@ -412,7 +412,7 @@
    otherwise.  If the file has already been read, we check to see if the file
    has been modified on disk since it was read, giving the user various
    recovery options."
-  (let* ((pathname (pathname pathname))
+  (let* ((pathname (pathname (heml-ext:expand-file-name pathname)))
          (trial-pathname (or (probe-file pathname)
                              (merge-pathnames pathname (heml-ext:default-directory))))
          (found (find trial-pathname (the list *buffer-list*)

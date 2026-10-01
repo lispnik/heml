@@ -256,7 +256,8 @@
     (parse-for-something)))
 
 (defun file-verification-function (string)
-  (let ((pn (pathname-or-lose string)))
+  ;; ~, ~user, and a name started again after the directory offered.
+  (let ((pn (pathname-or-lose (coerce (heml-ext:expand-file-name string) 'simple-string))))
     (if pn
         (let ((merge
                (cond ((not *parse-default*) nil)

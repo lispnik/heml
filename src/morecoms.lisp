@@ -1013,7 +1013,8 @@ a file, named or file:, is visited."
                                     target))
          (message "Opened ~A" target))
         (t
-         (let ((path (if (uiop:string-prefix-p "file://" target) (subseq target 7) target)))
+         (let ((path (heml-ext:expand-file-name
+                      (if (uiop:string-prefix-p "file://" target) (subseq target 7) target))))
            (change-to-buffer
             (find-file-buffer (merge-pathnames path (or (buffer-default-pathname (current-buffer))
                                                         (user-homedir-pathname)))))))))

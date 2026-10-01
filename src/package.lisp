@@ -485,6 +485,7 @@
    #:serve-event
    #:sap-ref-8
    #:complete-file
+   #:expand-file-name
    #:default-directory
    #:set-file-permissions
    #:ambiguous-files

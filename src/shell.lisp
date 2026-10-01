@@ -319,15 +319,7 @@
 ;;; this function expands them to a full path name.
 ;;;
 (defun filter-tildes (name)
-  (declare (simple-string name))
-  (if (char= (schar name 0) #\~)
-      (concatenate 'simple-string
-                   (if (or (= (length name) 1)
-                           (char= (schar name 1) #\/))
-                       (cdr (assoc :home *environment-list*))
-                       "/usr/")
-                 (subseq name 1))
-      name))
+  (heml-ext:expand-file-name name))
 
 
 
@@ -368,8 +360,9 @@
   :value t)
 
 (defhvar "Shell Utility"
-  "The \"Shell\" command uses this as the default command line."
-  :value "/bin/bash")
+  "The \"Shell\" command uses this as the default command line: NIL for the
+   user's own shell, $SHELL."
+  :value nil)
 
 (defhvar "Shell Utility Switches"
   "This is a string containing the default command line arguments to the
@@ -520,8 +513,19 @@
 ;;; This just conses up a string to feed to the shell.
 ;;;
 (defun get-command-line ()
-  (concatenate 'simple-string (value shell-utility) " "
+  (concatenate 'simple-string (or (value shell-utility) (hi::login-shell)) " "
                (value shell-utility-switches)))
+
+(defcommand "Import Shell Environment" (p)
+  "Take PATH and the other variables in HI::*SHELL-ENVIRONMENT-VARIABLES*
+   from the user's login shell again, as Heml does when it is started by
+   anything but a shell: after the shell's startup files have changed."
+  "Take PATH and its fellows from the login shell."
+  (declare (ignore p))
+  (let ((environment (hi::import-shell-environment)))
+    (if environment
+        (message "Took ~{~A~^, ~} from ~A." (mapcar #'car environment) (hi::login-shell))
+        (editor-error "~A said nothing of them." (hi::login-shell)))))
 
 ;;; FROB-ENVIRONMENT-LIST -- Internal.
 ;;;

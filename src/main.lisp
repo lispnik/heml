@@ -460,6 +460,8 @@ GB
                   (make-event-loop *connection-backend*)))
       (let* ((*in-the-editor* t)
              (display (unless *editor-has-been-entered*
+                        ;; Before the init file, which may want the PATH.
+                        (maybe-import-shell-environment)
                         (maybe-load-heml-init load-user-init)
                         ;; Device dependent initializaiton.
                         (init-raw-io backend-type display))))
@@ -550,6 +552,68 @@ GB
    the XDG one."
   (let ((names (init-file-names)))
     (or (find-if #'probe-file names) (first names))))
+
+;;; The environment, from the user's shell.  A program started by Finder,
+;;; or by anything but a shell, has the system's few variables and its short
+;;; PATH, not what the user's shell sets up: so Heml would not find the
+;;; programs the user has installed, and nor would the shells and compilers
+;;; it runs.  As Emacs's exec-path-from-shell does, the user's login shell is
+;;; asked what it has, and the variables wanted are taken from it.
+
+(defvar *shell-environment-variables*
+  '("PATH" "MANPATH" "LANG" "LC_ALL" "LC_CTYPE" "SSH_AUTH_SOCK" "GPG_AGENT_INFO")
+  "The environment variables Heml takes from the user's login shell.")
+
+(defvar *import-shell-environment* :auto
+  "Whether Heml takes *SHELL-ENVIRONMENT-VARIABLES* from the user's login
+   shell when it starts: T, NIL, or :AUTO for only when it was not started
+   from a terminal, where it has the shell's environment already.")
+
+(defun login-shell ()
+  "The user's shell: $SHELL, or the system's usual one."
+  (let ((shell (uiop:getenv "SHELL")))
+    (if (and shell (plusp (length shell)) (probe-file shell))
+        shell
+        ;; As the password file has it, or the system's usual one.
+        (or (ignore-errors
+             (let ((shell (nth 6 (multiple-value-list (isys:getpwuid (isys:getuid))))))
+               (and shell (probe-file shell) shell)))
+            (find-if #'probe-file '("/bin/zsh" "/bin/bash"))
+            "/bin/sh"))))
+
+(defun shell-environment (&optional (names *shell-environment-variables*))
+  "What the user's login shell, run as an interactive login shell so that
+   it reads all its startup files, has for the variables NAMES, as an alist;
+   a variable it does not have is left out.  NIL if the shell cannot be run."
+  (let ((output (ignore-errors
+                 (uiop:run-program (list (login-shell) "-l" "-i" "-c" "/usr/bin/env")
+                                   :input nil :output :string :error-output nil
+                                   :ignore-error-status t))))
+    (when output
+      (loop for line in (uiop:split-string output :separator '(#\Newline))
+            for equals = (position #\= line)
+            for name = (and equals (subseq line 0 equals))
+            when (and name (member name names :test #'string=))
+              collect (cons name (subseq line (1+ equals)))))))
+
+(defun import-shell-environment (&optional (names *shell-environment-variables*))
+  "Set the environment variables NAMES in this process to what the user's
+   login shell has for them, so that Heml and the programs it runs find what
+   the shell would.  Returns the alist of those set."
+  (let ((environment (shell-environment names)))
+    (loop for (name . value) in environment
+          do (ignore-errors (setf (uiop:getenv name) value)))
+    environment))
+
+(defun started-from-terminal-p ()
+  (let ((term (uiop:getenv "TERM")))
+    (and term (plusp (length term)))))
+
+(defun maybe-import-shell-environment ()
+  (when (case *import-shell-environment*
+          (:auto (not (started-from-terminal-p)))
+          (t *import-shell-environment*))
+    (import-shell-environment)))
 
 (defun maybe-load-heml-init (init)
   (when init
