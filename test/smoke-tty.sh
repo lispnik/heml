@@ -79,6 +79,7 @@ rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
      "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
+        --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
         --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
@@ -540,6 +541,33 @@ sleep 0.3
 send Enter
 sleep 0.3
 send n
+sleep 0.5
+
+# A language server: test/fake-lsp.py serves Pascal for the run, and says
+# the same of every file.  What it finds wrong is listed, and C-c C-d shows
+# what it says, in a popup.
+printf 'program fake;\n  wrongthing here\nbegin end.\n' > build/smoke-tty-fake.pas
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-fake.pas"
+send Enter
+expect 'wrongthing here' "a file with a language server is visited"
+sleep 2
+send M-x
+type_text 'LSP Diagnostics'
+send Enter
+expect 'smoke-tty-fake.pas:2: error: fake error' "what its language server finds wrong is listed" 20
+send Enter
+sleep 0.5
+send C-c C-d
+expect ' fake hover text' "C-c C-d shows what the server says, in a popup" 20
+send Escape
+sleep 0.3
+send C-x 1
+send C-x k
+sleep 0.3
+send Enter
 sleep 0.5
 
 # Bufed.

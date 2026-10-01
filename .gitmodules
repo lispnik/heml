@@ -2,3 +2,6 @@
 	path = vendor/conium
 	url = https://github.com/lispnik/conium.git
 	branch = ecl
+[submodule "vendor/jzon"]
+	path = vendor/jzon
+	url = https://github.com/Zulu-Inuoe/jzon.git
