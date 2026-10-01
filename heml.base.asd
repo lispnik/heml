@@ -219,6 +219,7 @@
                (:file "coned")
                (:file "xref")
                (:file "completion" :depends-on ("lispmode"))
+               (:file "popup" :depends-on ("completion" "lispeval"))
                (:file "cpc")
                (:file "fuzzy" :depends-on ("cpc"))
                (:file "shell")

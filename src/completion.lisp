@@ -638,14 +638,13 @@
 (defun editor-complete-symbol (&optional show-matches-p)
   (editor-find-symbol-completion show-matches-p (symbol-string-at-point)))
 
-(defhvar "Completion Function" ""
-  :value 'completion-complete-word)
-
-(defhvar "Completion Function" ""
-  :mode "Lisp" :value 'complete-symbol)
-
-(defhvar "Completion Function" ""
-  :mode "Editor" :value 'editor-complete-symbol)
+;;; What "Complete For Mode" and "Indent Or Complete" call: the popup of
+;;; completions at point (popup.lisp), whose candidates are the mode's
+;;; "Completions Function".  The older ways are still commands of their own.
+;;;
+(defhvar "Completion Function"
+  "A function of the prefix argument that completes what is before point."
+  :value 'complete-at-point)
 
 (defcommand "Complete For Mode" (p)
   "" ""

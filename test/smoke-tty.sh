@@ -519,6 +519,29 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# Completion at point: Tab in a word shows its completions in a popup
+# under it, C-n chooses, and Return puts the choice in.
+printf 'zebraone zebratwo\nzeb' > build/smoke-tty-comp.txt
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-comp.txt"
+send Enter
+expect 'zebraone zebratwo' "a file to complete in is visited"
+send 'M->'
+send C-b
+send Tab
+expect_re '^ zebratwo$' "Tab in a word shows its completions in a popup"
+send C-n
+send Enter
+expect_re '^zebratwo' "C-n and Return put the second one in"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.3
+send n
+sleep 0.5
+
 # Bufed.
 send C-x C-b
 expect 'Buffers  (' "C-x C-b lists the buffers, under a header"

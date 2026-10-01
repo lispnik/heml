@@ -398,7 +398,10 @@
       (when (= (dis-line-position (car dl)) y)
         (let* ((line (dis-line-line (car dl)))
                (end (dis-line-end (car dl))))
-          (return (mark line (or (find-position line x ppos end width) end))))))))
+          ;; A popup's row past the buffer's end shows no line.
+          (return (if line
+                      (mark line (or (find-position line x ppos end width) end))
+                      (copy-mark (window-display-end window) :temporary))))))))
 
 ;;; Move-To-Column  --  Public
 ;;;

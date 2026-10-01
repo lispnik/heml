@@ -540,6 +540,39 @@ gamma
            (wait-until (lambda () (and (search "Grep finished" (buffer-text))
                                        (search "grep.txt:2:beta two" (buffer-text))))))
     (post-key #\x "Control") (post-key #\1)
+    ;; Completion at point: a popup under the word, which typing narrows.
+    (with-open-file (out (merge-pathnames "comp.txt" *out*) :direction :output :if-exists :supersede)
+      (write-line "zebraone zebratwo" out)
+      (write-string "zeb" out))
+    (post (list :open (namestring (merge-pathnames "comp.txt" *out*))))
+    (settle)
+    ;; To the end of zeb, on the last line but one.
+    (post-key #\> "Meta")
+    (post-key #\b "Control")
+    (post-key #\i "Control" "Meta")
+    (flet ((popup-row-font (text)
+             ;; The font of the popup's row showing TEXT, a row that starts
+             ;; with it, or NIL when there is no such row.
+             (let ((row (find-if (lambda (row) (eql 0 (search text (heml.cocoa::row-text row))))
+                                 (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+               (and row (cddr (first (heml.cocoa::row-runs row)))))))
+      (check "C-M-i shows the completions in a popup under the word"
+             (wait-until (lambda ()
+                           (and (equal heml::*popup-selected-font* (popup-row-font " zebraone "))
+                                (equal heml::*popup-font* (popup-row-font " zebratwo "))))
+                         10))
+      (shot "completion")
+      (post-text "rat")
+      (settle)
+      (check "typing narrows them"
+             (and (equal heml::*popup-selected-font* (popup-row-font " zebratwo "))
+                  (null (popup-row-font " zebraone "))))
+      (post (list :named "Return" '()))
+      (settle)
+      (check "and Return puts the chosen one in"
+             (and (search (format nil "~%zebratwo") (buffer-text))
+                  (null hi::*popup*)
+                  (null (popup-row-font " zebratwo ")))))
     (post (list :open (namestring (write-file "words.txt" "Hello wrold here"))))
     (settle)
     (extended-command "Auto Spell Mode")
@@ -833,6 +866,11 @@ gamma
                              "itemWithTitle:" "Smoke"))))
 
   (note "bufed")
+  ;; The list is most recent first: a buffer just visited, then left, is
+  ;; near its top, on the screen however many buffers there are.
+  (post (list :open (namestring (merge-pathnames "opened.c" *out*))))
+  (post (list :open (namestring (merge-pathnames "words.txt" *out*))))
+  (settle)
   (post (list :command "Bufed"))
   (settle)
   (let* ((rows (heml.cocoa::screen-shown-rows heml.cocoa::*screen*))

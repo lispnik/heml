@@ -23,6 +23,19 @@
 (setf (dis-line-position (car the-sentinel)) most-positive-fixnum)
 
 
+;;; A popup is a few rows of text drawn over a window's image: a menu of
+;;; completions under point (popup.lisp).  It is laid over the dis-lines
+;;; each time the image is made, so every device shows it, and it is gone
+;;; the next time the image is made without it.
+;;;
+(defstruct (popup (:constructor make-popup (window x y rows)))
+  window                                ; the window it is over
+  x y                                   ; its first row's column and line
+  rows)                                 ; ((TEXT . FONT) ...), from the top
+
+(defvar *popup* nil
+  "The popup shown, or NIL.")
+
 ;;; update-window-image  --  Internal
 ;;;
 ;;;    Rebuild Window's image from its display start.  Every dis-line is
@@ -73,4 +86,6 @@
            (let ((dis-line (car trail)))
              (move-to-position (window-display-end window)
                                (dis-line-end dis-line)
-                               (dis-line-line dis-line)))))))
+                               (dis-line-line dis-line)))))
+    (when (and *popup* (eq (popup-window *popup*) window))
+      (overlay-popup window *popup*))))

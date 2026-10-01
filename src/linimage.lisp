@@ -463,3 +463,79 @@
     (compute-cached-line-image offset dis-line 0 width))
    (t
     (compute-normal-line-image line offset dis-line 0 width))))
+
+
+;;;; Popups: rows of text laid over a window's image (winimage.lisp).
+
+(defun release-font-changes (dis-line)
+  (let ((changes (dis-line-font-changes dis-line)))
+    (when changes
+      (do ((last changes (font-change-next last)))
+          ((null (font-change-next last))
+           (setf (font-change-next last) *free-font-changes*
+                 *free-font-changes* changes))
+        (setf (font-change-mark last) nil))
+      (setf (dis-line-font-changes dis-line) nil))))
+
+(defun popup-dis-line (window y)
+  "The dis-line WINDOW shows on its line Y: one past the last line of the
+   buffer is added to the image, showing nothing of the buffer."
+  (do ((dl (cdr (window-first-line window)) (cdr dl)))
+      ((eq dl the-sentinel)
+       (let* ((cell (window-spare-lines window))
+              (dis-line (car cell))
+              (last (window-last-line window)))
+         (setf (window-spare-lines window) (cdr cell)
+               (cdr cell) the-sentinel)
+         (if (eq last the-sentinel)
+             (setf (cdr (window-first-line window)) cell)
+             (setf (cdr last) cell))
+         (setf (window-last-line window) cell)
+         (release-font-changes dis-line)
+         (setf (dis-line-line dis-line) nil
+               (dis-line-position dis-line) y
+               (dis-line-length dis-line) 0
+               (dis-line-end dis-line) 0)
+         dis-line))
+    (when (= (dis-line-position (car dl)) y)
+      (return (car dl)))))
+
+(defun overlay-dis-line (dis-line x0 x1 text font)
+  "Show TEXT in FONT over DIS-LINE's columns X0 to X1."
+  (let ((chars (dis-line-chars dis-line))
+        (length (dis-line-length dis-line)))
+    (when (<= x1 (length chars))
+      (when (< length x0)
+        (fill chars #\Space :start length :end x0))
+      (replace chars text :start1 x0 :end1 x1)
+      (setf (dis-line-length dis-line) (max length x1))
+      ;; The font changes within the columns go; the font that was in effect
+      ;; at their end comes back there.
+      (let ((before '()) (after '()) (restore 0) (at-end nil))
+        (do ((change (dis-line-font-changes dis-line) (font-change-next change)))
+            ((null change))
+          (let ((x (font-change-x change)))
+            (cond ((< x x0) (push change before) (setf restore (font-change-font change)))
+                  ((< x x1) (setf restore (font-change-font change)))
+                  (t (when (= x x1) (setf at-end t))
+                     (push change after)))))
+        (let* ((changes (append (nreverse before)
+                                (list (alloc-font-change x0 font nil))
+                                (unless at-end
+                                  (list (alloc-font-change x1 restore nil)))
+                                (nreverse after))))
+          (loop for (change next) on changes
+                do (setf (font-change-next change) next))
+          (setf (dis-line-font-changes dis-line) (first changes)))))))
+
+(defun overlay-popup (window popup)
+  (let ((width (window-width window))
+        (height (window-height window))
+        (x0 (max 0 (popup-x popup)))
+        (y (popup-y popup)))
+    (dolist (row (popup-rows popup))
+      (when (< -1 y height)
+        (let ((x1 (min width (+ x0 (length (car row))))))
+          (when (< x0 x1)
+            (overlay-dis-line (popup-dis-line window y) x0 x1 (car row) (cdr row)))))
+      (incf y))))
