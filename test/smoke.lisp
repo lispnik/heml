@@ -27,6 +27,11 @@
 (defvar *checks* 0)
 (defvar *finished* nil)
 
+;;; Projects' sessions are kept here, not in ~/.heml, and start empty.
+(let ((state (merge-pathnames "state/" *out*)))
+  (uiop:delete-directory-tree state :validate t :if-does-not-exist :ignore)
+  (setf heml::*project-state-directory* state))
+
 (setf heml.cocoa::*activate* nil
       heml.cocoa::*pasteboard-name* "org.lispnik.heml.smoke"
       heml.cocoa::*remember-font* nil
@@ -542,6 +547,102 @@ gamma
     (check "Spell mode underlines a misspelled word in red, and not the others"
            (and (equal '(:fg 1 :underline t) (run-font-at "wrold" 1))
                 (null (run-font-at "Hello" 1)))))
+
+  (note "projects")
+  (let ((root (merge-pathnames "proj/" *out*)))
+    (flet ((file (name &rest lines)
+             (let ((path (merge-pathnames name root)))
+               (ensure-directories-exist path)
+               (with-open-file (out path :direction :output :if-exists :supersede)
+                 (dolist (line lines) (write-line line out)))
+               path))
+           (file-shown-p (name)
+             (find name (remove hi::*echo-area-window* hi::*window-list*)
+                   :key (lambda (w) (let ((p (hi::buffer-pathname (hi::window-buffer w))))
+                                      (and p (file-namestring p))))
+                   :test #'equal))
+           (line-text () (hi::line-string (hi::mark-line (hi::current-point))))
+           (current-file () (let ((p (hi::buffer-pathname (hi::current-buffer))))
+                              (and p (file-namestring p)))))
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)
+      (ensure-directories-exist (merge-pathnames ".git/" root))
+      (file "src/a.c" "int a(void) {" "  return 1;" "}")
+      (file "src/b.c" "int b(void) {" "  return 2;" "}")
+      (file "README.md" "# proj")
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (check "a project's file names the project in its modeline"
+             (not (eq :none (row-runs-containing "[proj]"))))
+      (post-key #\x "Control") (post-key #\p) (post-key #\f)
+      (post-text "b.c
+")
+      (settle)
+      (check "C-x p f finds a file from text in its name"
+             (wait-until (lambda () (equal "b.c" (current-file))) 10))
+      (post-key #\x "Control") (post-key #\p) (post-key #\f)
+      (post-text ".c
+")
+      (settle)
+      (check "and lists the files when several have it"
+             (wait-until (lambda ()
+                           (and (equal "*Project Files*" (hi::buffer-name (hi::current-buffer)))
+                                (search "src/a.c" (buffer-text)) (search "src/b.c" (buffer-text))))
+                         10))
+      (post-key #\q)
+      (post-key #\x "Control") (post-key #\p) (post-key #\g)
+      (post-key #\a "Control") (post-key #\k "Control")
+      (post-text "return
+")
+      (check "C-x p g searches the project, from its root"
+             (wait-until (lambda () (and (search "Grep finished: 2 results." (buffer-text))
+                                         (search (namestring root) (buffer-text))))))
+      ;; A session: a.c at its second line, beside b.c.
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (post-key #\n "Control")
+      (post-key #\x "Control") (post-key #\3)
+      (post-key #\x "Control") (post-key #\p) (post-key #\f)
+      (post-text "src/b.c
+")
+      (settle)
+      (extended-command "Save Project Session")
+      (post-key #\x "Control") (post-key #\1)
+      (extended-command "Kill Project Buffers")
+      (post-key #\y)
+      (settle)
+      (check "Kill Project Buffers kills them"
+             (not (find "a.c" hi::*buffer-list* :key #'hi::buffer-name :test #'search)))
+      (post (list :open (namestring (merge-pathnames "README.md" root))))
+      (settle)
+      (extended-command "Restore Project Session")
+      (settle)
+      (check "Restore Project Session reopens the files, in their windows"
+             (and (file-shown-p "a.c") (file-shown-p "b.c")
+                  (= 2 (length (remove hi::*echo-area-window* hi::*window-list*)))))
+      (check "with their points"
+             (let ((w (file-shown-p "a.c")))
+               (and w (equal "  return 1;"
+                             (hi::line-string (hi::mark-line (hi::window-point w)))))))
+      ;; Switching away and back reopens it without asking.
+      (extended-command "Kill Project Buffers")
+      (post-key #\y)
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring (merge-pathnames "README.org"
+                                                     (asdf:system-source-directory :heml.cocoa)))))
+      (settle)
+      (post-key #\x "Control") (post-key #\p) (post-key #\p)
+      (post (list :named "Return" '()))
+      (settle)
+      (check "C-x p p back to the project reopens its session"
+             (and (file-shown-p "a.c") (file-shown-p "b.c")))
+      (extended-command "Kill Project Buffers")
+      (post-key #\y)
+      (post-key #\x "Control") (post-key #\1)
+      ;; Back to where the checks after these expect to be.
+      (post (list :open (namestring (merge-pathnames "words.txt" *out*))))
+      (settle)))
 
   (note "menus")
   (choose-menu-item "View" "Split Window")

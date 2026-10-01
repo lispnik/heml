@@ -73,8 +73,11 @@ expect_re() {
 cleanup() { tmux kill-session -t "$session" 2>/dev/null; }
 trap cleanup EXIT
 
+# Projects' sessions are kept here, not in ~/.heml, and start empty.
+state=$PWD/build/smoke-tty-state
+rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
-     "$LISP $quiet \
+     "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
         --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
@@ -496,6 +499,26 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# Projects: this repository is one, C-x p f finds a file in it, and C-x p g
+# searches it.
+send C-x p f
+sleep 0.5
+type_text 'README.org'
+send Enter
+expect_re '\[heml\].*README\.org' "C-x p f visits a project's file, and the modeline names the project"
+send C-x p g
+sleep 0.5
+send C-a C-k
+type_text 'save-sessions-on-exit'
+send Enter
+expect 'Grep finished' "C-x p g searches the project" 30
+expect_re "Grep in .*/heml/$" "from its root"
+send C-x 1
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # Bufed.
 send C-x C-b
 expect 'Buffers  (' "C-x C-b lists the buffers, under a header"
@@ -630,8 +653,11 @@ expect 'EDITOR-RETURNED' "C-x C-c leaves the editor" 15
 # where they stand rather than on a screen of their own.
 tmux kill-session -t "$session" 2>/dev/null
 session=heml-smoke-repl-$$
+# Projects' sessions are kept here, not in ~/.heml, and start empty.
+state=$PWD/build/smoke-tty-state
+rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
-     "$LISP $quiet \
+     "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
         --eval '(uiop:symbol-call :heml :repl)'; \
       echo REPL-EXITED; sleep 30"

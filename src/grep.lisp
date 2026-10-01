@@ -300,13 +300,16 @@
          (directory (prompt-for-file :prompt "In directory: "
                                      :default (default-directory)
                                      :must-exist t)))
-    (grep-command nil
-                  (if (find-program "rg")
-                      ;; ripgrep leaves out what .gitignore does, and binaries.
-                      (format nil "rg -n --no-heading --color never -e ~A ." (shell-quote pattern))
-                      (format nil "grep -rnH -I --exclude-dir=.git --exclude-dir=.hg -e ~A ."
-                              (shell-quote pattern)))
+    (grep-command nil (recursive-grep-command-line pattern)
                   (directory-namestring (merge-pathnames directory (default-directory))))))
+
+(defun recursive-grep-command-line (pattern)
+  "A command searching the files under its directory for PATTERN."
+  (if (find-program "rg")
+      ;; ripgrep leaves out what .gitignore does, and binaries.
+      (format nil "rg -n --no-heading --color never -e ~A ." (shell-quote pattern))
+      (format nil "grep -rnH -I --exclude-dir=.git --exclude-dir=.hg -e ~A ."
+              (shell-quote pattern))))
 
 (defun find-program (name)
   "Where the shell would find the program NAME, or NIL."

@@ -222,6 +222,7 @@
                (:file "cpc")
                (:file "fuzzy" :depends-on ("cpc"))
                (:file "shell")
+               (:file "project" :depends-on ("results" "grep" "shell"))
                (:file "debug")
                (:file "dabbrev")
                (:file "menus")

@@ -57,7 +57,7 @@ fi
 # with an SBCL_HOME that would load another core if the launcher let it.
 echo "cli-smoke-file-contents" > "$scratch/relative.txt"
 tmux new-session -d -s "$session" -x 100 -y 30 -c "$scratch" \
-     "SBCL_HOME=/nonexistent/sbcl '$heml' --tty relative.txt; echo CLI-EXITED=\$?; sleep 30"
+     "HEML_STATE_DIRECTORY='$scratch/state' SBCL_HOME=/nonexistent/sbcl '$heml' --tty relative.txt; echo CLI-EXITED=\$?; sleep 30"
 expect 'cli-smoke-file-contents' "--tty edits a file named from the shell's directory" 60
 expect 'relative.txt' "its name is in the modeline"
 tmux send-keys -t "$session" C-x C-c

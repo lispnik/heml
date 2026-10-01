@@ -111,7 +111,20 @@
 
 (bind-key "Next Window" #k"control-x n")
 (bind-key "Next Window" #k"control-x o")
-(bind-key "Previous Window" #k"control-x p")
+(bind-key "Previous Window" #k"control-x O")
+
+;;; Projects (project.lisp), on C-x p, as in Emacs.
+(bind-key "Project Find File" #k"control-x p f")
+(bind-key "Project Grep" #k"control-x p g")
+(bind-key "Project Compile" #k"control-x p c")
+(bind-key "Project Shell Command" #k"control-x p !")
+(bind-key "Project Shell" #k"control-x p s")
+(bind-key "Project Dired" #k"control-x p d")
+(bind-key "Switch Project" #k"control-x p p")
+(bind-key "Project Switch Buffer" #k"control-x p b")
+(bind-key "List Project Buffers" #k"control-x p l")
+(bind-key "Kill Project Buffers" #k"control-x p k")
+(bind-key "Forget Project" #k"control-x p F")
 (bind-key "Split Window" #k"control-x 2")
 (bind-key "Split Window Horizontally" #k"control-x 3")
 (bind-key "Enlarge Window Horizontally" #k"control-x }")

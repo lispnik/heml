@@ -249,6 +249,23 @@ while the current buffer is in the mode."
   :separator
   ("Shell Command…" "Shell Command"))
 
+(define-menu "Project" ()
+  ("Find File…" "Project Find File")
+  ("Search…" "Project Grep")
+  ("Compile…" "Project Compile")
+  ("Shell" "Project Shell")
+  ("Shell Command…" "Project Shell Command")
+  ("Directory" "Project Dired")
+  :separator
+  ("Switch Project…" "Switch Project")
+  ("Buffers…" "Project Switch Buffer")
+  ("List Buffers" "List Project Buffers")
+  ("Kill Buffers…" "Kill Project Buffers")
+  :separator
+  ("Save Session" "Save Project Session")
+  ("Reopen Session" "Restore Project Session")
+  ("Forget Project" "Forget Project"))
+
 (define-menu "Results" (:mode "Grep")
   ("Visit" "Result Goto")
   ("Show in Other Window" "Result Display")

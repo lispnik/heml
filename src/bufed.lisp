@@ -51,7 +51,8 @@ group's heading.")
 
 (defvar *bufed-filter* nil
   "When not NIL, only the buffers it names are listed: a mode's name, * for
-the modified ones, or text their names contain.")
+the modified ones, a directory (starting with /) their files are under, or
+text their names contain.")
 
 (defvar *bufed-grouped* nil
   "When true, the buffers visiting files are grouped by directory, and the
@@ -98,6 +99,10 @@ others follow.")
 (defun bufed-filter-shows-p (buffer)
   (let ((filter *bufed-filter*))
     (cond ((string= filter "*") (buffer-modified buffer))
+          ;; A directory: the buffers visiting files under it.
+          ((and (plusp (length filter)) (char= (char filter 0) #\/))
+           (let ((pathname (buffer-pathname buffer)))
+             (and pathname (eql 0 (search filter (namestring pathname))))))
           ((getstring filter *mode-names*)
            (if (mode-major-p filter)
                (string-equal filter (buffer-major-mode buffer))
