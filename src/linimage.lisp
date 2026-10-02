@@ -538,4 +538,14 @@
         (let ((x1 (min width (+ x0 (length (car row))))))
           (when (< x0 x1)
             (overlay-dis-line (popup-dis-line window y) x0 x1 (car row) (cdr row)))))
-      (incf y))))
+      (incf y))
+    ;; Parts of rows drawn again, in a font of their own.
+    (loop for (row start end font) in (popup-highlights popup)
+          for line = (+ (popup-y popup) row)
+          for text = (car (nth row (popup-rows popup)))
+          when (and text (< -1 line height))
+            do (let ((from (+ x0 (max 0 start)))
+                     (to (min width (+ x0 (min end (length text))))))
+                 (when (< from to)
+                   (overlay-dis-line (popup-dis-line window line) from to
+                                     (subseq text (- from x0) (- to x0)) font))))))

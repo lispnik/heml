@@ -28,10 +28,11 @@
 ;;; each time the image is made, so every device shows it, and it is gone
 ;;; the next time the image is made without it.
 ;;;
-(defstruct (popup (:constructor make-popup (window x y rows)))
+(defstruct (popup (:constructor make-popup (window x y rows &optional highlights)))
   window                                ; the window it is over
   x y                                   ; its first row's column and line
-  rows)                                 ; ((TEXT . FONT) ...), from the top
+  rows                                  ; ((TEXT . FONT) ...), from the top
+  highlights)                           ; ((ROW START END FONT) ...): parts of rows in another font
 
 (defvar *popup* nil
   "The popup shown, or NIL.")

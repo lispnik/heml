@@ -12,6 +12,11 @@ characters 2 to 12 with "rightthing", and one a command, which it carries
 out by asking the editor to put a line at the start of the file.  Its
 document symbols are a function on the third line with a variable in it.
 
+Its signature for any call is fake_function(int a, int b), the argument
+being typed the one after as many commas as the line has before the place
+asked about.  It formats a file by putting a line before its first, and
+its workspace symbols are the one function, in the first file opened.
+
 It takes changes incrementally, as spans of the text it holds, and its
 hover ends with that text's first and last lines and its length, so that a
 test can see the server has what the editor has."""
@@ -84,6 +89,9 @@ def answer(method, params):
                                  "definitionProvider": True, "referencesProvider": True,
                                  "hoverProvider": True, "renameProvider": True,
                                  "codeActionProvider": True,
+                                 "signatureHelpProvider": {"triggerCharacters": ["(", ","]},
+                                 "documentFormattingProvider": True,
+                                 "workspaceSymbolProvider": True,
                                  "documentSymbolProvider": True,
                                  "executeCommandProvider": {"commands": ["fake.command"]}}}
     if method == "textDocument/codeAction":
@@ -100,6 +108,19 @@ def answer(method, params):
               "params": {"edit": {"changes": {target: [{"range": place(target, 0, 0, 0)["range"],
                                                         "newText": "{ done }\n"}]}}}})
         return None
+    if method == "textDocument/signatureHelp":
+        position = params["position"]
+        line = documents.get(uri, "").split("\n")[position["line"]]
+        return {"signatures": [{"label": "fake_function(int a, int b)",
+                                "parameters": [{"label": "int a"}, {"label": [21, 26]}]}],
+                "activeSignature": 0,
+                "activeParameter": line[:position["character"]].count(",")}
+    if method == "textDocument/formatting":
+        return [{"range": place(uri, 0, 0, 0)["range"], "newText": "{ formatted }\n"}]
+    if method == "workspace/symbol":
+        first = next(iter(documents), None)
+        return [dict(place(first, 2, 0, 5), **{})] and [
+            {"name": "fake_symbol", "kind": 12, "location": place(first, 2, 0, 5)}]
     if method == "textDocument/documentSymbol":
         whole = place(uri, 2, 0, 5)["range"]
         return [{"name": "fake_symbol", "kind": 12, "range": whole, "selectionRange": whole,

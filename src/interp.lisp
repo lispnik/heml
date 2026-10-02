@@ -460,6 +460,7 @@
                      (funcall *invoke-hook* res *prefix-argument*)
                      (setf punt nil)))
                  (when punt (invoke-hook heml::command-abort-hook)))
+               (invoke-hook heml::after-command-hook)
                (update-modelines-for-buffer *current-buffer*)
                (if *command-type-set*
                    (setq *command-type-set* nil)

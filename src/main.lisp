@@ -209,6 +209,10 @@ GB
     "These functions get called when commands are aborted, such as with
      EDITOR-ERROR."
     :value nil)
+  (defhvar "After Command Hook"
+    "These functions are called, with no arguments, after each command the
+     command loop runs, before the screen is drawn again."
+    :value nil)
   (defhvar "Character Attribute Hook"
     "This hook is called with the attribute, character and new value
      when the value of a character attribute is changed.")

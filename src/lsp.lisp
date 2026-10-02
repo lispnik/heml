@@ -311,6 +311,10 @@
                            "rename" (json)
                            "formatting" (json)
                            "documentSymbol" (json "hierarchicalDocumentSymbolSupport" t)
+                           "signatureHelp"
+                           (json "signatureInformation"
+                                 (json "parameterInformation" (json "labelOffsetSupport" t)
+                                       "activeParameterSupport" t))
                            "codeAction"
                            (json "codeActionLiteralSupport"
                                  (json "codeActionKind"
@@ -319,7 +323,7 @@
                                                      "refactor.inline" "refactor.rewrite"
                                                      "source" "source.organizeImports")))))
                      "workspace" (json "workspaceFolders" t "configuration" t
-                                       "applyEdit" t)))
+                                       "applyEdit" t "symbol" (json))))
          (lambda (result error)
            (cond ((or error (not (hash-table-p result)))
                   (lsp-server-died server))
@@ -552,7 +556,42 @@
                                     (or (jref diagnostic "severity") 1)
                                     (or (jref diagnostic "message") "")
                                     diagnostic)))))
+      (when buffer (update-lsp-modeline buffer))
       (incf hi:*decoration-tick*))))
+
+;;; The modeline says what the server finds: nothing when there is no
+;;; server, how many errors and warnings when there are any.
+
+(defun buffer-diagnostic-counts (buffer)
+  (let ((errors 0) (warnings 0))
+    (loop for (nil nil severity) in (gethash buffer *buffer-diagnostics*)
+          do (case severity (1 (incf errors)) (2 (incf warnings))))
+    (values errors warnings)))
+
+(make-modeline-field
+ :name :lsp
+ :function (lambda (buffer window)
+             (declare (ignore window))
+             (let ((server (ignore-errors (buffer-language-server buffer))))
+               (cond ((null server) "")
+                     ((eq (lsp-server-state server) :starting) "(server starting)  ")
+                     (t
+                      (multiple-value-bind (errors warnings) (buffer-diagnostic-counts buffer)
+                        (if (and (zerop errors) (zerop warnings))
+                            ""
+                            (format nil "(~[~:;~:*~D error~:P~]~:[~; ~]~[~:;~:*~D warning~:P~])  "
+                                    errors (and (plusp errors) (plusp warnings)) warnings))))))))
+
+(unless (member :lsp hi::*default-modeline-fields* :key #'modeline-field-name)
+  (let ((project (member :project hi::*default-modeline-fields* :key #'modeline-field-name)))
+    (if project
+        (push (modeline-field :lsp) (cdr project))
+        (nconc hi::*default-modeline-fields* (list (modeline-field :lsp))))))
+
+(defun update-lsp-modeline (buffer)
+  (when (buffer-modeline-field-p buffer :lsp)
+    (dolist (window (buffer-windows buffer))
+      (ignore-errors (update-modeline-field buffer window (modeline-field :lsp))))))
 
 (defun lsp-line-decorations (line)
   "What the server says is wrong on LINE, as ((START END FONT) ...)."
@@ -581,6 +620,44 @@
     (fourth (or (find-if (lambda (d) (and (mark<= (first d) mark) (mark<= mark (second d))))
                          diagnostics)
                 (find (mark-line mark) diagnostics :key (lambda (d) (mark-line (first d))))))))
+
+
+(defparameter *symbol-kinds*
+  #(nil "file" "module" "namespace" "package" "class" "method" "property" "field"
+    "constructor" "enum" "interface" "function" "variable" "constant" "string" "number"
+    "boolean" "array" "object" "key" "null" "enum member" "struct" "event" "operator"
+    "type parameter"))
+
+
+;;;; From one error to the next.
+
+(defun move-to-diagnostic (direction)
+  (let* ((point (current-point))
+         (diagnostics (sort (copy-list (gethash (current-buffer) *buffer-diagnostics*))
+                            #'mark< :key #'first))
+         (next (if (plusp direction)
+                   (find-if (lambda (d) (mark> (first d) point)) diagnostics)
+                   (find-if (lambda (d) (mark< (first d) point)) diagnostics :from-end t))))
+    (unless diagnostics (editor-error "Nothing is wrong here, that the server says."))
+    ;; Past the last, the first; before the first, the last.
+    (unless next
+      (setf next (if (plusp direction) (first diagnostics) (first (last diagnostics)))))
+    (move-mark point (first next))
+    (message "~A" (substitute #\Space #\Newline (fourth next)))))
+
+(defcommand "LSP Next Diagnostic" (p)
+  "Go to the next thing the language server finds wrong in this buffer,
+   and say what it is; after the last, the first."
+  "Go to the next error or warning."
+  (declare (ignore p))
+  (move-to-diagnostic 1))
+
+(defcommand "LSP Previous Diagnostic" (p)
+  "Go to the previous thing the language server finds wrong in this buffer,
+   and say what it is; before the first, the last."
+  "Go to the previous error or warning."
+  (declare (ignore p))
+  (move-to-diagnostic -1))
 
 
 ;;;; Places the server names.
@@ -804,6 +881,57 @@
         (message "~D change~:P." (apply-text-edits (current-buffer) (jlist edits)))
         (message "Nothing to change."))))
 
+(defcommand "LSP Find Symbol" (p)
+  "List the symbols of this project whose names have some text in them, as
+   the language server finds them, with their kinds."
+  "List the project's symbols matching some text."
+  (declare (ignore p))
+  (let* ((server (lsp-current-server))
+         (query (prompt-for-string :prompt "Symbols matching: "
+                                   :default (let ((word (word-at-point)))
+                                              (and (plusp (length word)) word))))
+         (symbols (jlist (lsp-request server "workspace/symbol" (json "query" query)
+                                      :timeout 15)))
+         (locations
+           (loop for symbol in symbols
+                 for file = (let ((uri (jref symbol "location" "uri"))) (and uri (uri-file uri)))
+                 for kind = (jref symbol "kind")
+                 when file
+                   collect (list file
+                                 (or (jref symbol "location" "range" "start" "line") 0)
+                                 (or (jref symbol "location" "range" "start" "character") 0)
+                                 (format nil "~@[~A ~]~A~@[  in ~A~]"
+                                         (and (integerp kind) (< 0 kind (length *symbol-kinds*))
+                                              (aref *symbol-kinds* kind))
+                                         (jref symbol "name")
+                                         (let ((container (jref symbol "containerName")))
+                                           (and container (plusp (length container)) container)))))))
+    (unless locations (editor-error "No symbol matches ~A." query))
+    (list-lsp-locations "*Symbols*" (format nil "Symbols matching ~S" query) locations)))
+
+;;; Formatting as a file is saved.
+
+(defhvar "LSP Format on Save"
+  "When true, a buffer with a language server that formats is laid out by
+   it each time it is saved."
+  :value nil)
+
+(defun lsp-format-before-saving (buffer)
+  (when (value lsp-format-on-save)
+    (ignore-errors
+     (let ((server (buffer-language-server buffer)))
+       (when (and server (eq (lsp-server-state server) :ready)
+                  (jref (lsp-server-capabilities server) "documentFormattingProvider"))
+         (lsp-sync server buffer)
+         (let ((edits (lsp-request server "textDocument/formatting"
+                                   (json "textDocument" (lsp-document buffer)
+                                         "options" (json "tabSize" 4 "insertSpaces" t))
+                                   :timeout 5)))
+           (when (plusp (length edits))
+             (apply-text-edits buffer (jlist edits)))))))))
+
+(add-hook before-write-file-hook 'lsp-format-before-saving)
+
 (defcommand "LSP Diagnostics" (p)
   "List what the language server finds wrong, in this buffer's project."
   "List what the language server finds wrong."
@@ -836,12 +964,6 @@
 
 
 ;;;; The server's outline of a buffer.
-
-(defparameter *symbol-kinds*
-  #(nil "file" "module" "namespace" "package" "class" "method" "property" "field"
-    "constructor" "enum" "interface" "function" "variable" "constant" "string" "number"
-    "boolean" "array" "object" "key" "null" "enum member" "struct" "event" "operator"
-    "type parameter"))
 
 (defun lsp-outline-entries (buffer)
   "BUFFER's symbols as its language server names them, as ((LINE DEPTH
@@ -879,6 +1001,54 @@
         (nreverse entries)))))
 
 (pushnew 'lsp-outline-entries *outline-functions*)
+
+
+;;;; The signature of the call being typed.
+
+(defun lsp-signature (point)
+  "Ask the server what the call POINT is in takes, and show it over the
+   call when the answer comes, the argument being typed marked."
+  (let* ((buffer (line-buffer (mark-line point)))
+         (server (buffer-language-server buffer))
+         (start (call-start point)))
+    (when (and server start (eq (lsp-server-state server) :ready)
+               (jref (lsp-server-capabilities server) "signatureHelpProvider")
+               (not (eql (previous-character point) #\Space)))
+      (lsp-sync server buffer)
+      (let ((anchor (copy-mark start :right-inserting))
+            (tick (incf *signature-tick*)))
+        (lsp-request-async
+         server "textDocument/signatureHelp" (lsp-position-params buffer point)
+         (lambda (result error)
+           (declare (ignore error))
+           (unwind-protect
+                (let* ((signatures (jlist (jref result "signatures")))
+                       (signature (and signatures
+                                       (nth (min (or (jref result "activeSignature") 0)
+                                                 (1- (length signatures)))
+                                            signatures))))
+                  ;; Not if the call has been closed, or another asked
+                  ;; about, since this was asked.
+                  (when (and signature (= tick *signature-tick*)
+                             (eq (current-buffer) buffer)
+                             (eq (mark-line anchor) (mark-line (current-point))))
+                    (let* ((label (or (jref signature "label") ""))
+                           (parameters (jlist (jref signature "parameters")))
+                           (active (or (jref signature "activeParameter")
+                                       (jref result "activeParameter") 0))
+                           (parameter (and (integerp active) (nth active parameters)))
+                           (name (and parameter (gethash "label" parameter))))
+                      (multiple-value-bind (from to)
+                          ;; A parameter is named by its text, or by where
+                          ;; it is in the label.
+                          (cond ((stringp name)
+                                 (let ((at (search name label)))
+                                   (and at (values at (+ at (length name))))))
+                                ((vectorp name)
+                                 (values (utf16-charpos label (aref name 0))
+                                         (utf16-charpos label (aref name 1)))))
+                        (show-signature anchor label from to)))))
+             (delete-mark anchor))))))))
 
 
 ;;;; Completions, for the popup.
@@ -932,8 +1102,9 @@
    lines that run one, a list of a program and its arguments each, the first
    whose program is installed being used; LANGUAGE-ID is the protocol's name
    for the language.  M-. goes to a definition there, M-? lists references,
-   C-c C-d describes, C-c C-a offers fixes, and completions come from the
-   server."
+   C-c C-d describes, C-c C-a offers fixes, C-c C-s finds a symbol in the
+   project, M-n and M-p go to the next and previous error, a call's
+   signature is shown as it is typed, and completions come from the server."
   (setf *language-servers*
         (cons (list mode commands (or language-id (string-downcase mode)))
               (remove mode *language-servers* :key #'car :test #'string=)))
@@ -945,12 +1116,22 @@
   (bind-key "LSP Find References" #k"meta-?" :mode mode)
   (bind-key "LSP Describe" #k"control-c control-d" :mode mode)
   (bind-key "LSP Code Action" #k"control-c control-a" :mode mode)
+  (bind-key "LSP Find Symbol" #k"control-c control-s" :mode mode)
+  (bind-key "LSP Next Diagnostic" #k"meta-n" :mode mode)
+  (bind-key "LSP Previous Diagnostic" #k"meta-p" :mode mode)
+  (defhvar "Signature Function"
+    "A function of a mark, point, that shows the signature of the call point
+     is in with SHOW-SIGNATURE, or does nothing."
+    :mode mode :value 'lsp-signature)
   (when (find-menu mode)
     (add-menu-item mode :separator)
     (dolist (entry '(("Go to Definition" "LSP Find Definition")
                      ("Find References" "LSP Find References")
                      ("Describe" "LSP Describe")
                      ("Fix or Refactor…" "LSP Code Action")
+                     ("Find Symbol…" "LSP Find Symbol")
+                     ("Next Error" "LSP Next Diagnostic")
+                     ("Previous Error" "LSP Previous Diagnostic")
                      ("Rename…" "LSP Rename")
                      ("Format Buffer" "LSP Format Buffer")
                      ("Errors and Warnings" "LSP Diagnostics")))

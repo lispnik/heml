@@ -518,3 +518,154 @@
                  (insert-string point choice)
                  t))
           (delete-mark start))))))
+
+
+;;;; Signatures: what a function takes, shown over its call as it is typed.
+
+;;; Unlike the popups above, this one stays while one types: it is put up
+;;; when an opening parenthesis or a comma is typed (in Lisp, a space after
+;;; the operator), and taken down when the call is closed or point leaves
+;;; its line.  A mode's "Signature Function" is called with point and shows
+;;; what it finds with SHOW-SIGNATURE, at once or when an answer comes.
+
+(defhvar "Signature Help"
+  "When true, what a function takes is shown over its call as it is typed."
+  :value t)
+
+(defhvar "Signature Function"
+  "A function of a mark, point, that shows the signature of the call point
+   is in with SHOW-SIGNATURE, or does nothing."
+  :value nil)
+
+(defvar *signature* nil
+  "The signature shown, as (ANCHOR TEXT START END), START and END the part
+   of TEXT for the argument being typed, or NIL; or NIL.")
+
+(defvar *signature-tick* 0
+  "Changes each time a signature is asked for or taken away, so that an
+   answer that comes after its question is out of date can be told.")
+
+(defun place-signature ()
+  "Put the popup for *SIGNATURE* over its anchor, or take it away if the
+   anchor is not on the screen."
+  (destructuring-bind (anchor text start end) *signature*
+    (let ((window (current-window)))
+      (multiple-value-bind (x y) (hi::mark-to-cursorpos anchor window)
+        (if (null x)
+            (setf hi::*popup* nil)
+            (let* ((width (min (+ 2 (length text)) (window-width window)))
+                   (row (make-string width :initial-element #\Space))
+                   (left (max 0 (min x (- (window-width window) width)))))
+              (replace row text :start1 1 :end1 (max 1 (1- width)))
+              (setf hi::*popup*
+                    (hi::make-popup window left
+                                    ;; Over the call, or under it on the top line.
+                                    (if (plusp y) (1- y) (1+ y))
+                                    (list (cons row *popup-font*))
+                                    (when (and start end (< start end))
+                                      (list (list 0 (1+ start) (1+ end)
+                                                  *popup-selected-font*)))))))))))
+
+(defun show-signature (anchor text &optional start end)
+  "Show TEXT, a function's signature, over the mark ANCHOR, where its call
+   starts, with its characters START to END marked as the argument being
+   typed.  It stays until the call is closed or point leaves the line."
+  (hide-signature)
+  (setf *signature* (list (copy-mark anchor :right-inserting) text start end))
+  (place-signature))
+
+(defun hide-signature ()
+  (incf *signature-tick*)
+  (when *signature*
+    (delete-mark (first *signature*))
+    (setf *signature* nil
+          hi::*popup* nil)))
+
+(defun update-signature ()
+  "After a command: the signature goes when point has left its call's line
+   or gone before it, and otherwise is put where the call is now."
+  (when *signature*
+    (let ((anchor (first *signature*))
+          (point (current-point)))
+      (if (and (eq (line-buffer (mark-line anchor)) (current-buffer))
+               (eq (mark-line anchor) (mark-line point))
+               (mark< anchor point))
+          (place-signature)
+          (hide-signature)))))
+
+(add-hook after-command-hook 'update-signature)
+(add-hook abort-hook 'hide-signature)
+
+(defun call-start (point)
+  "A mark at the opening parenthesis of the call POINT is in, on its line,
+   or NIL: the last one before point not yet closed."
+  (let ((string (line-string (mark-line point)))
+        (depth 0))
+    (loop for i from (1- (mark-charpos point)) downto 0
+          do (case (char string i)
+               (#\) (incf depth))
+               (#\( (if (zerop depth)
+                        (return (mark (mark-line point) i))
+                        (decf depth)))))))
+
+(defun signature-after-typing ()
+  "After a character is typed: an opening parenthesis or a comma asks for
+   the signature of the call it is in, a closing one takes it away."
+  (when (and (value signature-help)
+             (not (eq (current-buffer) *echo-area-buffer*)))
+    (let* ((point (current-point))
+           (char (previous-character point))
+           (function (value signature-function)))
+      (cond ((eql char #\))
+             (hide-signature))
+            ((and function (member char '(#\( #\, #\Space)))
+             (ignore-errors (funcall function point)))))))
+
+(add-hook self-insert-hook 'signature-after-typing)
+
+;;; Lisp: a space after an operator shows its arguments, as the slave has
+;;; them, or the editor.
+
+(defun %arglist-string (name package-name)
+  "The operator NAME's arguments, as text, or NIL: in the slave, or here."
+  (let* ((package (or (find-package (canonical-case package-name))
+                      (find-package :common-lisp-user)))
+         (colon (position #\: name :from-end t))
+         (symbol (if colon
+                     (let ((home (find-package (canonical-case
+                                                (string-right-trim ":" (subseq name 0 colon))))))
+                       (and home (find-symbol (canonical-case (subseq name (1+ colon))) home)))
+                     (find-symbol (canonical-case name) package))))
+    (when (and symbol (fboundp symbol))
+      (let ((arglist (ignore-errors (conium:arglist symbol))))
+        (when (listp arglist)
+          (let ((*print-case* :downcase) (*package* package) (*print-pretty* nil))
+            (format nil "(~A~{ ~A~})" (string-downcase name) arglist)))))))
+
+(defun lisp-signature (point)
+  "Just after an operator and a space: show the operator's arguments."
+  (when (eql (previous-character point) #\Space)
+    (with-mark ((end point))
+      (mark-before end)
+      (let ((start (token-start end #'lisp-symbol-char-p)))
+        (unwind-protect
+             (when (and (mark< start end) (eql (previous-character start) #\())
+               (let* ((name (region-to-string (region start end)))
+                      (package (or (ignore-errors (package-at-point)) "COMMON-LISP-USER"))
+                      (text (or (let ((info (value current-eval-server)))
+                                  (when info
+                                    (ignore-errors
+                                     (eval-form-in-server-1
+                                      info (format nil "(heml::%arglist-string ~S ~S)"
+                                                   name package)))))
+                                (ignore-errors (%arglist-string name package)))))
+                 (when (stringp text)
+                   (with-mark ((anchor start))
+                     (mark-before anchor)
+                     (show-signature anchor text)))))
+          (delete-mark start))))))
+
+(defhvar "Signature Function"
+  "A function of a mark, point, that shows the signature of the call point
+   is in with SHOW-SIGNATURE, or does nothing."
+  :mode "Lisp" :value 'lisp-signature)

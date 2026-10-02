@@ -554,6 +554,11 @@
   "These functions are called when a buffer has been written.  Each function
    must take the buffer as an argument.")
 
+(defhvar "Before Write File Hook"
+  "These functions are called when a buffer is about to be written, before
+   its text is: a formatter's place.  Each takes the buffer as an argument."
+  :value nil)
+
 (defun write-buffer-file (buffer pathname)
   "Write's buffer to pathname.  This assumes pathname is somehow related to
    the buffer's pathname, and if the buffer's write date is not the same as
@@ -591,6 +596,7 @@
               (insert-character end #\newline)
               (message "Added newline at EOF."))))))
     (setv pathname-defaults pathname)
+    (invoke-hook before-write-file-hook buffer)
     (write-file (buffer-region buffer) pathname)
     (let ((tn (truename pathname)))
       (message "~A written." (namestring tn))

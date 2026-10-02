@@ -630,6 +630,18 @@ gamma
                          10))
       (post (list :named "Escape" '()))
       (settle)
+      ;; A space after an operator shows what it takes.
+      (post-text "ar ")
+      (check "in Lisp, a space after an operator shows its arguments over the call"
+             (wait-until (lambda ()
+                           (find "(mapcar function list" (map 'list #'heml.cocoa::row-text
+                                                               (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                 :test #'search))
+                         10))
+      (post-key #\a "Control")
+      (settle)
+      (check "and going before the call takes them away"
+             (null hi::*popup*))
       ;; The file prompt: the files that start so, at the foot of the window.
       (post-key #\x "Control") (post-key #\f "Control")
       (post-text "gre")
@@ -785,6 +797,66 @@ gamma
       (post-key #\2)
       (check "and choosing a command makes the edit the server asks for"
              (wait-until (lambda () (eql 0 (search "{ done }" (buffer-text)))) 10)))
+    ;; What a call takes, shown as it is typed, the argument being typed marked.
+    (flet ((signature-font (text)
+             ;; The font TEXT is drawn in, in the row showing the signature.
+             (let ((row (find-if (lambda (row) (search " fake_function(int a, int b) "
+                                                       (heml.cocoa::row-text row)))
+                                 (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+               (when row
+                 (let ((column (search text (heml.cocoa::row-text row))))
+                   (loop for (start end . font) in (heml.cocoa::row-runs row)
+                         when (and (<= start column) (< column end)) return font))))))
+      (post-key #\> "Meta")
+      (post-text (format nil "~%fake_function("))
+      (check "typing a call's parenthesis shows what it takes, the first argument marked"
+             (wait-until (lambda ()
+                           (and (equal heml::*popup-selected-font* (signature-font "int a"))
+                                (equal heml::*popup-font* (signature-font "int b"))))
+                         10))
+      (shot "signature")
+      (post-text "1,")
+      (check "a comma marks the next"
+             (wait-until (lambda ()
+                           (and (equal heml::*popup-selected-font* (signature-font "int b"))
+                                (equal heml::*popup-font* (signature-font "int a"))))
+                         10))
+      (post-text (format nil "2)~%"))
+      (settle)
+      (check "and closing the call takes it away"
+             (and (null hi::*popup*) (null heml::*signature*))))
+    ;; From one error to the next, and the modeline's count of them.
+    (post-key #\< "Meta")
+    (post-key #\n "Meta")
+    (settle)
+    (check "M-n goes to the next error and says what it is"
+           (and (search "fake error" (buffer-text hi::*echo-area-buffer*))
+                (search "thing here" (point-line))))
+    (check "the modeline counts the errors"
+           (find "(1 error)" (map 'list #'heml.cocoa::row-text
+                                  (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                 :test #'search))
+    (post-key #\c "Control") (post-key #\s "Control")
+    (post-key #\a "Control") (post-key #\k "Control")
+    (post-text "fake
+")
+    (check "C-c C-s lists the project's symbols the server finds"
+           (wait-until (lambda ()
+                         (and (equal "*Symbols*" (hi::buffer-name (hi::current-buffer)))
+                              (search "function fake_symbol" (buffer-text))))
+                       10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
+    (settle)
+    ;; Laid out by the server as it is saved, when that is asked for.
+    (setf (hi::variable-value 'heml::lsp-format-on-save :global) t)
+    (post-key #\x "Control") (post-key #\s "Control")
+    (check "with LSP Format on Save, saving formats first"
+           (wait-until (lambda ()
+                         (eql 0 (search "{ formatted }"
+                                        (uiop:read-file-string (merge-pathnames "fake.pas" *out*)))))
+                       10))
+    (setf (hi::variable-value 'heml::lsp-format-on-save :global) nil)
     (extended-command "Outline")
     (check "Outline lists the symbols the server names, with their kinds"
            (wait-until (lambda ()
