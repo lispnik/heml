@@ -47,9 +47,19 @@
 ;;;; Servers.
 
 (defvar *language-servers* '()
-  "((MODE COMMANDS LANGUAGE-ID) ...): for a major mode, the commands that
-   run a server for it, the first whose program is installed and which
-   starts being used, and what the protocol calls the language.")
+  "((MODE COMMANDS LANGUAGE-ID GROUP) ...): for a major mode, the commands
+   that run a server for it, the first whose program is installed and which
+   starts being used; what the protocol calls the language; and the group of
+   modes that have one server between them in a project, which is the mode
+   itself when it shares with none.")
+
+(defun mode-language-id (mode)
+  (third (assoc mode *language-servers* :test #'string=)))
+
+(defun language-server-group (mode)
+  "What MODE's server is known by: modes of one group, in one project, have
+   one server between them."
+  (fourth (assoc mode *language-servers* :test #'string=)))
 
 (defhvar "Language Servers"
   "When true, a language server is started for a file whose mode has one
@@ -57,10 +67,10 @@
   :value t)
 
 (defstruct (lsp-server (:constructor %make-lsp-server))
-  mode                                  ; the major mode it serves
+  mode                                  ; the major mode it was started for
+  group                                 ; and that mode's group, whose modes it serves
   root                                  ; the directory it was started in
   commands                              ; what to run instead, if it cannot start
-  language-id
   connection
   (state :starting)                     ; :STARTING, :READY or :DEAD
   (next-id 0)
@@ -88,20 +98,105 @@
   "The servers running, or starting.")
 
 (defun language-server-commands (mode)
-  "The commands that might run MODE's language server, those whose programs
-   are installed, and its language's name."
-  (let ((entry (assoc mode *language-servers* :test #'string=)))
-    (when entry
-      (values (remove-if-not (lambda (command) (find-program (first command)))
-                             (second entry))
-              (third entry)))))
+  "The commands that might run MODE's language server: those whose programs
+   are installed."
+  (remove-if-not (lambda (command) (find-program (first command)))
+                 (second (assoc mode *language-servers* :test #'string=))))
 
 (defvar *lsp-failures* '()
-  "((MODE ROOT) ...): where no server could be started, so that none is
-   tried again until \"LSP Restart\" asks.")
+  "((GROUP ROOT) ...): where no server could be started, or one kept dying,
+   so that none is tried again until \"LSP Restart\" asks.")
 
-(defun lsp-failed-p (mode root)
-  (member (list mode root) *lsp-failures* :test #'equal))
+(defun lsp-failed-p (group root)
+  (member (list group root) *lsp-failures* :test #'equal))
+
+;;; A server that dies once it is ready is started again, by LSP-IDLE; one
+;;; that keeps dying is not.
+
+(defvar *lsp-crashes* '()
+  "((GROUP ROOT) . TIMES): when the servers that died by themselves did.")
+
+(defparameter *lsp-crash-limit* 3
+  "A server that has died this many times within a minute is not started
+   again.")
+
+(defun note-lsp-crash (group root)
+  "A ready server for GROUP in ROOT died.  True when that is once too often."
+  (let* ((key (list group root))
+         (now (get-universal-time))
+         (entry (or (assoc key *lsp-crashes* :test #'equal)
+                    (first (push (list key) *lsp-crashes*)))))
+    (setf (cdr entry) (cons now (remove-if (lambda (time) (> (- now time) 60)) (cdr entry))))
+    (>= (length (cdr entry)) *lsp-crash-limit*)))
+
+
+;;;; Settings.
+
+;;; A server asks for its settings (workspace/configuration) by section,
+;;; "yaml" or "python.analysis".  They are JSON written as Lisp: an object is
+;;; an alist whose keys are strings, an array a vector or a list that is no
+;;; alist, and :TRUE, :FALSE and :NULL are themselves.  So
+;;;
+;;;   (("yaml" ("schemas" ("file:///x/schema.json" . "*.yaml"))))
+;;;
+;;; is {"yaml": {"schemas": {"file:///x/schema.json": "*.yaml"}}}.
+
+(defvar *language-server-settings* '()
+  "Settings for language servers, as JSON written in Lisp: an alist of
+   section names and their values, each an alist in turn, a string, a
+   number, a vector, or :TRUE, :FALSE or :NULL.  A project's own, the
+   :settings of its .heml-project, are laid over these.")
+
+(defun lisp-json (value)
+  "VALUE, JSON written in Lisp, as jzon has it."
+  (cond ((eq value :true) t)
+        ((eq value :false) nil)
+        ((eq value :null) 'null)
+        ((stringp value) value)
+        ((vectorp value) (map 'vector #'lisp-json value))
+        ((and (consp value)
+              (every (lambda (pair) (and (consp pair) (stringp (car pair)))) value))
+         (let ((object (make-hash-table :test 'equal)))
+           (loop for (key . member) in value
+                 do (setf (gethash key object) (lisp-json member)))
+           object))
+        ((listp value) (map 'vector #'lisp-json value))
+        (t value)))
+
+(defun merge-json (under over)
+  "OVER laid on UNDER: objects are merged, member by member, and anything
+   else of OVER's replaces UNDER's."
+  (cond ((and (hash-table-p under) (hash-table-p over))
+         (let ((merged (make-hash-table :test 'equal)))
+           (maphash (lambda (key value) (setf (gethash key merged) value)) under)
+           (maphash (lambda (key value)
+                      (setf (gethash key merged)
+                            (multiple-value-bind (old found) (gethash key merged)
+                              (if found (merge-json old value) value))))
+                    over)
+           merged))
+        (t over)))
+
+(defun language-server-settings (root)
+  "The settings for a server in ROOT, a JSON object: *LANGUAGE-SERVER-SETTINGS*
+   under the :settings of ROOT's .heml-project."
+  (flet ((object (settings)
+           (let ((json (ignore-errors (lisp-json settings))))
+             (if (hash-table-p json) json (make-hash-table :test 'equal)))))
+    (merge-json (object *language-server-settings*)
+                (object (getf (ignore-errors (project-settings root)) :settings)))))
+
+(defun settings-section (settings section)
+  "What SETTINGS has for SECTION, a dotted path or nothing for all of it;
+   null when it has nothing."
+  (let ((value settings))
+    (when (and (stringp section) (plusp (length section)))
+      (dolist (key (uiop:split-string section :separator "."))
+        (setf value (if (hash-table-p value)
+                        (multiple-value-bind (member found) (gethash key value)
+                          (if found member :missing))
+                        :missing))))
+    (if (eq value :missing) 'null value)))
 
 
 ;;;; Messages.
@@ -216,8 +311,12 @@
                                         do (setf (document-pull document) t))
                                   'null)
                                  ((string= method "workspace/configuration")
-                                  (map 'vector (constantly 'null)
-                                       (jlist (jref message "params" "items"))))
+                                  (let ((settings (language-server-settings
+                                                   (lsp-server-root server))))
+                                    (map 'vector
+                                         (lambda (item)
+                                           (settings-section settings (jref item "section")))
+                                         (jlist (jref message "params" "items")))))
                                  (t 'null)))))
           (method
            (when (string= method "textDocument/publishDiagnostics")
@@ -311,12 +410,12 @@
    commands for MODE that are installed.  One that cannot start, or will not
    be initialized, gives way to the next (LSP-SERVER-DIED), and when there
    is no next the place is remembered in *LSP-FAILURES*."
-  (multiple-value-bind (installed language-id) (language-server-commands mode)
-    (let ((command (first (if commands-p commands installed)))
-          (others (rest (if commands-p commands installed))))
+  (let ((installed (if commands-p commands (language-server-commands mode))))
+    (let ((command (first installed))
+          (others (rest installed)))
      (when command
-      (let ((server (%make-lsp-server :mode mode :root root :language-id language-id
-                                      :commands others)))
+      (let ((server (%make-lsp-server :mode mode :group (language-server-group mode)
+                                      :root root :commands others)))
         (setf (lsp-server-connection server)
               (make-process-connection
                ;; What the server says on its error output is no one's to read.
@@ -375,25 +474,36 @@
                  (t
                   (setf (lsp-server-capabilities server) (jref result "capabilities"))
                   (lsp-notify server "initialized" (json))
+                  ;; Some servers take their settings only when told of them.
+                  (let ((settings (language-server-settings root)))
+                    (when (plusp (hash-table-count settings))
+                      (lsp-notify server "workspace/didChangeConfiguration"
+                                  (json "settings" settings))))
                   (setf (lsp-server-state server) :ready)))))
         server)))))
 
 (defun lsp-server-died (server &optional stopped)
   "SERVER is gone.  One that went before it was ready, unless Heml STOPPED
    it, could not be started: the next command for its mode is tried, and
-   when there is none, none is tried there again."
+   when there is none, none is tried there again.  One that went once it
+   was ready is started again by LSP-IDLE, unless it keeps going."
   (unless (eq (lsp-server-state server) :dead)
-    (when (and (eq (lsp-server-state server) :starting) (not stopped))
-      (let ((mode (lsp-server-mode server))
-            (root (lsp-server-root server)))
-        (unless (and (lsp-server-commands server)
-                     (ignore-errors
-                      (start-language-server mode root (lsp-server-commands server))))
-          (pushnew (list mode root) *lsp-failures* :test #'equal))))
+    (let ((mode (lsp-server-mode server))
+          (group (lsp-server-group server))
+          (root (lsp-server-root server)))
+      (cond (stopped)
+            ((eq (lsp-server-state server) :starting)
+             (unless (and (lsp-server-commands server)
+                          (ignore-errors
+                           (start-language-server mode root (lsp-server-commands server))))
+               (pushnew (list group root) *lsp-failures* :test #'equal)))
+            ((note-lsp-crash group root)
+             (pushnew (list group root) *lsp-failures* :test #'equal))))
     (setf (lsp-server-state server) :dead)
     (setf *lsp-servers* (remove server *lsp-servers*))
     (loop for buffer being the hash-keys of (lsp-server-documents server)
-          do (clear-buffer-diagnostics buffer))
+          do (clear-buffer-diagnostics buffer)
+             (ignore-errors (update-lsp-modeline buffer)))
     (incf hi:*decoration-tick*)
     (let ((connection (lsp-server-connection server)))
       (when connection
@@ -415,11 +525,19 @@
                (assoc mode *language-servers* :test #'string=))
       (let ((root (or (buffer-project-root buffer) (directory-namestring pathname))))
         (or (find-if (lambda (server)
-                       (and (string= (lsp-server-mode server) mode)
+                       (and (string= (lsp-server-group server) (language-server-group mode))
                             (string= (lsp-server-root server) root)))
                      *lsp-servers*)
-            (and start (not (lsp-failed-p mode root))
+            (and start (not (lsp-failed-p (language-server-group mode) root))
                  (start-language-server mode root)))))))
+
+(defun buffer-server-failed-p (buffer)
+  "Whether BUFFER's server could not be started, or kept dying."
+  (let ((pathname (buffer-pathname buffer))
+        (group (language-server-group (buffer-major-mode buffer))))
+    (and pathname group
+         (lsp-failed-p group (or (buffer-project-root buffer)
+                                 (directory-namestring pathname))))))
 
 (defun stop-language-servers ()
   (dolist (server (copy-list *lsp-servers*))
@@ -482,7 +600,8 @@
                (lsp-notify server "textDocument/didOpen"
                            (json "textDocument"
                                  (json "uri" (file-uri (buffer-pathname buffer))
-                                       "languageId" (lsp-server-language-id server)
+                                       "languageId" (or (mode-language-id (buffer-major-mode buffer))
+                                                        (mode-language-id (lsp-server-mode server)))
                                        "version" 1
                                        "text" text)))))
             ((not (eql (document-signature document) signature))
@@ -508,6 +627,12 @@
                                      "text" inserted))
                              (json "text" text)))))
                  (setf (document-pull document) t)
+                 ;; What is wrong with the server's other files may have
+                 ;; changed with this one.
+                 (when (jref (lsp-server-capabilities server)
+                             "diagnosticProvider" "interFileDependencies")
+                   (loop for other being the hash-values of (lsp-server-documents server)
+                         do (setf (document-pull other) t)))
                  (when incremental
                    (setf (document-text document) text))))))
       (let ((document (gethash buffer (lsp-server-documents server))))
@@ -562,7 +687,14 @@
    (let ((buffer (current-buffer)))
      (let ((server (buffer-language-server buffer t)))
        (when server
-         (lsp-sync server buffer))))))
+         (lsp-sync server buffer)))
+     ;; The other buffers the servers know: one changed from elsewhere is
+     ;; told of, and one whose server is to be asked about again is.
+     (dolist (server *lsp-servers*)
+       (dolist (other (loop for other being the hash-keys of (lsp-server-documents server)
+                            collect other))
+         (unless (eq other buffer)
+           (ignore-errors (lsp-sync server other))))))))
 
 (defun start-lsp-idle ()
   (remove-scheduled-event 'lsp-idle)
@@ -660,7 +792,10 @@
  :function (lambda (buffer window)
              (declare (ignore window))
              (let ((server (ignore-errors (buffer-language-server buffer))))
-               (cond ((null server) "")
+               (cond ((null server)
+                      (if (ignore-errors (buffer-server-failed-p buffer))
+                          "(no server)  "
+                          ""))
                      ((eq (lsp-server-state server) :starting) "(server starting)  ")
                      (t
                       (multiple-value-bind (errors warnings) (buffer-diagnostic-counts buffer)
@@ -1047,13 +1182,14 @@
   (let* ((buffer (current-buffer))
          (pathname (or (buffer-pathname buffer)
                        (editor-error "No language server for this buffer.")))
-         (mode (buffer-major-mode buffer))
+         (group (language-server-group (buffer-major-mode buffer)))
          (root (or (buffer-project-root buffer) (directory-namestring pathname)))
          (server (buffer-language-server buffer)))
-    (unless (or server (lsp-failed-p mode root))
+    (unless (or server (lsp-failed-p group root))
       (editor-error "No language server for this buffer."))
-    ;; One that could not be started is tried again.
-    (setf *lsp-failures* (remove (list mode root) *lsp-failures* :test #'equal))
+    ;; One that could not be started, or kept dying, is tried again.
+    (setf *lsp-failures* (remove (list group root) *lsp-failures* :test #'equal))
+    (setf *lsp-crashes* (remove (list group root) *lsp-crashes* :key #'car :test #'equal))
     (when server (stop-language-server server))
     (message "The language server is starting again.")))
 
@@ -1192,16 +1328,17 @@
 
 ;;;; Naming a mode's server.
 
-(defun define-language-server (mode commands &key language-id)
+(defun define-language-server (mode commands &key language-id group)
   "MODE's files are served by a language server: COMMANDS is the command
    lines that run one, a list of a program and its arguments each, the first
    whose program is installed and which starts being used; LANGUAGE-ID is the protocol's name
-   for the language.  M-. goes to a definition there, M-? lists references,
+   for the language; and GROUP, when given, names the modes that have one
+   server between them in a project, those defined with the same GROUP.  M-. goes to a definition there, M-? lists references,
    C-c C-d describes, C-c C-a offers fixes, C-c C-s finds a symbol in the
    project, M-n and M-p go to the next and previous error, a call's
    signature is shown as it is typed, and completions come from the server."
   (setf *language-servers*
-        (cons (list mode commands (or language-id (string-downcase mode)))
+        (cons (list mode commands (or language-id (string-downcase mode)) (or group mode))
               (remove mode *language-servers* :key #'car :test #'string=)))
   (defhvar "Completions Function"
     "A function of a mark, point, that returns the completions of what is
@@ -1246,12 +1383,16 @@
 (define-language-server "Go" '(("gopls")) :language-id "go")
 ;;; TypeScript's compiler, from version 7, is a server too, and is tried when
 ;;; typescript-language-server is missing or finds no TypeScript it can use
-;;; (it wants one older than 7).
+;;; (it wants one older than 7).  A project's JavaScript, TypeScript and TSX
+;;; files have one server between them.
 (defvar *typescript-servers* '(("typescript-language-server" "--stdio")
                                ("tsc" "--lsp" "--stdio")))
-(define-language-server "JavaScript" *typescript-servers* :language-id "javascript")
-(define-language-server "TS" *typescript-servers* :language-id "typescript")
-(define-language-server "TSX" *typescript-servers* :language-id "typescriptreact")
+(define-language-server "JavaScript" *typescript-servers*
+  :language-id "javascript" :group "TypeScript")
+(define-language-server "TS" *typescript-servers*
+  :language-id "typescript" :group "TypeScript")
+(define-language-server "TSX" *typescript-servers*
+  :language-id "typescriptreact" :group "TypeScript")
 (define-language-server "JSON" '(("vscode-json-language-server" "--stdio")
                                  ("vscode-json-languageserver" "--stdio"))
   :language-id "json")

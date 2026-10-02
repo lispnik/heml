@@ -93,7 +93,10 @@
 ;;;    :compile "make smoke-tty"           ; what C-x p c offers at first
 ;;;    :ignore ("build/" "*.fasl")         ; files C-x p f leaves out
 ;;;    :variables (("Fill Column" . 100)   ; Heml variables, set in each of
-;;;                ("Indent with Tabs" . nil))) ; the project's file buffers
+;;;                ("Indent with Tabs" . nil)) ; the project's file buffers
+;;;    :settings (("yaml" ("schemas" ("file:///x/schema.json" . "*.yaml")))))
+;;;                                        ; its language servers' settings:
+;;;                                        ; JSON, an object an alist (lsp.lisp)
 ;;;
 ;;; Its presence also makes its directory a project's root.
 
@@ -162,7 +165,8 @@
                                   (:name ~S~%~
                                   ~1T:compile \"make -k \"~%~
                                   ~1T:ignore ()                 ; (\"build/\" \"*.o\")~%~
-                                  ~1T:variables ())             ; ((\"Fill Column\" . 100))~%"
+                                  ~1T:variables ()              ; ((\"Fill Column\" . 100))~%~
+                                  ~1T:settings ())              ; language servers': ((\"yaml\" (\"schemas\" (\"file:///x.json\" . \"*.yaml\"))))~%"
                              (project-name root))))))
 
 

@@ -220,6 +220,12 @@
 
 (defun run ()
   (ensure-directories-exist *out*)
+  ;; No language server this machine has is started: the checks are of
+  ;; Heml, and the only servers are the stand-ins named further on.  The
+  ;; servers themselves are `make smoke-lsp`'s.
+  (setf heml::*language-servers*
+        (loop for (mode nil language group) in heml::*language-servers*
+              collect (list mode '() language group)))
   (sleep 2)
   (note "typing")
   (post-text "(defun hello (name)
@@ -748,12 +754,15 @@ gamma
 
   (note "language servers")
   ;; A stand-in server (test/fake-lsp.py), which says the same every time,
-  ;; serves Pascal for the run.
-  (heml::define-language-server
-   "Pascal" (list (list "python3"
-                        (namestring (merge-pathnames "test/fake-lsp.py"
-                                                     (asdf:system-source-directory :heml.cocoa)))))
-   :language-id "pascal")
+  ;; serves Pascal for the run: the second of two, the first refusing to
+  ;; start, so that everything here is also the one giving way to the other.
+  (let ((fake (namestring (merge-pathnames "test/fake-lsp.py"
+                                           (asdf:system-source-directory :heml.cocoa)))))
+    (heml::define-language-server
+     "Pascal" (list (list "python3" fake "--refuse") (list "python3" fake))
+     :language-id "pascal"))
+  ;; A setting for it to ask for.
+  (setf heml::*language-server-settings* '(("fake" ("greeting" . "hello from settings"))))
   (with-open-file (out (merge-pathnames "fake.pas" *out*) :direction :output :if-exists :supersede)
     (write-line "program fake;" out)
     (write-line "  wrongthing here" out)
@@ -776,6 +785,11 @@ gamma
                            (and (find " fake error" rows :test #'search)
                                 (find " fake hover text" rows :test #'search))))
                        10))
+    (check "the server was given the setting it asked for"
+           (find " config: hello from settings"
+                 (map 'list #'heml.cocoa::row-text
+                      (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                 :test #'search))
     (post (list :named "Escape" '()))
     (settle)
     (check "which the next key puts away"
@@ -951,6 +965,48 @@ gamma
     (settle)
     ;; Left unsaved, and not asked about on the way out.
     (setf (hi::buffer-modified (hi::current-buffer)) nil))
+
+  ;; Servers of other kinds, for YAML and JSON while these checks run: one
+  ;; that says what is wrong only when asked, and one that keeps dying.
+  (let ((servers heml::*language-servers*)
+        (fake (namestring (merge-pathnames "test/fake-lsp.py"
+                                           (asdf:system-source-directory :heml.cocoa)))))
+    (flet ((file (name text)
+             (with-open-file (out (merge-pathnames name *out*)
+                                  :direction :output :if-exists :supersede)
+               (write-string text out))
+             (post (list :open (namestring (merge-pathnames name *out*))))
+             (settle)
+             (hi::current-buffer))
+           (wrong (buffer)
+             ;; What the server says is wrong in BUFFER, the first of it.
+             (fourth (first (gethash buffer heml::*buffer-diagnostics*)))))
+      (heml::define-language-server "YAML" (list (list "python3" fake "--pull")))
+      (let ((first (file "pulled-a.yaml" (format nil "a: 1~%b: 2~%"))))
+        (check "a server that says what is wrong only when asked is asked"
+               (wait-until (lambda () (equal "pulled error: 10" (wrong first))) 30))
+        (let ((second (file "pulled-b.yaml" (format nil "c: 3~%d: 4~%"))))
+          (check "for each file it is told of"
+                 (wait-until (lambda () (equal "pulled error: 20" (wrong second))) 30))
+          (post-text "#")
+          (check "and again when the file changes"
+                 (wait-until (lambda () (equal "pulled error: 21" (wrong second))) 30))
+          (check "about its other files too, which the change may have changed"
+                 (wait-until (lambda () (equal "pulled error: 21" (wrong first))) 30))
+          (settle)
+          (setf (hi::buffer-modified second) nil)))
+      (heml::define-language-server "JSON" (list (list "python3" fake "--crash")))
+      (let ((buffer (file "crash.json" (format nil "{}~%"))))
+        (check "a server that keeps dying is not started for ever"
+               (wait-until (lambda () (heml::buffer-server-failed-p buffer)) 60))
+        (check "and the modeline says there is none"
+               (wait-until (lambda ()
+                             (find "(no server)"
+                                   (map 'list #'heml.cocoa::row-text
+                                        (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                   :test #'search))
+                           10))))
+    (setf heml::*language-servers* servers))
 
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))

@@ -19,7 +19,20 @@ its workspace symbols are the one function, in the first file opened.
 
 It takes changes incrementally, as spans of the text it holds, and its
 hover ends with that text's first and last lines and its length, so that a
-test can see the server has what the editor has."""
+test can see the server has what the editor has.
+
+On opening a file it asks the editor for a setting, "fake.greeting", and
+its hover ends with what it was given, when it was given something.
+
+Its arguments make it another server:
+
+  --refuse  answers initialize with an error and goes, as a server that
+            cannot start does;
+  --crash   goes as soon as a file is opened, as one that keeps dying does;
+  --pull    says nothing is wrong until it is asked (textDocument/diagnostic),
+            and then that the second line is: "pulled error: N", N being
+            the characters in all the files it holds, so that a change to
+            one file changes what is wrong with another."""
 
 import json
 import sys
@@ -49,6 +62,8 @@ def send(message):
 
 
 documents = {}
+options = sys.argv[1:]
+settings = {}
 
 
 def offset(text, line, character):
@@ -85,7 +100,11 @@ def place(uri, line, start, end):
 def answer(method, params):
     uri = (params or {}).get("textDocument", {}).get("uri")
     if method == "initialize":
-        return {"capabilities": {"textDocumentSync": 2, "completionProvider": {},
+        pull = ({"diagnosticProvider": {"interFileDependencies": True,
+                                        "workspaceDiagnostics": False}}
+                if "--pull" in options else {})
+        return {"capabilities": {**pull,
+                                 "textDocumentSync": 2, "completionProvider": {},
                                  "definitionProvider": True, "referencesProvider": True,
                                  "hoverProvider": True, "renameProvider": True,
                                  "codeActionProvider": True,
@@ -134,11 +153,18 @@ def answer(method, params):
         return place(uri, 2, 0, 5)
     if method == "textDocument/references":
         return [place(uri, 0, 0, 7), place(uri, 2, 0, 5)]
+    if method == "textDocument/diagnostic":
+        return {"kind": "full",
+                "items": [dict(place(uri, 1, 0, 1), severity=1,
+                               message="pulled error: %d"
+                               % sum(len(text) for text in documents.values()))]}
     if method == "textDocument/hover":
         lines = documents.get(uri, "").split("\n")
+        greeting = settings.get("greeting")
         return {"contents": {"kind": "plaintext",
-                             "value": "fake hover text\nfirst: %s\nlast: %s\nlength: %d"
-                             % (lines[0], lines[-1], len(documents.get(uri, "")))}}
+                             "value": "fake hover text\nfirst: %s\nlast: %s\nlength: %d%s"
+                             % (lines[0], lines[-1], len(documents.get(uri, "")),
+                                "\nconfig: %s" % greeting if greeting else "")}}
     if method == "textDocument/rename":
         return {"changes": {uri: [{"range": place(uri, 0, 0, 3)["range"],
                                    "newText": params["newName"]}]}}
@@ -153,7 +179,14 @@ while True:
     if method == "exit":
         break
     if "id" in message and method is None:
-        continue                # the editor's answer to something asked of it
+        # The editor's answer to something asked of it.
+        if message["id"] == "config-1" and isinstance(message.get("result"), list):
+            settings["greeting"] = message["result"][0]
+        continue
+    if method == "initialize" and "--refuse" in options:
+        send({"jsonrpc": "2.0", "id": message["id"],
+              "error": {"code": -32603, "message": "This server will not start."}})
+        break
     if "id" in message:
         send({"jsonrpc": "2.0", "id": message["id"],
               "result": answer(method, message.get("params"))})
@@ -161,8 +194,13 @@ while True:
         change(message["params"]["textDocument"]["uri"], message["params"]["contentChanges"])
     elif method == "textDocument/didOpen":
         uri = message["params"]["textDocument"]["uri"]
+        if "--crash" in options:
+            break
         documents[uri] = message["params"]["textDocument"]["text"]
-        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
-              "params": {"uri": uri,
-                         "diagnostics": [dict(place(uri, 1, 2, 7), severity=1,
-                                              message="fake error")]}})
+        send({"jsonrpc": "2.0", "id": "config-1", "method": "workspace/configuration",
+              "params": {"items": [{"section": "fake.greeting"}]}})
+        if "--pull" not in options:
+            send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                  "params": {"uri": uri,
+                             "diagnostics": [dict(place(uri, 1, 2, 7), severity=1,
+                                                  message="fake error")]}})

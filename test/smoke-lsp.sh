@@ -99,18 +99,23 @@ printf '{ "compilerOptions": { "strict": true } }\n' > "$dir/typescript/tsconfig
     printf 'const y = addOne(1);\nconst z: string = y;\n'
 } > "$dir/typescript/main.ts"
 
-project javascript
+# JavaScript, in TypeScript's project: the two have one server.
 {
-    printf 'function addOne(x) {\n    return x + 1;\n}\n'
+    printf 'function addTwo(x) {\n    return x + 2;\n}\n'
     filler '//'
-    printf 'const y = addOne(1);\nconst z = y +;\n'
-} > "$dir/javascript/main.js"
+    printf 'const v = addTwo(1);\nconst w = v +;\n'
+} > "$dir/typescript/main.js"
 
 project json
 printf '{\n  "a": 1\n  "b": 2\n}\n' > "$dir/json/data.json"
 
+# YAML, with a schema that the project's settings give its server.
 project yaml
 printf 'a: 1\nb: [1, 2\nc: 3\n' > "$dir/yaml/data.yaml"
+printf '{ "properties": { "a": { "type": "integer", "description": "The letter a, as its schema describes it." } } }\n' \
+       > "$dir/yaml/schema.json"
+printf '(:settings (("yaml" ("schemas" ("file://%s/yaml/schema.json" . "data.yaml")))))\n' "$dir" \
+       > "$dir/yaml/.heml-project"
 
 
 # The editor, wide enough for a modeline to hold a file's name, its project
@@ -270,8 +275,21 @@ if wanted typescript typescript-language-server tsc; then
 fi
 
 if wanted javascript typescript-language-server tsc; then
-    mistake "$dir/javascript/main.js" 'const z'
-    function_checks "$dir/javascript/main.js" addOne 'function addOne(x: any): any' 'function addOne' 0
+    mistake "$dir/typescript/main.js" 'const w'
+    function_checks "$dir/typescript/main.js" addTwo 'function addTwo(x: any): any' 'function addTwo' 0
+    # No server was started between the two files' being opened.
+    case " ${SMOKE_LSP_ONLY:-typescript} " in
+        *" typescript "*)
+            checks=$((checks + 1))
+            started=$(grep -n '"method":"initialize"' "$log" | grep 'smoke-lsp/typescript"' | tail -1 | cut -d: -f1)
+            opened=$(grep -n '"method":"textDocument/didOpen"' "$log" | grep 'typescript/main\.ts"' | head -1 | cut -d: -f1)
+            if [ -n "$started" ] && [ -n "$opened" ] && [ "$started" -lt "$opened" ]; then
+                echo "  ok    a project's JavaScript and TypeScript have one server"
+            else
+                echo "  FAIL  a project's JavaScript and TypeScript have one server"
+                failures=$((failures + 1))
+            fi ;;
+    esac
 fi
 
 if wanted json vscode-json-language-server vscode-json-languageserver; then
@@ -280,6 +298,11 @@ fi
 
 if wanted yaml yaml-language-server; then
     mistake "$dir/yaml/data.yaml" 'c: 3'
+    send 'M-<'
+    sleep 0.3
+    send C-c C-d
+    expect 'as its schema describes it' "its server has the schema the project's settings name" 30
+    send C-g
 fi
 
 if [ "$failures" -gt 0 ] && [ -f "$log" ]; then

@@ -20,13 +20,18 @@ cd "$(dirname "$0")/.." || exit 1
 
 . test/tmux-lib.sh
 
-# Projects' sessions are kept here, not in ~/.heml, and start empty.
+# Projects' sessions are kept here, not in ~/.heml, and start empty.  No
+# language server this machine has is started, only the stand-in: the
+# servers themselves are test/smoke-lsp.sh's.
 state=$PWD/build/smoke-tty-state
 rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
      "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
-        --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
+        --eval '(let ((servers (uiop:find-symbol* :*language-servers* :heml))) (setf (symbol-value servers) (mapcar (lambda (entry) (list (first entry) nil (third entry) (fourth entry))) (symbol-value servers))))' \
+        --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--refuse\") (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
+        --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \
+        --eval '(setf (symbol-value (uiop:find-symbol* :*language-server-settings* :heml)) (list (list \"fake\" (cons \"greeting\" \"hello from settings\"))))' \
         --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
@@ -578,7 +583,8 @@ sleep 0.5
 
 # A language server: test/fake-lsp.py serves Pascal for the run, and says
 # the same of every file.  What it finds wrong is listed, and C-c C-d shows
-# what it says, in a popup.
+# what it says, in a popup.  It is the second of two servers named for
+# Pascal, the first refusing to start; and it asks for a setting.
 printf 'program fake;\n  wrongthing here\nbegin end.\n' > build/smoke-tty-fake.pas
 send C-x C-f
 sleep 0.5
@@ -595,9 +601,24 @@ send Enter
 sleep 0.5
 send C-c C-d
 expect ' fake hover text' "C-c C-d shows what the server says, in a popup" 20
+expect ' config: hello from settings' "and the setting it asked Heml for"
 send Escape
 sleep 0.3
 send C-x 1
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
+# A server that says what is wrong only when it is asked: the stand-in
+# again, as YAML's.
+printf 'a: 1\nb: 2\n' > build/smoke-tty-pulled.yaml
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-pulled.yaml"
+send Enter
+expect '(1 error)' "a server that waits to be asked what is wrong is asked" 30
 send C-x k
 sleep 0.3
 send Enter
@@ -769,7 +790,9 @@ expect 'EDITOR-RETURNED' "C-x C-c leaves the editor" 15
 # where they stand rather than on a screen of their own.
 tmux kill-session -t "$session" 2>/dev/null
 session=heml-smoke-repl-$$
-# Projects' sessions are kept here, not in ~/.heml, and start empty.
+# Projects' sessions are kept here, not in ~/.heml, and start empty.  No
+# language server this machine has is started, only the stand-in: the
+# servers themselves are test/smoke-lsp.sh's.
 state=$PWD/build/smoke-tty-state
 rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
