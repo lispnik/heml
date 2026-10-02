@@ -116,35 +116,41 @@
 (defmethod connection-listen ((connection iolib-connection))
   (iolib.multiplex:fd-readablep (connection-read-fd connection)))
 
+;;; What is written is queued, and a handler writes it when the descriptor
+;;; can take it.  The handler is there exactly while the queue is not empty:
+;;; it removes itself on emptying it.  Marked one-shot instead, it would be
+;;; removed only when the loop had handled every descriptor ready in that
+;;; pass, and a filter run before then that wrote here (a language server's
+;;; question, answered as it is read) would find the queue empty and the
+;;; handler still set, and its write, and every one after it, would be lost.
+;;;
 (defmethod connection-write (data (connection iolib-connection))
   (let ((bytes (filter-connection-output connection data))
         (fd (connection-write-fd connection))
-        (need-handler (null (connection-write-buffers connection)))
-        handler)
+        (need-handler (null (connection-write-buffers connection))))
     (check-type bytes (simple-array (unsigned-byte 8) (*)))
     (setf (connection-write-buffers connection)
           (nconc (connection-write-buffers connection)
                  (list bytes)))
     (when need-handler
-      (setf handler
-            (iolib:set-io-handler
-             *event-base*
-             fd
-             :write
-             (lambda (.fd event error)
-               (declare (ignore event))
-               (when (eq error :error) (error "error with ~A" .fd))
-               ;; fixme: with-pointer-to-vector-data isn't portable
-               (let ((bytes (pop (connection-write-buffers connection))))
-                 (check-type bytes (simple-array (unsigned-byte 8) (*)))
-                 (cffi-sys:with-pointer-to-vector-data (ptr bytes)
-                   (let ((n-bytes-written
-                          (isys:write fd ptr (length bytes))))
-                     (unless (eql n-bytes-written (length bytes))
-                       (push (subseq bytes n-bytes-written)
-                             (connection-write-buffers connection)))))
-                 (setf (iolib.multiplex::fd-handler-one-shot-p handler)
-                       (null (connection-write-buffers connection))))))))))
+      (iolib:set-io-handler
+       *event-base*
+       fd
+       :write
+       (lambda (.fd event error)
+         (declare (ignore event))
+         (when (eq error :error) (error "error with ~A" .fd))
+         ;; fixme: with-pointer-to-vector-data isn't portable
+         (let ((bytes (pop (connection-write-buffers connection))))
+           (check-type bytes (simple-array (unsigned-byte 8) (*)))
+           (cffi-sys:with-pointer-to-vector-data (ptr bytes)
+             (let ((n-bytes-written
+                     (isys:write fd ptr (length bytes))))
+               (unless (eql n-bytes-written (length bytes))
+                 (push (subseq bytes n-bytes-written)
+                       (connection-write-buffers connection)))))
+           (unless (connection-write-buffers connection)
+             (iolib:remove-fd-handlers *event-base* fd :write t))))))))
 
 
 ;;;;
