@@ -415,6 +415,53 @@ café λ 日本語 end")
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-pascal.dylib")
       (check "tree-sitter colours Pascal's keywords"
              (eql 5 (run-font-at "program Hello" 0)))))
+  ;; The languages added with their grammars: each a mode by its file's
+  ;; type, coloured by its grammar's query.
+  (flet ((visit (name &rest lines)
+           (with-open-file (out (merge-pathnames name *out*) :direction :output :if-exists :supersede)
+             (dolist (line lines) (write-line line out)))
+           (post (list :open (namestring (merge-pathnames name *out*))))
+           (settle))
+         (grammar-p (name)
+           (heml.tree-sitter::find-in-directories (format nil "lib/libtree-sitter-~A.dylib" name))))
+    (visit "hello.rs" "// a Rust comment" "fn main() { let s = \"text\"; }")
+    (check "a .rs file is in Rust mode"
+           (equal "Rust" (hi::buffer-major-mode (hi::current-buffer))))
+    (when (grammar-p "rust")
+      (check "tree-sitter colours Rust's comment and string"
+             (and (eql 1 (run-font-at "// a Rust comment" 0))
+                  (eql 4 (run-font-at "\"text\"" 1)))))
+    (visit "hello.go" "// a Go comment" "package main")
+    (when (grammar-p "go")
+      (check "and Go's comment and keyword"
+             (and (equal "Go" (hi::buffer-major-mode (hi::current-buffer)))
+                  (eql 1 (run-font-at "// a Go comment" 0))
+                  (eql 5 (run-font-at "package main" 0)))))
+    (visit "hello.ts" "// a TypeScript comment" "function f(a: number): number { return a; }")
+    (check "a .ts file is in TS mode"
+           (equal "TS" (hi::buffer-major-mode (hi::current-buffer))))
+    (when (grammar-p "typescript")
+      (check "tree-sitter colours TypeScript's comment, keyword and type"
+             (and (eql 1 (run-font-at "// a TypeScript comment" 0))
+                  (eql 5 (run-font-at "function f" 0))
+                  (eql 2 (run-font-at "number)" 0)))))
+    (visit "hello.js" "// a JavaScript comment" "const s = 'text';")
+    (when (grammar-p "javascript")
+      (check "and JavaScript's comment and string"
+             (and (equal "JavaScript" (hi::buffer-major-mode (hi::current-buffer)))
+                  (eql 1 (run-font-at "// a JavaScript comment" 0))
+                  (eql 4 (run-font-at "'text'" 1)))))
+    (visit "data.json" "{\"key\": \"value\", \"n\": 12}")
+    (when (grammar-p "json")
+      (check "and JSON's string and number"
+             (and (equal "JSON" (hi::buffer-major-mode (hi::current-buffer)))
+                  (eql 4 (run-font-at "\"value\"" 1))
+                  (eql 3 (run-font-at "12}" 0)))))
+    (visit "conf.yaml" "# a YAML comment" "key: value")
+    (when (grammar-p "yaml")
+      (check "and YAML's comment"
+             (and (equal "YAML" (hi::buffer-major-mode (hi::current-buffer)))
+                  (eql 1 (run-font-at "# a YAML comment" 0))))))
   (let ((file (merge-pathnames "block.lisp" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)
       (write-line "#| a block comment |#" out)

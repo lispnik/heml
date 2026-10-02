@@ -409,6 +409,61 @@ case $(basename "$LISP") in
         sleep 0.3
         send n
         sleep 0.5
+        rm -f build/smoke-tty-indent.rs
+        send C-x C-f
+        sleep 0.5
+        send C-a C-k
+        type_text "$PWD/build/smoke-tty-indent.rs"
+        send Enter
+        sleep 1
+        for line in 'fn main() {' 'let x = 1;' 'if x > 0 {' 'x - 1;' '}' '}'; do
+            type_text "$line"
+            send Enter
+            sleep 0.3
+        done
+        sleep 0.5
+        checks=$((checks + 1))
+        if screen | grep -q '^    let x = 1;' && screen | grep -q '^    if x > 0 {' \
+                && screen | grep -q '^        x - 1;' && screen | grep -q '^    }' \
+                && screen | grep -q '^}'; then
+            echo "  ok    Rust is indented as it is typed"
+        else
+            echo "  FAIL  Rust is indented as it is typed"; screen | sed 's/^/        | /'
+            failures=$((failures + 1))
+        fi
+        send C-x k
+        sleep 0.3
+        send Enter
+        sleep 0.3
+        send n
+        sleep 0.5
+        rm -f build/smoke-tty-indent.yaml
+        send C-x C-f
+        sleep 0.5
+        send C-a C-k
+        type_text "$PWD/build/smoke-tty-indent.yaml"
+        send Enter
+        sleep 1
+        for line in 'servers:' 'main:' 'port: 80'; do
+            type_text "$line"
+            send Enter
+            sleep 0.3
+        done
+        sleep 0.5
+        checks=$((checks + 1))
+        if screen | grep -q '^servers:' && screen | grep -q '^  main:' \
+                && screen | grep -q '^    port: 80'; then
+            echo "  ok    YAML is indented under a line that ends with a colon"
+        else
+            echo "  FAIL  YAML is indented under a line that ends with a colon"; screen | sed 's/^/        | /'
+            failures=$((failures + 1))
+        fi
+        send C-x k
+        sleep 0.3
+        send Enter
+        sleep 0.3
+        send n
+        sleep 0.5
         rm -f build/smoke-tty-indent.pas
         send C-x C-f
         sleep 0.5

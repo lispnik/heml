@@ -231,6 +231,7 @@ copies them to $XDG_DATA_HOME/heml/tree-sitter/ (~/.local/share/heml/).")
   closes               ; a regex: a line starting so closes one
   finishes             ; a regex: a line starting so ends its block
   single               ; a regex: a line ending so governs just one statement
+  opens-always         ; true when a new line after one that OPENS is always indented
   inline               ; the language of what its (inline) nodes hold, or NIL
   inline-node-query    ; the query finding those nodes
   mode                 ; the major mode it colours
@@ -240,13 +241,15 @@ copies them to $XDG_DATA_HOME/heml/tree-sitter/ (~/.local/share/heml/).")
 
 (defun define-tree-sitter-language (name &key mode (precedence :first) fallback
                                                 indent (indent-width 4) opens closes finishes
-                                                single inline definitions)
+                                                single opens-always inline definitions)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
 come with grammars, or :LAST, Neovim's, followed by its queries.  FALLBACK,
 when given, is MODE's highlighter instead, from the first time it is needed,
-if the grammar or its query cannot be loaded.  INDENT makes MODE's lines
+if the grammar or its query cannot be loaded.  OPENS-ALWAYS says a new
+line after one that OPENS a block is indented whatever the tree says.
+INDENT makes MODE's lines
 indented as the language's indents.scm says, INDENT-WIDTH columns a level,
 with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
 -- that \"Beginning of Definition\" and its fellows move among."
@@ -257,6 +260,7 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
                                   :closes (and closes (ppcre:create-scanner closes))
                                   :finishes (and finishes (ppcre:create-scanner finishes))
                                   :single (and single (ppcre:create-scanner single))
+                                  :opens-always opens-always
                                   :inline (and inline (%make-language :name inline :precedence :first)))))
     (setf (gethash name *languages*) language)
     (when (and mode indent)
@@ -1148,6 +1152,12 @@ opened on lines before belongs to the line that opened them."
                           (let ((text (heml-interface:line-string (svref lines previous))))
                             (when (and (language-finishes language)
                                        (ppcre:scan (language-finishes language) text))
+                              (return-from textual-indent-p t))
+                            ;; Where indentation is the block, as in YAML,
+                            ;; the tree of what is typed so far cannot say
+                            ;; that a block was meant.
+                            (when (and (language-opens-always language)
+                                       (ppcre:scan (language-opens language) text))
                               (return-from textual-indent-p t))
                             (descendant-at root previous
                                            (string-byte text (position-if-not

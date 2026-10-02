@@ -80,6 +80,77 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
  :closes "^\\s*((fi|done|esac|elif|else)\\b|[})])"
  :finishes "^\\s*;;")
 
+;;; The languages that write blocks in braces: Rust, Go, JavaScript,
+;;; TypeScript and TSX, and JSON.  Each is a mode of its own, coloured by
+;;; its grammar's query and indented by Neovim's; a line ending with an
+;;; opening bracket opens a block, and one starting with a closing one
+;;; closes it, where the tree cannot say.
+
+(defparameter *brace-opens* "[{(\\[]\\s*(//.*|/\\*.*\\*/\\s*)?$")
+(defparameter *brace-closes* "^\\s*[})\\]]")
+
+(defmacro define-brace-language (mode grammar types &key definitions (width 4) comment)
+  "MODE, a major mode for files of TYPES, coloured and indented by the
+tree-sitter grammar GRAMMAR, WIDTH columns a level; DEFINITIONS are the
+node types C-M-a and its fellows move among, and COMMENT starts a comment."
+  `(progn
+     (defmode ,mode :major-p t)
+     (define-file-type-hook ,types (buffer type)
+       (declare (ignore type))
+       (setf (buffer-major-mode buffer) ,mode))
+     ,@(when comment `((define-comment-syntax ,mode ,comment)))
+     (heml.tree-sitter:define-tree-sitter-language
+      ,grammar :mode ,mode :indent t :indent-width ,width
+      :definitions ',definitions
+      :opens *brace-opens* :closes *brace-closes*)))
+
+(define-brace-language "Rust" "rust" ("rs")
+  :comment "//"
+  :definitions ("function_item" "struct_item" "enum_item" "impl_item" "trait_item" "mod_item"))
+
+(define-brace-language "Go" "go" ("go")
+  :comment "//" :width 8
+  :definitions ("function_declaration" "method_declaration" "type_declaration"))
+
+;;; Go is indented with tabs, as gofmt has it: a level is a tab, eight columns.
+(defhvar "Indent with Tabs" "Whether indentation uses tabs." :mode "Go" :value t)
+
+(define-brace-language "JavaScript" "javascript" ("js" "mjs" "cjs" "jsx")
+  :comment "//" :width 2
+  :definitions ("function_declaration" "class_declaration" "method_definition"))
+
+;;; TypeScript's mode is TS: "Typescript" is Hemlock's name for a slave's
+;;; transcript, and modes' names do not tell capitals apart.
+(define-brace-language "TS" "typescript" ("ts" "mts" "cts")
+  :comment "//" :width 2
+  :definitions ("function_declaration" "class_declaration" "method_definition"
+                "interface_declaration" "type_alias_declaration" "enum_declaration"))
+
+(define-brace-language "TSX" "tsx" ("tsx")
+  :comment "//" :width 2
+  :definitions ("function_declaration" "class_declaration" "method_definition"
+                "interface_declaration" "type_alias_declaration" "enum_declaration"))
+
+(define-brace-language "JSON" "json" ("json" "jsonc" "webmanifest")
+  :width 2)
+
+(define-interpreter-mode '("node" "deno" "bun") "JavaScript")
+
+;;; YAML's blocks are its indentation: a line ending with a colon, or a
+;;; dash alone, opens one.
+
+(defmode "YAML" :major-p t)
+
+(define-file-type-hook ("yml" "yaml") (buffer type)
+  (declare (ignore type))
+  (setf (buffer-major-mode buffer) "YAML"))
+
+(define-comment-syntax "YAML" "#")
+
+(heml.tree-sitter:define-tree-sitter-language
+ "yaml" :mode "YAML" :indent t :indent-width 2
+ :opens "(:|^\\s*-)\\s*(#.*)?$" :opens-always t)
+
 ;;; Pascal mode is Hemlock's own (pascal.lisp); tree-sitter colours and
 ;;; indents it, with Neovim's query.  Pascal's words are any case.
 ;;;
@@ -118,9 +189,11 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
   (self-insert-command p)
   (indent-command nil))
 
-(dolist (mode '("C" "Python" "Shell Script"))
+(dolist (mode '("C" "Python" "Shell Script" "Rust" "Go" "JavaScript" "TS" "TSX" "JSON"
+                "YAML"))
   (bind-key "New Line and Indent" #k"return" :mode mode))
-(bind-key "Insert and Indent" #k"}" :mode "C")
+(dolist (mode '("C" "Rust" "Go" "JavaScript" "TS" "TSX" "JSON"))
+  (bind-key "Insert and Indent" #k"}" :mode mode))
 
 (bind-key "New Line and Indent" #k"return" :mode "Pascal")
 
@@ -180,7 +253,7 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
       (push-buffer-mark (copy-mark (mark end-line end)) t)
       (move-mark point (mark start-line start)))))
 
-(dolist (mode '("C" "Python" "Shell Script" "Pascal"))
+(dolist (mode '("C" "Python" "Shell Script" "Pascal" "Rust" "Go" "JavaScript" "TS" "TSX"))
   (bind-key "Beginning of Definition" #k"control-meta-a" :mode mode)
   (bind-key "End of Definition" #k"control-meta-e" :mode mode)
   (bind-key "Mark Definition" #k"control-meta-h" :mode mode))
@@ -513,6 +586,20 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
   :separator
   ("Compile with fpc" "Pascal Compile File")
   ("Next Error" "Next Result"))
+
+(dolist (mode '("Rust" "Go" "JavaScript" "TS" "TSX"))
+  (eval `(define-menu ,mode (:mode ,mode)
+           ("Beginning of Definition" "Beginning of Definition")
+           ("End of Definition" "End of Definition")
+           ("Mark Definition" "Mark Definition")
+           ("Outline" "Outline")
+           :separator
+           ("Compile…" "Compile")
+           ("Next Error" "Next Result"))))
+
+(dolist (mode '("JSON" "YAML"))
+  (eval `(define-menu ,mode (:mode ,mode)
+           ("Outline" "Outline"))))
 
 (define-menu "Markdown" (:mode "Markdown")
   ("Next Heading" "Markdown Next Heading")
