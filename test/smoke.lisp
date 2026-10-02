@@ -468,6 +468,27 @@ café λ 日本語 end")
                   (eql 1 (run-font-at "/* note */" 0))))
       (check "and one in a language Heml has not is left as code"
              (eql 2 (run-font-at "plain words" 0))))
+    ;; Files known by their names: a shell's own, which have no type and
+    ;; no #! line.
+    (visit ".bashrc" "# a bashrc comment" "export EDITOR=\"heml\"")
+    (check "a file with a well-known name, .bashrc, is in its mode"
+           (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer))))
+    (when (grammar-p "bash")
+      (check "and is coloured"
+             (and (eql 1 (run-font-at "# a bashrc comment" 0))
+                  (eql 4 (run-font-at "\"heml\"" 1)))))
+    (setf (hi::variable-value 'heml::mode-from-file-name :global) nil)
+    (visit ".zshenv" "# a zshenv comment")
+    (check "unless Mode from File Name is off"
+           (not (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer)))))
+    (setf (hi::variable-value 'heml::mode-from-file-name :global) t)
+    (heml::define-file-name-mode '("Smokefile" "smoke.*.conf") "Python")
+    (visit "Smokefile" "x = 1")
+    (check "a name of one's own is given a mode with define-file-name-mode"
+           (equal "Python" (hi::buffer-major-mode (hi::current-buffer))))
+    (visit "smoke.local.conf" "x = 1")
+    (check "and a * in it stands for any characters"
+           (equal "Python" (hi::buffer-major-mode (hi::current-buffer))))
     (visit "conf.yaml" "# a YAML comment" "key: value")
     (when (grammar-p "yaml")
       (check "and YAML's comment"

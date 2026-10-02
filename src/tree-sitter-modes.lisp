@@ -74,6 +74,15 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
 
 (define-interpreter-mode '("sh" "bash" "zsh" "ksh" "dash") "Shell Script")
 
+;;; The shells' own files, which have neither a type nor a #! line.
+(define-file-name-mode
+ '(".zshrc" ".zshenv" ".zprofile" ".zlogin" ".zlogout"
+   ".bashrc" ".bash_profile" ".bash_login" ".bash_logout" ".bash_aliases"
+   ".profile" ".kshrc" ".envrc" ".xinitrc" ".xprofile" ".xsession"
+   "zshrc" "zshenv" "zprofile" "bashrc" "profile"
+   ".env" ".env.*" "PKGBUILD" "APKBUILD")
+ "Shell Script")
+
 (heml.tree-sitter:define-tree-sitter-language
  "bash" :mode "Shell Script" :indent t
  :definitions '("function_definition")
@@ -136,6 +145,15 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
   :width 2)
 
 (define-interpreter-mode '("node" "deno" "bun") "JavaScript")
+
+(define-file-name-mode
+ '(".babelrc" ".eslintrc" ".prettierrc" ".jshintrc" ".swcrc" "composer.lock" "Pipfile.lock"
+   "flake.lock")
+ "JSON")
+
+(define-file-name-mode '(".clang-format" ".clang-tidy" ".yamllint") "YAML")
+
+(define-file-name-mode '("SConstruct" "SConscript" "wscript") "Python")
 
 ;;; YAML's blocks are its indentation: a line ending with a colon, or a
 ;;; dash alone, opens one.

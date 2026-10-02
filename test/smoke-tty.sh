@@ -625,6 +625,21 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# A file known by its name: a shell's own file is a shell script.
+mkdir -p build/smoke-tty-dot
+printf 'export EDITOR=heml # a comment\n' > build/smoke-tty-dot/.zshrc
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-dot/.zshrc"
+send Enter
+expect 'export EDITOR=heml' "a .zshrc is visited"
+expect '(Shell Script' "and is in Shell Script mode, by its name"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # A mode chosen by hand: a file whose name does not say what it is.
 printf 'echo "$HOME" # a comment\n' > build/smoke-tty-noname
 send C-x C-f

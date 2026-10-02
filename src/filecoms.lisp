@@ -83,12 +83,59 @@
                      buffer (trim-subseq string start end)))))))
     (when no-major-mode
       (let ((hook (and type (assoc (string-downcase type) *file-type-hooks*
-                                   :test #'string=))))
-        (cond (hook (funcall (cdr hook) buffer type))
+                                   :test #'string=)))
+            (named (and pathname (file-name-mode pathname))))
+        (cond (named (setf (buffer-major-mode buffer) named))
+              (hook (funcall (cdr hook) buffer type))
               ;; A script without a type says what it is on its #! line.
               ((let ((mode (interpreter-mode string)))
                  (when mode
                    (setf (buffer-major-mode buffer) mode)))))))))
+
+;;; Some files are known by their names: .zshrc and .bashrc are shell
+;;; scripts whatever type a pathname makes of them, and have no #! line to
+;;; say so.  A name is matched whole against the file's, without its
+;;; directory; a * in it stands for any characters.  The name is asked
+;;; before the type, being the more particular.
+;;;
+(defhvar "Mode from File Name"
+  "When true, a file with a well-known name, such as .zshrc or .bashrc, is
+   visited in the mode DEFINE-FILE-NAME-MODE gives that name."
+  :value t)
+
+(defvar *file-name-modes* '()
+  "((NAME SCANNER MODE) ...): file names, with the scanner for one that has
+   a * in it, and the major mode a file so named is visited in.")
+
+(defun define-file-name-mode (names mode)
+  "Visit a file whose name, without its directory, is one of NAMES in MODE.
+   A * in a name stands for any characters: \".env.*\" is .env.local too."
+  (dolist (name names)
+    (setf *file-name-modes*
+          (cons (list name
+                      (and (find #\* name)
+                           (cl-ppcre:create-scanner
+                            (format nil "^~{~A~^.*~}$"
+                                    (mapcar #'cl-ppcre:quote-meta-chars
+                                            (cl-ppcre:split "\\*" name :limit -1)))))
+                      mode)
+                (remove name *file-name-modes* :key #'first :test #'string=))))
+  mode)
+
+(defun file-name-mode (pathname)
+  "The mode PATHNAME's name gives it, when \"Mode from File Name\" is on
+   and there is such a mode."
+  (when (value mode-from-file-name)
+    (let* ((name (file-namestring pathname))
+           (entry (find-if (lambda (entry)
+                             (destructuring-bind (pattern scanner mode) entry
+                               (declare (ignore mode))
+                               (if scanner
+                                   (cl-ppcre:scan scanner name)
+                                   (string= pattern name))))
+                           *file-name-modes*)))
+      (when (and entry (getstring (third entry) *mode-names*))
+        (third entry)))))
 
 ;;; A script names its interpreter on its first line: #!/bin/sh, or
 ;;; #!/usr/bin/env python3.  The interpreter's name, without a version
@@ -183,6 +230,9 @@
   (setf (buffer-major-mode buffer) "Lisp"))
 
 (define-interpreter-mode '("sbcl" "ecl" "ccl" "clisp") "Lisp")
+
+(define-file-name-mode '(".sbclrc" ".eclrc" ".clisprc" ".ccl-init.lisp" ".emacs" ".stumpwmrc")
+  "Lisp")
 
 (define-file-type-hook ("txt" "text" "tx") (buffer type)
   (declare (ignore type))
