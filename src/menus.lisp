@@ -189,6 +189,7 @@ while the current buffer is in the mode."
 (define-menu "File" ()
   ("New Buffer…" "Select Buffer" :key "n")
   ("Directory…" "Dired" :key "d" :modifiers (:shift))
+  ("Open Recent…" "Find Recent File")
   :separator
   ("Close Buffer…" "Kill Buffer" :key "w")
   ("Save" "Save File" :key "s")
@@ -252,6 +253,7 @@ while the current buffer is in the mode."
 (define-menu "Project" ()
   ("Find File…" "Project Find File")
   ("Search…" "Project Grep")
+  ("Replace…" "Project Replace")
   ("Compile…" "Project Compile")
   ("Shell" "Project Shell")
   ("Shell Command…" "Project Shell Command")

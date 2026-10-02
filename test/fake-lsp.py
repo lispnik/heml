@@ -7,6 +7,11 @@ an error on the second line of any file opened, two completions, a
 definition on the third line, references on the first and third, a hover,
 and a rename of the first three characters of the file.
 
+It offers two code actions: one an edit, replacing the second line's
+characters 2 to 12 with "rightthing", and one a command, which it carries
+out by asking the editor to put a line at the start of the file.  Its
+document symbols are a function on the third line with a variable in it.
+
 It takes changes incrementally, as spans of the text it holds, and its
 hover ends with that text's first and last lines and its length, so that a
 test can see the server has what the editor has."""
@@ -77,7 +82,29 @@ def answer(method, params):
     if method == "initialize":
         return {"capabilities": {"textDocumentSync": 2, "completionProvider": {},
                                  "definitionProvider": True, "referencesProvider": True,
-                                 "hoverProvider": True, "renameProvider": True}}
+                                 "hoverProvider": True, "renameProvider": True,
+                                 "codeActionProvider": True,
+                                 "documentSymbolProvider": True,
+                                 "executeCommandProvider": {"commands": ["fake.command"]}}}
+    if method == "textDocument/codeAction":
+        return [{"title": "Fix the fake error", "kind": "quickfix",
+                 "edit": {"changes": {uri: [{"range": place(uri, 1, 2, 12)["range"],
+                                             "newText": "rightthing"}]}}},
+                {"title": "Run a command",
+                 "command": {"title": "Run a command", "command": "fake.command",
+                             "arguments": [uri]}}]
+    if method == "workspace/executeCommand":
+        # The edit is the editor's to make: it is asked for.
+        target = params["arguments"][0]
+        send({"jsonrpc": "2.0", "id": "edit-1", "method": "workspace/applyEdit",
+              "params": {"edit": {"changes": {target: [{"range": place(target, 0, 0, 0)["range"],
+                                                        "newText": "{ done }\n"}]}}}})
+        return None
+    if method == "textDocument/documentSymbol":
+        whole = place(uri, 2, 0, 5)["range"]
+        return [{"name": "fake_symbol", "kind": 12, "range": whole, "selectionRange": whole,
+                 "children": [{"name": "inner", "kind": 13, "range": whole,
+                               "selectionRange": whole}]}]
     if method == "textDocument/completion":
         return {"isIncomplete": False,
                 "items": [{"label": "fake_function", "kind": 3},
@@ -104,6 +131,8 @@ while True:
     method = message.get("method")
     if method == "exit":
         break
+    if "id" in message and method is None:
+        continue                # the editor's answer to something asked of it
     if "id" in message:
         send({"jsonrpc": "2.0", "id": message["id"],
               "result": answer(method, message.get("params"))})

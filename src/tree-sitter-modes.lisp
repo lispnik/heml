@@ -189,8 +189,19 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
 ;;;; An outline: a buffer's headings or definitions, a line each, in a
 ;;;; result buffer (results.lisp) whose lines visit them.
 
+(defvar *outline-functions* '()
+  "Functions of a buffer, each returning its outline as ((LINE DEPTH TEXT)
+   ...) or NIL when it has none to give; the first to give one is used
+   before the buffer's headings or its grammar's definitions are.  A
+   language server's symbols are offered so (lsp.lisp).")
+
 (defun outline-entries (buffer)
   "(LINE DEPTH TEXT) for each heading or definition in BUFFER."
+  (or
+   (some (lambda (function) (ignore-errors (funcall function buffer))) *outline-functions*)
+   (outline-entries-from-text buffer)))
+
+(defun outline-entries-from-text (buffer)
   (if (string= (buffer-major-mode buffer) "Markdown")
       (loop for (line level) in (markdown-headings buffer)
             collect (list line (1- level) (string-trim " #" (line-string line))))
@@ -220,7 +231,9 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
         (loop for (line depth text) in entries
               for number = (count-lines (region (buffer-start-mark source) (mark line 0)))
               do (let ((out (mark-line point)))
-                   (insert-string point (format nil "~vT~A~%" (* 2 depth) text))
+                   (insert-string point (format nil "~A~A~%"
+                                                (make-string (* 2 depth) :initial-element #\Space)
+                                                text))
                    (setf (getf (line-plist out) 'result-location)
                          (if pathname
                              (list pathname number)

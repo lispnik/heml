@@ -136,6 +136,41 @@
       (setf hi::*popup* nil))))
 
 
+;;; A menu: one of a few things to choose, nothing typed into the buffer.
+
+(defun popup-select (items &optional (mark (current-point)))
+  "Let the user choose one of ITEMS, strings, from a popup under MARK: C-n
+   and C-p or the arrows move, a digit goes to that item, Return or Tab
+   chooses, and anything else puts the popup away.  Returns the item's
+   index, or NIL."
+  (let ((selected 0)
+        (rows (loop for item in items
+                    for number from 1
+                    collect (format nil "~D  ~A" number item))))
+    (unwind-protect
+         (loop
+           (setf hi::*popup* nil)
+           (redisplay)
+           (show-popup rows selected mark)
+           (redisplay)
+           (let* ((key (get-key-event hi::*editor-input*))
+                  (char (heml-ext:key-event-char key))
+                  (digit (and char (zerop (heml-ext:key-event-bits key)) (digit-char-p char))))
+             (cond ((member key (list #k"control-n" #k"downarrow"))
+                    (setf selected (mod (1+ selected) (length items))))
+                   ((member key (list #k"control-p" #k"uparrow"))
+                    (setf selected (mod (1- selected) (length items))))
+                   ((member key (list #k"return" #k"tab" #k"control-i"))
+                    (return selected))
+                   ((and digit (<= 1 digit (length items)))
+                    (return (1- digit)))
+                   ((member key (list #k"control-g" #k"escape"))
+                    (return nil))
+                   (t
+                    (unget-key-event key hi::*editor-input*)
+                    (return nil)))))
+      (setf hi::*popup* nil))))
+
 ;;; Text to read and be done with -- what a name is, what is wrong on a
 ;;; line -- is shown the same way, until the next key.
 

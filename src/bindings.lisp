@@ -90,7 +90,8 @@
 (bind-key "Mouse Scroll Down" #k"scrolldown")
 
 
-(bind-key "Insert File" #k"control-x control-r")
+(bind-key "Insert File" #k"control-x i")
+(bind-key "Find Recent File" #k"control-x control-r")
 (bind-key "Save File" #k"control-x control-s")
 (bind-key "Visit File" #k"control-x control-v")
 (bind-key "Write File" #k"control-x control-w")
@@ -126,6 +127,7 @@
 (bind-key "Kill Project Buffers" #k"control-x p k")
 (bind-key "Forget Project" #k"control-x p F")
 (bind-key "Edit Project Settings" #k"control-x p e")
+(bind-key "Project Replace" #k"control-x p r")
 (bind-key "Split Window" #k"control-x 2")
 (bind-key "Split Window Horizontally" #k"control-x 3")
 (bind-key "Enlarge Window Horizontally" #k"control-x }")
@@ -660,6 +662,10 @@
 ;;;; Xref.
 
 (bind-key "Find Definitions" #k"meta-." :mode "Lisp")
+;;; As in the modes a language server serves: M-? is what refers to a name,
+;;; and C-c C-d what it is.
+(bind-key "Who Calls" #k"meta-?" :mode "Lisp")
+(bind-key "Describe Symbol" #k"control-c control-d" :mode "Lisp")
 (bind-key "Who Specializes"  #k"control-c control-w control-a" :mode "Lisp")
 (bind-key "Who Binds"        #k"control-c control-w control-b" :mode "Lisp")
 (bind-key "Who Calls"        #k"control-c control-w control-c" :mode "Lisp")

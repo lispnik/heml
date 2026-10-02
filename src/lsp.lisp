@@ -171,14 +171,22 @@
   (let ((id (jref message "id"))
         (method (jref message "method")))
     (cond ((and method id)
-           ;; The server asks something: nothing it asks is answered with
-           ;; more than null, or a null for each thing asked of a configuration.
+           ;; The server asks something.  An edit it wants made is made; a
+           ;; configuration it asks for is a null for each thing asked; and
+           ;; anything else is answered with null.
            (lsp-send server
                      (json "jsonrpc" "2.0" "id" id
-                           "result" (if (string= method "workspace/configuration")
-                                        (map 'vector (constantly 'null)
-                                             (jlist (jref message "params" "items")))
-                                        'null))))
+                           "result"
+                           (cond ((string= method "workspace/applyEdit")
+                                  (json "applied"
+                                        (and (ignore-errors
+                                              (apply-workspace-edit (jref message "params" "edit"))
+                                              t)
+                                             t)))
+                                 ((string= method "workspace/configuration")
+                                  (map 'vector (constantly 'null)
+                                       (jlist (jref message "params" "items"))))
+                                 (t 'null)))))
           (method
            (when (string= method "textDocument/publishDiagnostics")
              (lsp-note-diagnostics server (jref message "params"))))
@@ -301,8 +309,17 @@
                            "definition" (json)
                            "references" (json)
                            "rename" (json)
-                           "formatting" (json))
-                     "workspace" (json "workspaceFolders" t "configuration" t)))
+                           "formatting" (json)
+                           "documentSymbol" (json "hierarchicalDocumentSymbolSupport" t)
+                           "codeAction"
+                           (json "codeActionLiteralSupport"
+                                 (json "codeActionKind"
+                                       (json "valueSet"
+                                             (vector "quickfix" "refactor" "refactor.extract"
+                                                     "refactor.inline" "refactor.rewrite"
+                                                     "source" "source.organizeImports")))))
+                     "workspace" (json "workspaceFolders" t "configuration" t
+                                       "applyEdit" t)))
          (lambda (result error)
            (cond ((or error (not (hash-table-p result)))
                   (lsp-server-died server))
@@ -490,8 +507,9 @@
 ;;;; Errors and warnings.
 
 (defvar *buffer-diagnostics* (make-hash-table :test 'eq :weakness :key)
-  "Buffer to ((START-MARK END-MARK SEVERITY MESSAGE) ...): what its server
-   says is wrong in it, at marks, so that each stays with its text.")
+  "Buffer to ((START-MARK END-MARK SEVERITY MESSAGE DIAGNOSTIC) ...): what
+   its server says is wrong in it, at marks, so that each stays with its
+   text, and as the server said it.")
 
 (defparameter *diagnostic-fonts*
   '((1 . (:fg 1 :underline t))          ; an error
@@ -532,7 +550,8 @@
                                              (jref diagnostic "range" "end" "character"))
                               (list start end
                                     (or (jref diagnostic "severity") 1)
-                                    (or (jref diagnostic "message") ""))))))
+                                    (or (jref diagnostic "message") "")
+                                    diagnostic)))))
       (incf hi:*decoration-tick*))))
 
 (defun lsp-line-decorations (line)
@@ -694,6 +713,68 @@
                (insert-string start (remove #\Return text))))
     (length edits)))
 
+(defun apply-workspace-edit (edit)
+  "Make the server's EDIT, changes to any number of files, in their
+   buffers.  How many changes, and in how many buffers."
+  (let ((edits 0) (buffers 0))
+    (flet ((apply-to (uri edits-there)
+             (let ((file (and uri (uri-file uri))))
+               (when file
+                 (incf edits (apply-text-edits (find-file-buffer file) (jlist edits-there)))
+                 (incf buffers)))))
+      (let ((changes (jref edit "changes")))
+        (when (hash-table-p changes)
+          (maphash #'apply-to changes)))
+      ;; A change that makes, renames or deletes a file has no edits.
+      (dolist (change (jlist (jref edit "documentChanges")))
+        (when (jref change "edits")
+          (apply-to (jref change "textDocument" "uri") (jref change "edits")))))
+    (values edits buffers)))
+
+(defcommand "LSP Code Action" (p)
+  "Offer what the language server can do about what is at point -- a fix
+   for what is wrong there, a refactoring -- in a popup, and do the one
+   chosen."
+  "Offer the language server's fixes for what is at point."
+  (declare (ignore p))
+  (let* ((server (lsp-current-server))
+         (buffer (current-buffer))
+         (point (current-point))
+         (here (find-if (lambda (d) (and (mark<= (first d) point) (mark<= point (second d))))
+                        (gethash buffer *buffer-diagnostics*)))
+         (on-line (remove-if-not (lambda (d) (eq (mark-line (first d)) (mark-line point)))
+                                 (gethash buffer *buffer-diagnostics*)))
+         ;; About what is wrong at point, or on its line, or just point.
+         (about (cond (here (list here)) (t on-line)))
+         (range (if about
+                    (json "start" (lsp-position (first (first about)))
+                          "end" (lsp-position (second (first about))))
+                    (json "start" (lsp-position point) "end" (lsp-position point))))
+         (actions (jlist (lsp-request
+                          server "textDocument/codeAction"
+                          (json "textDocument" (lsp-document buffer)
+                                "range" range
+                                "context" (json "diagnostics"
+                                                (map 'vector #'fifth about)))))))
+    (unless actions (editor-error "The server has nothing to offer here."))
+    (let ((choice (popup-select (mapcar (lambda (action) (or (jref action "title") "?")) actions))))
+      (when choice
+        (let* ((action (nth choice actions))
+               (edit (jref action "edit"))
+               (command (jref action "command")))
+          (when (hash-table-p edit)
+            (apply-workspace-edit edit))
+          ;; A command of the server's own, which makes its edits by asking
+          ;; for them (workspace/applyEdit): the action's, or the action itself.
+          (let ((command (cond ((hash-table-p command) command)
+                               ((stringp command) action))))
+            (when command
+              (lsp-request server "workspace/executeCommand"
+                           (json "command" (jref command "command")
+                                 "arguments" (or (gethash "arguments" command) (vector)))
+                           :timeout 15)))
+          (message "~A" (or (jref action "title") "Done.")))))))
+
 (defcommand "LSP Rename" (p)
   "Rename what is at point everywhere the language server finds it, in
    every file; the buffers changed are left to save."
@@ -705,21 +786,10 @@
                                              (and (plusp (length word)) word))))
          (params (lsp-symbol-params (current-buffer) (current-point))))
     (setf (gethash "newName" params) name)
-    (let ((edit (lsp-request server "textDocument/rename" params :timeout 15))
-          (edits 0) (buffers 0))
+    (let ((edit (lsp-request server "textDocument/rename" params :timeout 15)))
       (unless (hash-table-p edit) (editor-error "The server would not rename this."))
-      (flet ((apply-to (uri edits-there)
-               (let ((file (uri-file uri)))
-                 (when file
-                   (incf edits (apply-text-edits (find-file-buffer file) (jlist edits-there)))
-                   (incf buffers)))))
-        (let ((changes (jref edit "changes")))
-          (when (hash-table-p changes)
-            (maphash #'apply-to changes)))
-        (dolist (change (jlist (jref edit "documentChanges")))
-          (when (jref change "edits")
-            (apply-to (jref change "textDocument" "uri") (jref change "edits")))))
-      (message "Renamed in ~D place~:P, in ~D buffer~:P." edits buffers))))
+      (multiple-value-bind (edits buffers) (apply-workspace-edit edit)
+        (message "Renamed in ~D place~:P, in ~D buffer~:P." edits buffers)))))
 
 (defcommand "LSP Format Buffer" (p)
   "Lay this buffer out as the language server's formatter does."
@@ -763,6 +833,52 @@
                     (editor-error "No language server for this buffer."))))
     (stop-language-server server)
     (message "The language server is starting again.")))
+
+
+;;;; The server's outline of a buffer.
+
+(defparameter *symbol-kinds*
+  #(nil "file" "module" "namespace" "package" "class" "method" "property" "field"
+    "constructor" "enum" "interface" "function" "variable" "constant" "string" "number"
+    "boolean" "array" "object" "key" "null" "enum member" "struct" "event" "operator"
+    "type parameter"))
+
+(defun lsp-outline-entries (buffer)
+  "BUFFER's symbols as its language server names them, as ((LINE DEPTH
+   TEXT) ...), each with its kind; NIL when there is no server ready that
+   gives them."
+  (let ((server (buffer-language-server buffer)))
+    (when (and server (eq (lsp-server-state server) :ready)
+               (jref (lsp-server-capabilities server) "documentSymbolProvider"))
+      (lsp-sync server buffer)
+      (let ((symbols (jlist (lsp-request server "textDocument/documentSymbol"
+                                         (json "textDocument" (lsp-document buffer))
+                                         :timeout 3)))
+            (lines (coerce (loop for line = (mark-line (buffer-start-mark buffer))
+                                   then (line-next line)
+                                 while line collect line)
+                           'vector))
+            (entries '()))
+        (labels ((walk (symbol depth)
+                   (let* ((number (or (jref symbol "selectionRange" "start" "line")
+                                      (jref symbol "range" "start" "line")
+                                      (jref symbol "location" "range" "start" "line")))
+                          (kind (jref symbol "kind"))
+                          (name (or (jref symbol "name") "")))
+                     (when (and number (< -1 number (length lines)))
+                       (push (list (aref lines number) depth
+                                   (format nil "~@[~A ~]~A"
+                                           (and (integerp kind) (< 0 kind (length *symbol-kinds*))
+                                                (aref *symbol-kinds* kind))
+                                           name))
+                             entries))
+                     (dolist (child (jlist (jref symbol "children")))
+                       (walk child (1+ depth))))))
+          (dolist (symbol symbols)
+            (walk symbol 0)))
+        (nreverse entries)))))
+
+(pushnew 'lsp-outline-entries *outline-functions*)
 
 
 ;;;; Completions, for the popup.
@@ -816,7 +932,8 @@
    lines that run one, a list of a program and its arguments each, the first
    whose program is installed being used; LANGUAGE-ID is the protocol's name
    for the language.  M-. goes to a definition there, M-? lists references,
-   C-c C-d describes, and completions come from the server."
+   C-c C-d describes, C-c C-a offers fixes, and completions come from the
+   server."
   (setf *language-servers*
         (cons (list mode commands (or language-id (string-downcase mode)))
               (remove mode *language-servers* :key #'car :test #'string=)))
@@ -827,11 +944,13 @@
   (bind-key "LSP Find Definition" #k"meta-." :mode mode)
   (bind-key "LSP Find References" #k"meta-?" :mode mode)
   (bind-key "LSP Describe" #k"control-c control-d" :mode mode)
+  (bind-key "LSP Code Action" #k"control-c control-a" :mode mode)
   (when (find-menu mode)
     (add-menu-item mode :separator)
     (dolist (entry '(("Go to Definition" "LSP Find Definition")
                      ("Find References" "LSP Find References")
                      ("Describe" "LSP Describe")
+                     ("Fix or Refactor…" "LSP Code Action")
                      ("Rename…" "LSP Rename")
                      ("Format Buffer" "LSP Format Buffer")
                      ("Errors and Warnings" "LSP Diagnostics")))

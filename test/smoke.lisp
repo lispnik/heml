@@ -740,6 +740,37 @@ gamma
 ")
     (check "LSP Rename makes the server's edits"
            (wait-until (lambda () (search "renamedgram fake;" (buffer-text))) 10))
+    ;; What the server can do about the error: an edit, and a command of
+    ;; its own, which asks for its edit to be made.
+    (flet ((popup-row-p (text)
+             (find text (map 'list #'heml.cocoa::row-text
+                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                   :test #'search)))
+      (post-key #\< "Meta")
+      (post-key #\n "Control")
+      (post-key #\c "Control") (post-key #\a "Control")
+      (check "C-c C-a offers what the server can do, in a popup"
+             (wait-until (lambda () (and (popup-row-p " 1  Fix the fake error")
+                                         (popup-row-p " 2  Run a command")))
+                         10))
+      (post (list :named "Return" '()))
+      (check "choosing a fix makes its edit"
+             (wait-until (lambda () (search "  rightthing here" (buffer-text))) 10))
+      (post-key #\c "Control") (post-key #\a "Control")
+      (wait-until (lambda () (popup-row-p " 2  Run a command")) 10)
+      (post-key #\2)
+      (check "and choosing a command makes the edit the server asks for"
+             (wait-until (lambda () (eql 0 (search "{ done }" (buffer-text)))) 10)))
+    (extended-command "Outline")
+    (check "Outline lists the symbols the server names, with their kinds"
+           (wait-until (lambda ()
+                         (and (equal "*Outline*" (hi::buffer-name (hi::current-buffer)))
+                              (search "function fake_symbol" (buffer-text))
+                              (search "  variable inner" (buffer-text))))
+                       10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
+    (settle)
     ;; Left unsaved, and not asked about on the way out.
     (setf (hi::buffer-modified (hi::current-buffer)) nil))
 
@@ -882,6 +913,78 @@ gamma
       (settle)
       (check "C-x p p back to the project reopens its session"
              (and (file-shown-p "a.c") (file-shown-p "b.c")))
+      ;; The project's compile commands are remembered, for M-p at the prompt.
+      (dolist (command '("echo one" "echo two"))
+        (post-key #\x "Control") (post-key #\p) (post-key #\c)
+        (post-key #\a "Control") (post-key #\k "Control")
+        (post-text (format nil "~A~%" command))
+        (wait-until (lambda () (search "Compilation finished" (buffer-text))) 20)
+        (settle))
+      (check "C-x p c keeps the project's commands"
+             (equal '("echo two" "echo one")
+                    (heml::project-property (namestring root) :compile-history)))
+      (post-key #\x "Control") (post-key #\p) (post-key #\c)
+      (post-key #\a "Control") (post-key #\k "Control")
+      (post-key #\p "Meta") (post-key #\p "Meta")
+      (settle)
+      (check "and M-p at its prompt goes back through them"
+             (search "echo one" (buffer-text hi::*echo-area-buffer*)))
+      (post-key #\g "Control")
+      (settle)
+      (post-key #\x "Control") (post-key #\1)
+      ;; Its shell's inputs come back with its session.
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (post-key #\x "Control") (post-key #\p) (post-key #\s)
+      (settle)
+      (post-text "echo hist-$((40+2))
+")
+      (wait-until (lambda () (search "hist-42" (buffer-text))) 20)
+      (extended-command "Save Project Session")
+      (settle)
+      (extended-command "Kill Project Buffers")
+      (post-key #\y)
+      (settle)
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (post-key #\x "Control") (post-key #\p) (post-key #\s)
+      (settle)
+      (post-key #\p "Meta")
+      (check "a project's shell remembers what was typed to it before"
+             (wait-until (lambda () (search "echo hist-$((40+2))" (buffer-text))) 10))
+      (post-key #\i "Meta")
+      (settle)
+      ;; Replacing through the project: both files have a return.
+      (post-key #\x "Control") (post-key #\b)
+      (post-key #\a "Control") (post-key #\k "Control")
+      (post-text "a.c
+")
+      (settle)
+      (post-key #\x "Control") (post-key #\p) (post-key #\r)
+      (post-key #\a "Control") (post-key #\k "Control")
+      (post-text "return
+")
+      (post-text "give_back
+")
+      (post-key #\y)
+      (post-key #\y)
+      (check "C-x p r replaces a string in every file of the project that has it"
+             (wait-until (lambda ()
+                           (and (equal "*Project Replace*" (hi::buffer-name (hi::current-buffer)))
+                                (search "src/a.c:2: give_back 1;" (buffer-text))
+                                (search "src/b.c:2: give_back 2;" (buffer-text))))
+                         20))
+      (check "and saves them"
+             (search "give_back 1;" (uiop:read-file-string (merge-pathnames "src/a.c" root))))
+      ;; Recent files: the one before this is offered first.
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring (merge-pathnames "src/b.c" root))))
+      (post (list :open (namestring (merge-pathnames "src/a.c" root))))
+      (settle)
+      (post-key #\x "Control") (post-key #\r "Control")
+      (post (list :named "Return" '()))
+      (check "C-x C-r offers the files visited lately, the last first"
+             (wait-until (lambda () (equal "b.c" (current-file))) 10))
       (extended-command "Kill Project Buffers")
       (post-key #\y)
       ;; An :open is taken at once, ahead of keys still queued: wait for them.

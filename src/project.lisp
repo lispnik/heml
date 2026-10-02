@@ -413,6 +413,12 @@
     (buffer-start (current-point))
     (next-result-line (current-point) 1)))
 
+(defvar *project-history-length* 20
+  "How many of a project's compile commands are kept.")
+
+(defvar *project-shell-history-length* 200
+  "How many of a project's shell's inputs are kept with its session.")
+
 (defcommand "Project Find File" (p)
   "Visit a file of this project, completing its name from the project's
    files; text that is no file's name lists the files whose names hold it."
@@ -435,12 +441,21 @@
   "Compile this project, from its root."
   (declare (ignore p))
   (let* ((root (current-project-root))
-         (command (prompt-for-string :prompt (format nil "Compile ~A: " (project-name root))
-                                     :default (project-property
-                                               root :compile
-                                               (or (getf (project-settings root) :compile)
-                                                   "make -k ")))))
-    (setf (project-property root :compile) command)
+         (history (project-property root :compile-history))
+         (command
+           ;; M-p at the prompt goes back through this project's commands.
+           (let ((*echo-area-history* (make-ring (max 10 *project-history-length*))))
+             (dolist (old (reverse history))
+               (ring-push old *echo-area-history*))
+             (prompt-for-string :prompt (format nil "Compile ~A: " (project-name root))
+                                :default (project-property
+                                          root :compile
+                                          (or (getf (project-settings root) :compile)
+                                              "make -k "))))))
+    (setf (project-property root :compile) command
+          (project-property root :compile-history)
+          (let ((all (cons command (remove command history :test #'string=))))
+            (subseq all 0 (min (length all) *project-history-length*))))
     (compile-command nil command root)))
 
 (defcommand "Project Shell Command" (p)
@@ -465,7 +480,23 @@
           (let ((buffer (current-buffer)))
             (when (heml-bound-p 'current-working-directory :buffer buffer)
               (setf (variable-value 'current-working-directory :buffer buffer) root))
+            ;; What was typed to this project's shell before, for M-p.
+            (when (heml-bound-p 'interactive-history :buffer buffer)
+              (let ((ring (variable-value 'interactive-history :buffer buffer)))
+                (dolist (input (reverse (getf (read-state (session-file-name root)) :shell-history)))
+                  (ring-push (string-to-region input) ring))))
             (setf (gethash root *project-shells*) buffer))))))
+
+(defun project-shell-history (root)
+  "What has been typed to ROOT's project's shell, the latest first: this
+   session's, or, when it has no shell now, what was saved before."
+  (let ((shell (gethash root *project-shells*)))
+    (if (and shell (member shell *buffer-list*)
+             (heml-bound-p 'interactive-history :buffer shell))
+        (let ((ring (variable-value 'interactive-history :buffer shell)))
+          (loop for i below (min (ring-length ring) *project-shell-history-length*)
+                collect (region-to-string (ring-ref ring i))))
+        (getf (read-state (session-file-name root)) :shell-history))))
 
 (defcommand "Project Shell" (p)
   "Go to this project's shell, started in its root the first time."
@@ -582,6 +613,161 @@
     (project-find-file root)))
 
 
+;;;; Replacing through a project.
+
+(defun replace-in-line (line old new)
+  "Replace each OLD in LINE's text with NEW.  How many there were."
+  (let ((string (line-string line)) (count 0) (at 0) (parts '()))
+    (loop
+      (let ((hit (search old string :start2 at)))
+        (unless hit (return))
+        (push (subseq string at hit) parts)
+        (push new parts)
+        (incf count)
+        (setf at (+ hit (length old)))))
+    (when (plusp count)
+      (push (subseq string at) parts)
+      (with-mark ((start (mark line 0) :left-inserting)
+                  (end (mark line (length string))))
+        (delete-region (region start end))
+        (insert-string start (apply #'concatenate 'string (nreverse parts)))))
+    count))
+
+(defcommand "Project Replace" (p)
+  "Replace a string with another in every file of this project that has
+   it, exactly as written.  The files are found, how many places there are
+   is said and asked about, the changes are made in the files' buffers, and
+   the changed lines are listed; then the buffers are saved, if wanted.
+   Each buffer's changes can be undone there."
+  "Replace a string through this project."
+  (declare (ignore p))
+  (let* ((root (current-project-root))
+         (old (prompt-for-string :prompt (format nil "Replace in ~A: " (project-name root))
+                                 :default (let ((word (word-at-point)))
+                                            (and (plusp (length word)) word))))
+         (new (prompt-for-string :prompt (format nil "Replace ~A with: " old)
+                                 :default "" :trim nil))
+         (ignore (getf (project-settings root) :ignore))
+         (files (remove-if (lambda (file) (ignored-file-p file ignore))
+                           (mapcar (lambda (file) (string-left-trim "./" file))
+                                   (run-for-lines
+                                    (if (find-program "rg")
+                                        (format nil "rg -l -F -e ~A ." (shell-quote old))
+                                        (format nil "grep -rlI -F --exclude-dir=.git --exclude-dir=.hg -e ~A ."
+                                                (shell-quote old)))
+                                    root)))))
+    (when (or (zerop (length old)) (find #\Newline old))
+      (editor-error "What is replaced must be some text on one line."))
+    (unless files (editor-error "No file in ~A has ~A." (project-name root) old))
+    (let* ((buffers (mapcar (lambda (file) (find-file-buffer (merge-pathnames file root))) files))
+           (places (loop for buffer in buffers
+                         sum (let ((count 0))
+                               (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+                                   ((null line) count)
+                                 (let ((at 0) (string (line-string line)))
+                                   (loop for hit = (search old string :start2 at)
+                                         while hit do (incf count) (setf at (+ hit (length old))))))))))
+      (when (zerop places) (editor-error "No file in ~A has ~A." (project-name root) old))
+      (unless (prompt-for-y-or-n
+               :prompt (format nil "Replace ~D place~:P in ~D file~:P? " places (length buffers))
+               :default nil :must-exist t)
+        (editor-error "Nothing replaced."))
+      (let ((changed '()))
+        (dolist (buffer buffers)
+          (let ((number 0))
+            (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+                ((null line))
+              (incf number)
+              (when (plusp (replace-in-line line old new))
+                (push (list (buffer-pathname buffer) number (line-string line)) changed)))))
+        (setf changed (nreverse changed))
+        (when (prompt-for-y-or-n
+               :prompt (format nil "Save the ~D buffer~:P changed? " (length buffers))
+               :default t :must-exist t)
+          (dolist (buffer buffers)
+            (when (buffer-modified buffer) (save-file-command nil buffer))))
+        ;; The lines changed, to look over and go to.
+        (let ((buffer (make-result-buffer "*Project Replace*" "Outline" 'plist-line-location)))
+          (with-writable-buffer (buffer)
+            (let ((point (buffer-point buffer)))
+              (insert-string point (format nil "~A replaced with ~A in ~A: ~D line~:P~%~%"
+                                           old new (project-name root) (length changed)))
+              (loop for (pathname number text) in changed
+                    do (let ((line (mark-line point)))
+                         (insert-string point (format nil "  ~A:~D: ~A~%"
+                                                      (enough-namestring pathname root) number
+                                                      (string-trim '(#\Space #\Tab) text)))
+                         (setf (getf (line-plist line) 'result-location)
+                               (list pathname number))))))
+          (change-to-buffer buffer)
+          (buffer-start (current-point))
+          (next-result-line (current-point) 1))
+        (message "Replaced ~D place~:P in ~D file~:P." places (length buffers))))))
+
+
+;;;; Recent files.
+
+(defvar *recent-files* :unread
+  "The files visited, the latest first, as namestrings.")
+
+(defvar *recent-files-kept* 200)
+
+(defun recent-files ()
+  (when (eq *recent-files* :unread)
+    (setf *recent-files* (remove-if-not #'stringp (read-state "recent-files.lisp"))))
+  *recent-files*)
+
+(defun note-recent-file (buffer pathname)
+  (declare (ignore buffer))
+  (when pathname
+    (let ((name (namestring pathname)))
+      (unless (equal name (first (recent-files)))
+        (let ((all (cons name (remove name (recent-files) :test #'string=))))
+          (setf *recent-files* (subseq all 0 (min (length all) *recent-files-kept*))))
+        (ignore-errors (write-state "recent-files.lisp" *recent-files*))))))
+
+(add-hook buffer-pathname-hook 'note-recent-file)
+
+(defcommand "Find Recent File" (p)
+  "Visit one of the files visited lately, in this session or before it,
+   completing its name; text that is no file's name finds the files with its
+   characters in order, the best first."
+  "Visit one of the files visited lately."
+  (declare (ignore p))
+  (let* ((here (let ((pathname (buffer-pathname (current-buffer))))
+                 (and pathname (namestring pathname))))
+         (files (or (remove-if-not #'probe-file (remove here (recent-files) :test #'equal))
+                    (editor-error "No files have been visited.")))
+         (names (mapcar (lambda (file) (cons (abbreviate-root file) file)) files))
+         (table (make-string-table :separator #\/ :initial-contents names)))
+    (multiple-value-bind (input file)
+        (prompt-for-keyword (list table) :must-exist nil
+                                         :default (car (first names))
+                                         :prompt "Recent file: "
+                                         :help "A file visited lately, or text in the names of several.")
+      (if file
+          (find-file-command nil file)
+          (let ((matches (fuzzy-file-matches input (mapcar #'car names))))
+            (cond ((null matches) (editor-error "No recent file matches ~A." input))
+                  ((null (rest matches))
+                   (find-file-command nil (cdr (assoc (first matches) names :test #'string=))))
+                  (t
+                   (let ((buffer (make-result-buffer "*Recent Files*" "Outline"
+                                                     'plist-line-location)))
+                     (with-writable-buffer (buffer)
+                       (let ((point (buffer-point buffer)))
+                         (insert-string point (format nil "Recent files matching ~S, the best first: ~D~%~%"
+                                                      input (length matches)))
+                         (dolist (name matches)
+                           (let ((line (mark-line point)))
+                             (insert-string point (format nil "  ~A~%" name))
+                             (setf (getf (line-plist line) 'result-location)
+                                   (list (pathname (cdr (assoc name names :test #'string=))) 1))))))
+                     (change-to-buffer buffer)
+                     (buffer-start (current-point))
+                     (next-result-line (current-point) 1)))))))))
+
+
 ;;;; Sessions.
 
 ;;; A session is (:FILES ((FILE LINE COLUMN) ...) :CURRENT FILE
@@ -645,7 +831,8 @@
                                        (mark-line-number point) (mark-charpos point)))
             :current (let ((pathname (buffer-pathname (current-buffer))))
                        (and (under-root-p pathname root) (enough-namestring pathname root)))
-            :layout (and layout (session-layout (current-layout-root) root)))))))
+            :layout (and layout (session-layout (current-layout-root) root))
+            :shell-history (project-shell-history root))))))
 
 (defun move-to-line (mark line column)
   (buffer-start mark)
