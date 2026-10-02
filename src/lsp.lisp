@@ -77,6 +77,11 @@
   (pending (make-hash-table))           ; request id to the function its answer goes to
   (input (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   capabilities
+  (encoding :utf-16)                    ; what a position's character counts: :UTF-16 or :UTF-32
+  (progress '())                        ; ((TOKEN . TEXT) ...): what it says it is doing
+  (watchers '())                        ; ((ID (SCANNER . KINDS) ...) ...): files it wants to hear of
+  watched                               ; file to write date, as last looked at
+  settings-date                         ; the .heml-project's date when its settings were sent
   (documents (make-hash-table :test 'eq)) ; buffer to a DOCUMENT
   (diagnostics (make-hash-table :test 'equal)) ; file to ((LINE COLUMN SEVERITY MESSAGE) ...)
   ;; A server says what is wrong with a file, or is asked, or both, each for
@@ -92,16 +97,44 @@
 ;;;
 (defstruct (document (:constructor make-document (version signature text)))
   version signature text
-  (pull t))                             ; whether to ask what is wrong with it
+  (pull t)                              ; whether to ask what is wrong with it
+  extras)                               ; the signature its colours, hints and lenses are of
 
 (defvar *lsp-servers* '()
   "The servers running, or starting.")
 
-(defun language-server-commands (mode)
-  "The commands that might run MODE's language server: those whose programs
-   are installed."
+(defparameter *token-types*
+  #("namespace" "type" "class" "enum" "interface" "struct" "typeParameter" "parameter"
+    "variable" "property" "enumMember" "event" "function" "method" "macro" "keyword"
+    "modifier" "comment" "string" "number" "regexp" "operator" "decorator")
+  "The kinds of token a server is told Heml knows.")
+
+(defvar *encoding* :utf-16
+  "What a position's character counts, for the server being talked to:
+   :UTF-16 code units, or :UTF-32, characters.")
+
+(defvar *additional-language-servers* '()
+  "((MODE NAME COMMANDS) ...): servers a mode's buffers have as well as the
+   mode's own -- a linter beside the language's server -- each known, as a
+   server's group, by its NAME.")
+
+(defun language-server-commands (mode &optional (group (language-server-group mode)))
+  "The commands that might run MODE's language server, or the additional
+   one called GROUP: those whose programs are installed."
   (remove-if-not (lambda (command) (find-program (first command)))
-                 (second (assoc mode *language-servers* :test #'string=))))
+                 (if (equal group (language-server-group mode))
+                     (second (assoc mode *language-servers* :test #'string=))
+                     (third (find-if (lambda (entry)
+                                       (and (string= (first entry) mode)
+                                            (string= (second entry) group)))
+                                     *additional-language-servers*)))))
+
+(defun mode-server-groups (mode)
+  "The groups of the servers MODE's buffers have: the mode's own first."
+  (when (assoc mode *language-servers* :test #'string=)
+    (cons (language-server-group mode)
+          (loop for (other name) in *additional-language-servers*
+                when (string= other mode) collect name))))
 
 (defvar *lsp-failures* '()
   "((GROUP ROOT) ...): where no server could be started, or one kept dying,
@@ -186,6 +219,19 @@
     (merge-json (object *language-server-settings*)
                 (object (getf (ignore-errors (project-settings root)) :settings)))))
 
+(defun settings-date (root)
+  "When ROOT's .heml-project was last written, or NIL when it has none."
+  (ignore-errors (file-write-date (project-settings-file root))))
+
+(defun lsp-send-changed-settings (server)
+  "Tell SERVER its settings again, if its project's .heml-project has
+   changed since it was told."
+  (let ((date (settings-date (lsp-server-root server))))
+    (unless (eql date (lsp-server-settings-date server))
+      (setf (lsp-server-settings-date server) date)
+      (lsp-notify server "workspace/didChangeConfiguration"
+                  (json "settings" (language-server-settings (lsp-server-root server)))))))
+
 (defun settings-section (settings section)
   "What SETTINGS has for SECTION, a dotted path or nothing for all of it;
    null when it has nothing."
@@ -252,12 +298,15 @@
 (defun lsp-request (server method params &key (timeout 5))
   "Ask SERVER and wait for its answer: the result, or NIL if there is none
    in TIMEOUT seconds or the server says it cannot."
-  (let ((done nil) (answer nil))
-    (lsp-request-async server method params
-                       (lambda (result error)
-                         (declare (ignore error))
-                         (setf answer result done t)))
-    (lsp-wait (lambda () (or done (eq (lsp-server-state server) :dead))) timeout)
+  (let* ((done nil) (answer nil)
+         (id (lsp-request-async server method params
+                                (lambda (result error)
+                                  (declare (ignore error))
+                                  (setf answer result done t)))))
+    (unless (lsp-wait (lambda () (or done (eq (lsp-server-state server) :dead))) timeout)
+      ;; Given up on: the server is told, and its answer is no one's.
+      (remhash id (lsp-server-pending server))
+      (lsp-notify server "$/cancelRequest" (json "id" id)))
     (if (eq answer 'null) nil answer)))
 
 ;;; What arrives: bytes, a message at a time once its header and all its
@@ -289,44 +338,287 @@
 
 (defun lsp-dispatch (server message)
   (let ((id (jref message "id"))
-        (method (jref message "method")))
+        (method (jref message "method"))
+        (*encoding* (lsp-server-encoding server)))
     (cond ((and method id)
-           ;; The server asks something.  An edit it wants made is made; a
-           ;; configuration it asks for is a null for each thing asked; and
-           ;; anything else is answered with null.
+           ;; The server asks something.
            (lsp-send server
                      (json "jsonrpc" "2.0" "id" id
-                           "result"
-                           (cond ((string= method "workspace/applyEdit")
-                                  (json "applied"
-                                        (and (ignore-errors
-                                              (apply-workspace-edit (jref message "params" "edit"))
-                                              t)
-                                             t)))
-                                 ;; What it would answer has changed: its
-                                 ;; documents are asked about again.
-                                 ((string= method "workspace/diagnostic/refresh")
-                                  (loop for document being the hash-values
-                                          of (lsp-server-documents server)
-                                        do (setf (document-pull document) t))
-                                  'null)
-                                 ((string= method "workspace/configuration")
-                                  (let ((settings (language-server-settings
-                                                   (lsp-server-root server))))
-                                    (map 'vector
-                                         (lambda (item)
-                                           (settings-section settings (jref item "section")))
-                                         (jlist (jref message "params" "items")))))
-                                 (t 'null)))))
+                           "result" (or (ignore-errors
+                                         (lsp-answer server method (jref message "params")))
+                                        'null))))
           (method
-           (when (string= method "textDocument/publishDiagnostics")
-             (lsp-note-diagnostics server (jref message "params" "uri")
-                                   (jlist (jref message "params" "diagnostics")))))
+           (lsp-told server method (jref message "params")))
           (id
            (let ((function (gethash id (lsp-server-pending server))))
              (when function
                (remhash id (lsp-server-pending server))
                (funcall function (gethash "result" message) (jref message "error"))))))))
+
+(defun lsp-answer (server method params)
+  "The answer to what SERVER asks: an edit it wants made is made, its
+   settings are given, what it wants to hear of is noted, and anything else
+   is answered with null."
+  (cond ((string= method "workspace/applyEdit")
+         (json "applied" (and (ignore-errors (apply-workspace-edit (jref params "edit")) t) t)))
+        ;; What it would answer has changed: its documents are asked about
+        ;; again.
+        ((string= method "workspace/diagnostic/refresh")
+         (loop for document being the hash-values of (lsp-server-documents server)
+               do (setf (document-pull document) t))
+         'null)
+        ((member method '("workspace/semanticTokens/refresh" "workspace/inlayHint/refresh"
+                          "workspace/codeLens/refresh")
+                 :test #'string=)
+         (loop for document being the hash-values of (lsp-server-documents server)
+               do (setf (document-extras document) nil))
+         'null)
+        ((string= method "workspace/configuration")
+         (let ((settings (language-server-settings (lsp-server-root server))))
+           (map 'vector
+                (lambda (item) (settings-section settings (jref item "section")))
+                (jlist (jref params "items")))))
+        ((string= method "workspace/workspaceFolders")
+         (vector (json "uri" (file-uri (string-right-trim "/" (namestring (lsp-server-root server))))
+                       "name" (project-name (namestring (lsp-server-root server))))))
+        ((string= method "client/registerCapability")
+         (dolist (registration (jlist (jref params "registrations")))
+           (when (equal (jref registration "method") "workspace/didChangeWatchedFiles")
+             (push (cons (jref registration "id")
+                         (file-watchers server (jlist (jref registration "registerOptions"
+                                                            "watchers"))))
+                   (lsp-server-watchers server))))
+         'null)
+        ((string= method "client/unregisterCapability")
+         (dolist (registration (jlist (or (jref params "unregisterations")
+                                          (jref params "unregistrations"))))
+           (setf (lsp-server-watchers server)
+                 (remove (jref registration "id") (lsp-server-watchers server)
+                         :key #'car :test #'equal)))
+         'null)
+        ;; Asked to choose among things it offers, Heml chooses none, and
+        ;; shows what was said.
+        ((string= method "window/showMessageRequest")
+         (lsp-say server (jref params "type")
+                  (format nil "~A~@[  (~{~A~^, ~})~]" (or (jref params "message") "")
+                          (mapcar (lambda (action) (jref action "title"))
+                                  (jlist (jref params "actions")))))
+         'null)
+        ((string= method "window/showDocument")
+         (json "success" nil))
+        (t 'null)))
+
+(defun lsp-told (server method params)
+  "What SERVER says unasked."
+  (cond ((string= method "textDocument/publishDiagnostics")
+         (lsp-note-diagnostics server (jref params "uri") (jlist (jref params "diagnostics"))))
+        ((string= method "window/showMessage")
+         (lsp-say server (jref params "type") (or (jref params "message") "")))
+        ((string= method "window/logMessage")
+         (lsp-say server 4 (or (jref params "message") "")))
+        ((string= method "$/progress")
+         (lsp-note-progress server (jref params "token") (jref params "value")))))
+
+
+;;;; What a server says to the user, and what it says it is doing.
+
+;;; A server's messages arrive while events are handled, when nothing may be
+;;; drawn: they wait in *LSP-SAID* for LSP-IDLE, which puts every one in the
+;;; buffer "Language Servers" and shows errors, warnings and what the server
+;;; meant to be seen in the echo area.
+
+(defvar *lsp-said* '()
+  "((TYPE TEXT) ...), the latest first: what servers have said that is yet
+   to be shown.  TYPE is the protocol's: 1 an error, 2 a warning, 3 for the
+   user's information, 4 for the log.")
+
+(defparameter *lsp-log-lines* 2000
+  "The most lines the buffer of what servers say keeps.")
+
+(defun lsp-say (server type text)
+  (push (list (if (integerp type) type 4)
+              (format nil "~A: ~A" (lsp-server-group server) text))
+        *lsp-said*))
+
+(defun lsp-show-said ()
+  "Put what servers have said in their buffer, and the last thing meant for
+   the user in the echo area."
+  (when *lsp-said*
+    (let* ((said (nreverse (shiftf *lsp-said* '())))
+           (buffer (or (getstring "Language Servers" *buffer-names*)
+                       (make-buffer "Language Servers" :modes '("Fundamental"))))
+           (shown (find-if (lambda (type) (<= type 3)) said :key #'first :from-end t)))
+      (when buffer
+        (with-writable-buffer (buffer)
+          (let ((end (buffer-end-mark buffer)))
+            (loop for (type text) in said
+                  do (insert-string end (format nil "~[~;error  ~;warning  ~:;~]~A~%" type
+                                                (substitute #\Space #\Newline text)))))
+          ;; The oldest lines go.
+          (let ((extra (- (count-lines (buffer-region buffer)) *lsp-log-lines*)))
+            (when (plusp extra)
+              (with-mark ((from (buffer-start-mark buffer))
+                          (to (buffer-start-mark buffer)))
+                (line-offset to extra 0)
+                (delete-region (region from to))))))
+        (setf (buffer-modified buffer) nil))
+      (when shown
+        (message "~A" (substitute #\Space #\Newline (second shown)))))))
+
+(defun lsp-note-progress (server token value)
+  "SERVER has begun something, got further with it, or finished it: the
+   modeline of its buffers says what, and how far."
+  (let ((kind (jref value "kind"))
+        (entry (assoc token (lsp-server-progress server) :test #'equal)))
+    (cond ((equal kind "end")
+           (setf (lsp-server-progress server)
+                 (remove token (lsp-server-progress server) :key #'car :test #'equal)))
+          ((or (equal kind "begin") (equal kind "report"))
+           (unless entry
+             (setf entry (list token "" nil))
+             (push entry (lsp-server-progress server)))
+           (when (stringp (jref value "title"))
+             (setf (second entry) (jref value "title")))
+           (setf (third entry)
+                 (format nil "~A~@[ ~A~]~@[ ~D%~]" (second entry)
+                         (let ((message (jref value "message")))
+                           (and (stringp message) (plusp (length message)) message))
+                         (let ((percentage (jref value "percentage")))
+                           (and (realp percentage) (round percentage)))))))
+    (loop for buffer being the hash-keys of (lsp-server-documents server)
+          do (ignore-errors (update-lsp-modeline buffer)))))
+
+(defun lsp-progress-text (server)
+  "What SERVER says it is doing, the thing it began last, or NIL."
+  (let ((text (third (first (lsp-server-progress server)))))
+    (and text (subseq text 0 (min 40 (length text))))))
+
+
+;;;; Files a server wants to hear of.
+
+;;; A server registers patterns (client/registerCapability, for
+;;; workspace/didChangeWatchedFiles): files that, made, changed or deleted
+;;; by anything -- a checkout, a build, another editor -- it should be told
+;;; of.  Heml looks at the project's files every few seconds and tells it
+;;; what is different from the last look.
+
+(defun glob-scanner (glob)
+  "A scanner matching the paths the protocol's GLOB does: * is anything
+   within a name, ** any number of directories, ? a character, {a,b} either,
+   and [...] one of some characters."
+  (let ((out (make-string-output-stream))
+        (i 0) (depth 0) (length (length glob)))
+    (write-string "^" out)
+    (loop while (< i length)
+          do (let ((char (char glob i)))
+               (cond ((and (char= char #\*) (< (1+ i) length) (char= (char glob (1+ i)) #\*))
+                      (incf i)
+                      (cond ((and (< (1+ i) length) (char= (char glob (1+ i)) #\/))
+                             (incf i)
+                             (write-string "(?:.*/)?" out))
+                            (t (write-string ".*" out))))
+                     ((char= char #\*) (write-string "[^/]*" out))
+                     ((char= char #\?) (write-string "[^/]" out))
+                     ((char= char #\{) (incf depth) (write-string "(?:" out))
+                     ((and (char= char #\}) (plusp depth)) (decf depth) (write-string ")" out))
+                     ((and (char= char #\,) (plusp depth)) (write-string "|" out))
+                     ((char= char #\[)
+                      (let ((close (position #\] glob :start i)))
+                        (cond (close
+                               (write-char #\[ out)
+                               (when (and (< (1+ i) close) (char= (char glob (1+ i)) #\!))
+                                 (write-char #\^ out)
+                                 (incf i))
+                               (write-string (subseq glob (1+ i) close) out)
+                               (write-char #\] out)
+                               (setf i close))
+                              (t (write-string "\\[" out)))))
+                     ((find char ".+()|^$\\") (write-char #\\ out) (write-char char out))
+                     (t (write-char char out))))
+             (incf i))
+    (write-string "$" out)
+    (ignore-errors (cl-ppcre:create-scanner (get-output-stream-string out)))))
+
+(defun file-watchers (server watchers)
+  "The protocol's WATCHERS as ((SCANNER . KINDS) ...): a scanner for a file's
+   whole name, and the kinds of change wanted, 1 for made, 2 changed, 4
+   deleted, added together."
+  (loop for watcher in watchers
+        for pattern = (jref watcher "globPattern")
+        for glob = (cond ((stringp pattern) pattern)
+                         ((hash-table-p pattern)
+                          (let ((base (jref pattern "baseUri")))
+                            (format nil "~A/~A"
+                                    (string-right-trim
+                                     "/" (or (uri-file (if (hash-table-p base)
+                                                           (or (jref base "uri") "")
+                                                           (or base "")))
+                                             ""))
+                                    (or (jref pattern "pattern") "")))))
+        for scanner = (and glob
+                           (glob-scanner
+                            ;; A pattern that names no place is one within the
+                            ;; server's directory.
+                            (if (or (uiop:string-prefix-p "/" glob) (uiop:string-prefix-p "**" glob))
+                                glob
+                                (concatenate 'string (namestring (lsp-server-root server)) glob))))
+        when scanner
+          collect (cons scanner (or (jref watcher "kind") 7))))
+
+(defparameter *lsp-watch-ticks* 10
+  "How many of LSP-IDLE's half seconds pass between looks at the files
+   servers want to hear of.")
+
+(defparameter *lsp-watch-limit* 20000
+  "A project with more files than this is not looked at.")
+
+(defun watched-kinds (server file)
+  "The kinds of change to FILE, a whole name, that SERVER wants to hear of,
+   or NIL."
+  (let ((kinds 0))
+    (loop for (nil . watchers) in (lsp-server-watchers server)
+          do (loop for (scanner . wanted) in watchers
+                   when (cl-ppcre:scan scanner file)
+                     do (setf kinds (logior kinds wanted))))
+    (and (plusp kinds) kinds)))
+
+(defun lsp-look-at-files (server)
+  "Tell SERVER which of the files it wants to hear of have been made,
+   changed or deleted since the last look.  The first look tells it nothing."
+  (when (and (lsp-server-watchers server) (eq (lsp-server-state server) :ready))
+    (let* ((root (namestring (lsp-server-root server)))
+           (files (ignore-errors (project-files root)))
+           (old (lsp-server-watched server))
+           (new (make-hash-table :test 'equal))
+           (changes '()))
+      (when (<= (length files) *lsp-watch-limit*)
+        (dolist (relative files)
+          (let* ((file (concatenate 'string root relative))
+                 (kinds (watched-kinds server file)))
+            (when kinds
+              (let ((date (ignore-errors (file-write-date file))))
+                (when date
+                  (setf (gethash file new) date)
+                  (when old
+                    (let ((before (gethash file old)))
+                      (cond ((null before)
+                             (when (logtest kinds 1) (push (cons file 1) changes)))
+                            ((/= before date)
+                             (when (logtest kinds 2) (push (cons file 2) changes)))))))))))
+        (when old
+          (loop for file being the hash-keys of old
+                unless (gethash file new)
+                  do (let ((kinds (watched-kinds server file)))
+                       (when (and kinds (logtest kinds 4))
+                         (push (cons file 3) changes)))))
+        (setf (lsp-server-watched server) new)
+        (when changes
+          (lsp-notify server "workspace/didChangeWatchedFiles"
+                      (json "changes"
+                            (map 'vector (lambda (change)
+                                           (json "uri" (file-uri (car change))
+                                                 "type" (cdr change)))
+                                 changes))))))))
 
 
 ;;;; Files and places, as the protocol writes them.
@@ -359,8 +651,12 @@
       (babel:octets-to-string (coerce octets '(simple-array (unsigned-byte 8) (*)))
                               :encoding :utf-8))))
 
-;;; A position is a line and a character, both from 0, the character counted
-;;; in UTF-16 code units: a character past #xFFFF is two.
+;;; A position is a line and a character, both from 0.  What a character
+;;; counts is agreed with the server when it starts: characters themselves
+;;; (the protocol's utf-32), which Heml asks for, or else UTF-16 code units,
+;;; of which a character past #xFFFF is two.  *ENCODING* is that of the
+;;; server being talked to: LSP-CURRENT-SERVER sets it for the command
+;;; under way, and what handles a server's messages binds it.
 
 (defun utf16-offset (string charpos)
   (loop for i below (min charpos (length string))
@@ -372,9 +668,21 @@
       (when (>= units offset) (return i))
       (incf units (if (> (char-code (char string i)) #xFFFF) 2 1)))))
 
+(defun unit-offset (string charpos)
+  "How far CHARPOS is into STRING, as the server counts."
+  (if (eq *encoding* :utf-32)
+      (min charpos (length string))
+      (utf16-offset string charpos)))
+
+(defun unit-charpos (string offset)
+  "The index in STRING of what the server counts as OFFSET."
+  (if (eq *encoding* :utf-32)
+      (min offset (length string))
+      (utf16-charpos string offset)))
+
 (defun lsp-position (mark)
   (json "line" (1- (count-lines (region (buffer-start-mark (line-buffer (mark-line mark))) mark)))
-        "character" (utf16-offset (line-string (mark-line mark)) (mark-charpos mark))))
+        "character" (unit-offset (line-string (mark-line mark)) (mark-charpos mark))))
 
 (defun lsp-move-mark (mark line character)
   "Move MARK, in its buffer, to the protocol's position LINE and CHARACTER."
@@ -382,7 +690,7 @@
   (unless (line-offset mark line)
     (buffer-end mark))
   (let ((string (line-string (mark-line mark))))
-    (character-offset mark (utf16-charpos string character)))
+    (character-offset mark (unit-charpos string character)))
   mark)
 
 (defun lsp-document (buffer)
@@ -405,16 +713,18 @@
 
 ;;;; Starting and stopping.
 
-(defun start-language-server (mode root &optional (commands nil commands-p))
-  "Start MODE's server in ROOT: the first of COMMANDS, by default the
-   commands for MODE that are installed.  One that cannot start, or will not
-   be initialized, gives way to the next (LSP-SERVER-DIED), and when there
-   is no next the place is remembered in *LSP-FAILURES*."
-  (let ((installed (if commands-p commands (language-server-commands mode))))
+(defun start-language-server (mode root &key (group (language-server-group mode))
+                                             (commands (language-server-commands mode group)))
+  "Start MODE's server in ROOT, or the additional one called GROUP: the
+   first of COMMANDS, by default those of its commands that are installed.
+   One that cannot start, or will not be initialized, gives way to the next
+   (LSP-SERVER-DIED), and when there is no next the place is remembered in
+   *LSP-FAILURES*."
+  (let ((installed commands))
     (let ((command (first installed))
           (others (rest installed)))
      (when command
-      (let ((server (%make-lsp-server :mode mode :group (language-server-group mode)
+      (let ((server (%make-lsp-server :mode mode :group group
                                       :root root :commands others)))
         (setf (lsp-server-connection server)
               (make-process-connection
@@ -442,24 +752,53 @@
                "workspaceFolders" (vector (json "uri" (file-uri (string-right-trim "/" (namestring root)))
                                                 "name" (project-name (namestring root))))
                "capabilities"
-               (json "textDocument"
+               (json "general" (json "positionEncodings" (vector "utf-32" "utf-16"))
+                     "window" (json "workDoneProgress" t
+                                    "showMessage" (json)
+                                    "showDocument" (json "support" nil))
+                     "textDocument"
                      (json "synchronization" (json "didSave" t)
                            "publishDiagnostics" (json)
                            "diagnostic" (json "dynamicRegistration" nil
                                               "relatedDocumentSupport" nil)
                            "hover" (json "contentFormat" (vector "plaintext" "markdown"))
-                           "completion" (json "completionItem" (json "snippetSupport" nil))
-                           "definition" (json)
+                           "completion"
+                           (json "completionItem"
+                                 (json "snippetSupport" t
+                                       "insertReplaceSupport" t
+                                       "documentationFormat" (vector "plaintext" "markdown")
+                                       "resolveSupport"
+                                       (json "properties"
+                                             (vector "documentation" "detail"
+                                                     "additionalTextEdits"))))
+                           "definition" (json "linkSupport" t)
+                           "declaration" (json "linkSupport" t)
+                           "typeDefinition" (json "linkSupport" t)
+                           "implementation" (json "linkSupport" t)
                            "references" (json)
-                           "rename" (json)
+                           "documentHighlight" (json)
+                           "callHierarchy" (json)
+                           "rename" (json "prepareSupport" t)
                            "formatting" (json)
+                           "rangeFormatting" (json)
+                           "onTypeFormatting" (json)
                            "documentSymbol" (json "hierarchicalDocumentSymbolSupport" t)
+                           "semanticTokens"
+                           (json "requests" (json "full" t)
+                                 "tokenTypes" *token-types*
+                                 "tokenModifiers" (vector)
+                                 "formats" (vector "relative"))
+                           "inlayHint" (json)
+                           "codeLens" (json)
+                           "foldingRange" (json "lineFoldingOnly" t)
                            "signatureHelp"
                            (json "signatureInformation"
                                  (json "parameterInformation" (json "labelOffsetSupport" t)
                                        "activeParameterSupport" t))
                            "codeAction"
-                           (json "codeActionLiteralSupport"
+                           (json "dataSupport" t
+                                 "resolveSupport" (json "properties" (vector "edit" "command"))
+                                 "codeActionLiteralSupport"
                                  (json "codeActionKind"
                                        (json "valueSet"
                                              (vector "quickfix" "refactor" "refactor.extract"
@@ -467,14 +806,28 @@
                                                      "source" "source.organizeImports")))))
                      "workspace" (json "workspaceFolders" t "configuration" t
                                        "applyEdit" t "symbol" (json)
+                                       "workspaceEdit"
+                                       (json "documentChanges" t
+                                             "resourceOperations"
+                                             (vector "create" "rename" "delete"))
+                                       "didChangeWatchedFiles"
+                                       (json "dynamicRegistration" t
+                                             "relativePatternSupport" t)
+                                       "executeCommand" (json)
+                                       "semanticTokens" (json "refreshSupport" t)
+                                       "inlayHint" (json "refreshSupport" t)
+                                       "codeLens" (json "refreshSupport" t)
                                        "diagnostics" (json "refreshSupport" t))))
          (lambda (result error)
            (cond ((or error (not (hash-table-p result)))
                   (lsp-server-died server))
                  (t
                   (setf (lsp-server-capabilities server) (jref result "capabilities"))
+                  (when (equal (jref result "capabilities" "positionEncoding") "utf-32")
+                    (setf (lsp-server-encoding server) :utf-32))
                   (lsp-notify server "initialized" (json))
                   ;; Some servers take their settings only when told of them.
+                  (setf (lsp-server-settings-date server) (settings-date root))
                   (let ((settings (language-server-settings root)))
                     (when (plusp (hash-table-count settings))
                       (lsp-notify server "workspace/didChangeConfiguration"
@@ -495,14 +848,16 @@
             ((eq (lsp-server-state server) :starting)
              (unless (and (lsp-server-commands server)
                           (ignore-errors
-                           (start-language-server mode root (lsp-server-commands server))))
+                           (start-language-server mode root :group group
+                                                  :commands (lsp-server-commands server))))
                (pushnew (list group root) *lsp-failures* :test #'equal)))
             ((note-lsp-crash group root)
              (pushnew (list group root) *lsp-failures* :test #'equal))))
     (setf (lsp-server-state server) :dead)
     (setf *lsp-servers* (remove server *lsp-servers*))
+    ;; What its buffers' other servers say is wrong is still wrong.
     (loop for buffer being the hash-keys of (lsp-server-documents server)
-          do (clear-buffer-diagnostics buffer)
+          do (ignore-errors (rebuild-buffer-diagnostics buffer))
              (ignore-errors (update-lsp-modeline buffer)))
     (incf hi:*decoration-tick*)
     (let ((connection (lsp-server-connection server)))
@@ -517,19 +872,36 @@
     (lsp-wait (lambda () nil) 0.1))
   (lsp-server-died server t))
 
-(defun buffer-language-server (buffer &optional start)
-  "The language server for BUFFER, started if START and it can be."
+(defun buffer-language-servers (buffer &optional start)
+  "The language servers for BUFFER, its mode's own first, each started if
+   START and it can be."
   (let ((pathname (buffer-pathname buffer))
         (mode (buffer-major-mode buffer)))
-    (when (and pathname (value language-servers)
-               (assoc mode *language-servers* :test #'string=))
+    (when (and pathname (value language-servers))
       (let ((root (or (buffer-project-root buffer) (directory-namestring pathname))))
-        (or (find-if (lambda (server)
-                       (and (string= (lsp-server-group server) (language-server-group mode))
-                            (string= (lsp-server-root server) root)))
-                     *lsp-servers*)
-            (and start (not (lsp-failed-p (language-server-group mode) root))
-                 (start-language-server mode root)))))))
+        (loop for group in (mode-server-groups mode)
+              for server = (or (find-if (lambda (server)
+                                          (and (string= (lsp-server-group server) group)
+                                               (string= (lsp-server-root server) root)))
+                                        *lsp-servers*)
+                               (and start (not (lsp-failed-p group root))
+                                    (start-language-server mode root :group group)))
+              when server collect server)))))
+
+(defun buffer-language-server (buffer &optional start)
+  "The language server for BUFFER, its mode's own, started if START and it
+   can be."
+  (find (language-server-group (buffer-major-mode buffer))
+        (buffer-language-servers buffer start)
+        :key #'lsp-server-group :test #'equal))
+
+(defun buffer-server-with (buffer capability)
+  "The first of BUFFER's servers, ready, that has CAPABILITY, a name among
+   the capabilities a server says it has."
+  (find-if (lambda (server)
+             (and (eq (lsp-server-state server) :ready)
+                  (jref (lsp-server-capabilities server) capability)))
+           (buffer-language-servers buffer)))
 
 (defun buffer-server-failed-p (buffer)
   "Whether BUFFER's server could not be started, or kept dying."
@@ -562,8 +934,10 @@
           when (char= (char text i) #\Newline)
             do (incf line) (setf line-start (1+ i)))
     (values line
-            (loop for i from line-start below index
-                  sum (if (> (char-code (char text i)) #xFFFF) 2 1)))))
+            (if (eq *encoding* :utf-32)
+                (- index line-start)
+                (loop for i from line-start below index
+                      sum (if (> (char-code (char text i)) #xFFFF) 2 1))))))
 
 (defun text-change (old new)
   "The one span of OLD that must be replaced to make it NEW: where it
@@ -592,7 +966,8 @@
   (when (eq (lsp-server-state server) :ready)
     (let ((document (gethash buffer (lsp-server-documents server)))
           (signature (buffer-signature buffer))
-          (incremental (incremental-sync-p server)))
+          (incremental (incremental-sync-p server))
+          (*encoding* (lsp-server-encoding server)))
       (cond ((null document)
              (let ((text (region-to-string (buffer-region buffer))))
                (setf (gethash buffer (lsp-server-documents server))
@@ -681,13 +1056,33 @@
 ;;; Twice a second, the current buffer's server is started if it is not, and
 ;;; told of what has been typed, so that its errors keep up.
 
+(defvar *lsp-ticks* 0)
+
+(defvar *lsp-idle-functions* '()
+  "Functions of a server and a buffer, called twice a second with the
+   current buffer and its server, once it is ready and knows the buffer as
+   it is.")
+
 (defun lsp-idle (&optional elapsed)
   (declare (ignore elapsed))
+  (ignore-errors (lsp-show-said))
+  (incf *lsp-ticks*)
+  (dolist (server *lsp-servers*)
+    (when (eq (lsp-server-state server) :ready)
+      (ignore-errors (lsp-send-changed-settings server))
+      (when (zerop (mod *lsp-ticks* *lsp-watch-ticks*))
+        (ignore-errors (lsp-look-at-files server)))))
   (ignore-errors
    (let ((buffer (current-buffer)))
-     (let ((server (buffer-language-server buffer t)))
+     ;; Its additional servers too.
+     (dolist (other (buffer-language-servers buffer t))
+       (lsp-sync other buffer))
+     (let ((server (buffer-language-server buffer)))
        (when server
-         (lsp-sync server buffer)))
+         (when (eq (lsp-server-state server) :ready)
+           (let ((*encoding* (lsp-server-encoding server)))
+             (dolist (function *lsp-idle-functions*)
+               (ignore-errors (funcall function server buffer)))))))
      ;; The other buffers the servers know: one changed from elsewhere is
      ;; told of, and one whose server is to be asked about again is.
      (dolist (server *lsp-servers*)
@@ -702,10 +1097,12 @@
 
 (add-hook entry-hook 'start-lsp-idle)
 
-(defun lsp-current-server ()
-  "The current buffer's server, ready and knowing the buffer as it is."
+(defun lsp-current-server (&optional capability)
+  "The current buffer's server, ready and knowing the buffer as it is: its
+   mode's own, or with CAPABILITY, the first of its servers that has it."
   (let* ((buffer (current-buffer))
-         (server (or (buffer-language-server buffer t)
+         (server (or (buffer-language-server (progn (buffer-language-servers buffer t) buffer))
+                     (first (buffer-language-servers buffer))
                      (editor-error "No language server for this buffer."))))
     (unless (lsp-wait (lambda () (not (eq (lsp-server-state server) :starting))) 10)
       (editor-error "The language server has not started."))
@@ -718,15 +1115,22 @@
       (when (eq (lsp-server-state server) :dead)
         (editor-error "The language server could not be started.")))
     (lsp-sync server buffer)
+    ;; Another of its servers, when this one cannot do what is wanted.
+    (when (and capability (not (jref (lsp-server-capabilities server) capability)))
+      (let ((other (buffer-server-with buffer capability)))
+        (when other
+          (setf server other)
+          (lsp-sync server buffer))))
+    (setf *encoding* (lsp-server-encoding server))
     server))
 
 
 ;;;; Errors and warnings.
 
 (defvar *buffer-diagnostics* (make-hash-table :test 'eq :weakness :key)
-  "Buffer to ((START-MARK END-MARK SEVERITY MESSAGE DIAGNOSTIC) ...): what
-   its server says is wrong in it, at marks, so that each stays with its
-   text, and as the server said it.")
+  "Buffer to ((START-MARK END-MARK SEVERITY MESSAGE DIAGNOSTIC SERVER) ...):
+   what its servers say is wrong in it, at marks, so that each stays with
+   its text, as the server said it, and the server that did.")
 
 (defparameter *diagnostic-fonts*
   '((1 . (:fg 1 :underline t))          ; an error
@@ -753,30 +1157,45 @@
     (when file
       (setf (gethash file (if pulled (lsp-server-pulled server) (lsp-server-pushed server)))
             diagnostics)
-      (setf diagnostics (append (gethash file (lsp-server-pushed server))
-                                (gethash file (lsp-server-pulled server))))
       (setf (gethash file (lsp-server-diagnostics server))
-            (loop for diagnostic in diagnostics
+            (loop for diagnostic in (append (gethash file (lsp-server-pushed server))
+                                            (gethash file (lsp-server-pulled server)))
                   collect (list (jref diagnostic "range" "start" "line")
                                 (jref diagnostic "range" "start" "character")
                                 (or (jref diagnostic "severity") 1)
                                 (or (jref diagnostic "message") ""))))
       (when buffer
-        (clear-buffer-diagnostics buffer)
-        (setf (gethash buffer *buffer-diagnostics*)
-              (loop for diagnostic in diagnostics
-                    collect (let ((start (copy-mark (buffer-start-mark buffer) :right-inserting))
-                                  (end (copy-mark (buffer-start-mark buffer) :left-inserting)))
-                              (lsp-move-mark start (jref diagnostic "range" "start" "line")
-                                             (jref diagnostic "range" "start" "character"))
-                              (lsp-move-mark end (jref diagnostic "range" "end" "line")
-                                             (jref diagnostic "range" "end" "character"))
-                              (list start end
-                                    (or (jref diagnostic "severity") 1)
-                                    (or (jref diagnostic "message") "")
-                                    diagnostic)))))
-      (when buffer (update-lsp-modeline buffer))
+        (rebuild-buffer-diagnostics buffer)
+        (update-lsp-modeline buffer))
       (incf hi:*decoration-tick*))))
+
+(defun rebuild-buffer-diagnostics (buffer)
+  "Make BUFFER's diagnostics again from what each of the servers running
+   says of its file: a buffer may have several, and what is wrong is what
+   any of them finds."
+  (let ((file (let ((pathname (buffer-pathname buffer))) (and pathname (namestring pathname)))))
+    (clear-buffer-diagnostics buffer)
+    (when file
+      (let ((all (loop for server in *lsp-servers*
+                       append (let ((*encoding* (lsp-server-encoding server)))
+                                (loop for diagnostic in (append (gethash file (lsp-server-pushed server))
+                                                                (gethash file (lsp-server-pulled server)))
+                                      collect
+                                      (let ((start (copy-mark (buffer-start-mark buffer)
+                                                              :right-inserting))
+                                            (end (copy-mark (buffer-start-mark buffer)
+                                                            :left-inserting)))
+                                        (lsp-move-mark start (jref diagnostic "range" "start" "line")
+                                                       (jref diagnostic "range" "start" "character"))
+                                        (lsp-move-mark end (jref diagnostic "range" "end" "line")
+                                                       (jref diagnostic "range" "end" "character"))
+                                        (list start end
+                                              (or (jref diagnostic "severity") 1)
+                                              (or (jref diagnostic "message") "")
+                                              diagnostic
+                                              server)))))))
+        (when all
+          (setf (gethash buffer *buffer-diagnostics*) all))))))
 
 ;;; The modeline says what the server finds: nothing when there is no
 ;;; server, how many errors and warnings when there are any.
@@ -799,10 +1218,10 @@
                      ((eq (lsp-server-state server) :starting) "(server starting)  ")
                      (t
                       (multiple-value-bind (errors warnings) (buffer-diagnostic-counts buffer)
-                        (if (and (zerop errors) (zerop warnings))
-                            ""
-                            (format nil "(~[~:;~:*~D error~:P~]~:[~; ~]~[~:;~:*~D warning~:P~])  "
-                                    errors (and (plusp errors) (plusp warnings)) warnings))))))))
+                        (format nil "~@[(~A)  ~]~:[(~[~:;~:*~D error~:P~]~:[~; ~]~[~:;~:*~D warning~:P~])  ~;~]"
+                                (lsp-progress-text server)
+                                (and (zerop errors) (zerop warnings))
+                                errors (and (plusp errors) (plusp warnings)) warnings)))))))
 
 (unless (member :lsp hi::*default-modeline-fields* :key #'modeline-field-name)
   (let ((project (member :project hi::*default-modeline-fields* :key #'modeline-field-name)))
@@ -938,20 +1357,48 @@
 
 ;;;; Commands.
 
+(defun lsp-go-to (method what)
+  "Go to what the server answers METHOD with for what is at point; several
+   places are listed.  WHAT says what they are, as \"definition\"."
+  (let* ((server (lsp-current-server))
+         (locations (lsp-locations
+                     (lsp-request server method
+                                  (lsp-symbol-params (current-buffer) (current-point))))))
+    (cond ((null locations) (editor-error "No ~A found." what))
+          ((null (rest locations))
+           (push-buffer-mark (copy-mark (current-point)))
+           (lsp-visit (first locations)))
+          (t (list-lsp-locations (format nil "*~:(~A~)s*" what)
+                                 (format nil "~:(~A~)s" what)
+                                 locations)))))
+
 (defcommand "LSP Find Definition" (p)
   "Go to the definition of what is at point, as the language server finds
    it; several are listed."
   "Go to the definition of what is at point."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
-         (locations (lsp-locations
-                     (lsp-request server "textDocument/definition"
-                                  (lsp-symbol-params (current-buffer) (current-point))))))
-    (cond ((null locations) (editor-error "No definition found."))
-          ((null (rest locations))
-           (push-buffer-mark (copy-mark (current-point)))
-           (lsp-visit (first locations)))
-          (t (list-lsp-locations "*Definitions*" "Definitions" locations)))))
+  (lsp-go-to "textDocument/definition" "definition"))
+
+(defcommand "LSP Find Declaration" (p)
+  "Go to the declaration of what is at point, as the language server finds
+   it: in C, a function's prototype rather than its body."
+  "Go to the declaration of what is at point."
+  (declare (ignore p))
+  (lsp-go-to "textDocument/declaration" "declaration"))
+
+(defcommand "LSP Find Type Definition" (p)
+  "Go to the definition of the type of what is at point, as the language
+   server finds it."
+  "Go to the definition of the type of what is at point."
+  (declare (ignore p))
+  (lsp-go-to "textDocument/typeDefinition" "type definition"))
+
+(defcommand "LSP Find Implementation" (p)
+  "Go to what implements the interface, or the method of one, at point, as
+   the language server finds it; several are listed."
+  "Go to the implementations of what is at point."
+  (declare (ignore p))
+  (lsp-go-to "textDocument/implementation" "implementation"))
 
 (defcommand "LSP Find References" (p)
   "List the places that refer to what is at point, as the language server
@@ -1024,11 +1471,46 @@
       (let ((changes (jref edit "changes")))
         (when (hash-table-p changes)
           (maphash #'apply-to changes)))
-      ;; A change that makes, renames or deletes a file has no edits.
+      ;; In order: a file may be made and then written in.
       (dolist (change (jlist (jref edit "documentChanges")))
-        (when (jref change "edits")
-          (apply-to (jref change "textDocument" "uri") (jref change "edits")))))
+        (cond ((jref change "kind")
+               (apply-file-operation change))
+              ((jref change "edits")
+               (apply-to (jref change "textDocument" "uri") (jref change "edits"))))))
     (values edits buffers)))
+
+(defun apply-file-operation (change)
+  "Make, rename or delete a file, as a server's edit says to."
+  (let* ((kind (jref change "kind"))
+         (options (jref change "options"))
+         (file (uri-file (or (jref change "uri") (jref change "oldUri") "")))
+         (new (uri-file (or (jref change "newUri") ""))))
+    (flet ((free-p (file)
+             ;; Whether FILE may be written: it is not there, or the edit
+             ;; says to write over it.
+             (or (not (probe-file file))
+                 (and (jref options "overwrite") (not (jref options "ignoreIfExists"))))))
+      (cond ((null file))
+            ((string= kind "create")
+             (when (free-p file)
+               (ensure-directories-exist file)
+               (with-open-file (out file :direction :output :if-exists :supersede)
+                 (declare (ignorable out)))))
+            ((string= kind "rename")
+             (when (and new (probe-file file) (free-p new))
+               (ensure-directories-exist new)
+               (rename-file file new)
+               ;; A buffer on the file follows it.
+               (let ((buffer (file-buffer file)))
+                 (when buffer
+                   (lsp-buffer-closed buffer)
+                   (setf (buffer-pathname buffer) (pathname new))))))
+            ((string= kind "delete")
+             (when (probe-file file)
+               (if (uiop:directory-pathname-p (probe-file file))
+                   (when (jref options "recursive")
+                     (uiop:delete-directory-tree (probe-file file) :validate t))
+                   (delete-file file))))))))
 
 (defcommand "LSP Code Action" (p)
   "Offer what the language server can do about what is at point -- a fix
@@ -1045,20 +1527,49 @@
                                  (gethash buffer *buffer-diagnostics*)))
          ;; About what is wrong at point, or on its line, or just point.
          (about (cond (here (list here)) (t on-line)))
-         (range (if about
-                    (json "start" (lsp-position (first (first about)))
-                          "end" (lsp-position (second (first about))))
-                    (json "start" (lsp-position point) "end" (lsp-position point))))
-         (actions (jlist (lsp-request
-                          server "textDocument/codeAction"
-                          (json "textDocument" (lsp-document buffer)
-                                "range" range
-                                "context" (json "diagnostics"
-                                                (map 'vector #'fifth about)))))))
+         (range (lambda ()
+                  ;; As the server being asked counts.
+                  (if about
+                      (json "start" (lsp-position (first (first about)))
+                            "end" (lsp-position (second (first about))))
+                      (json "start" (lsp-position point) "end" (lsp-position point)))))
+         ;; Each of the buffer's servers is asked, about what it found.
+         (actions
+           (loop for server in (remove-if-not
+                                (lambda (server)
+                                  (and (eq (lsp-server-state server) :ready)
+                                       (jref (lsp-server-capabilities server)
+                                             "codeActionProvider")))
+                                (cons server (remove server (buffer-language-servers buffer))))
+                 append (let ((*encoding* (lsp-server-encoding server)))
+                          (lsp-sync server buffer)
+                          (mapcar (lambda (action) (cons action server))
+                                  (jlist (lsp-request
+                                          server "textDocument/codeAction"
+                                          (json "textDocument" (lsp-document buffer)
+                                                "range" (funcall range)
+                                                "context"
+                                                (json "diagnostics"
+                                                      (map 'vector #'fifth
+                                                           (remove server about
+                                                                   :key #'sixth
+                                                                   :test-not #'eq)))))))))))
     (unless actions (editor-error "The server has nothing to offer here."))
-    (let ((choice (popup-select (mapcar (lambda (action) (or (jref action "title") "?")) actions))))
+    (let ((choice (popup-select (mapcar (lambda (action) (or (jref (car action) "title") "?"))
+                                        actions))))
       (when choice
-        (let* ((action (nth choice actions))
+        (let* ((server (cdr (nth choice actions)))
+               (*encoding* (lsp-server-encoding server))
+               (action (let ((action (car (nth choice actions))))
+                         ;; One whose edit the server has yet to work out.
+                         (or (and (not (jref action "edit"))
+                                  (not (jref action "command"))
+                                  (jref (lsp-server-capabilities server)
+                                        "codeActionProvider" "resolveProvider")
+                                  (let ((resolved (lsp-request server "codeAction/resolve" action
+                                                               :timeout 15)))
+                                    (and (hash-table-p resolved) resolved)))
+                             action)))
                (edit (jref action "edit"))
                (command (jref action "command")))
           (when (hash-table-p edit)
@@ -1080,9 +1591,28 @@
   "Rename what is at point, everywhere."
   (declare (ignore p))
   (let* ((server (lsp-current-server))
+         (old
+           ;; A server that says what can be renamed is asked first: what is
+           ;; here may be nothing with a name, or a name that is not this
+           ;; project's to change.
+           (or (when (jref (lsp-server-capabilities server) "renameProvider" "prepareProvider")
+                 (let ((there (lsp-request server "textDocument/prepareRename"
+                                           (lsp-symbol-params (current-buffer) (current-point)))))
+                   (unless there (editor-error "This cannot be renamed."))
+                   (or (jref there "placeholder")
+                       (let ((range (or (jref there "range")
+                                        (and (jref there "start") there))))
+                         (when range
+                           (with-mark ((start (current-point))
+                                       (end (current-point)))
+                             (lsp-move-mark start (jref range "start" "line")
+                                            (jref range "start" "character"))
+                             (lsp-move-mark end (jref range "end" "line")
+                                            (jref range "end" "character"))
+                             (region-to-string (region start end))))))))
+               (word-at-point)))
          (name (prompt-for-string :prompt "Rename to: "
-                                  :default (let ((word (word-at-point)))
-                                             (and (plusp (length word)) word))))
+                                  :default (and old (plusp (length old)) old)))
          (params (lsp-symbol-params (current-buffer) (current-point))))
     (setf (gethash "newName" params) name)
     (let ((edit (lsp-request server "textDocument/rename" params :timeout 15)))
@@ -1094,7 +1624,7 @@
   "Lay this buffer out as the language server's formatter does."
   "Format this buffer with the language server."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "documentFormattingProvider"))
          (edits (lsp-request server "textDocument/formatting"
                              (json "textDocument" (lsp-document (current-buffer))
                                    "options" (json "tabSize" 4 "insertSpaces" t))
@@ -1141,9 +1671,9 @@
 (defun lsp-format-before-saving (buffer)
   (when (value lsp-format-on-save)
     (ignore-errors
-     (let ((server (buffer-language-server buffer)))
-       (when (and server (eq (lsp-server-state server) :ready)
-                  (jref (lsp-server-capabilities server) "documentFormattingProvider"))
+     (let ((server (buffer-server-with buffer "documentFormattingProvider")))
+       (when server
+         (setf *encoding* (lsp-server-encoding server))
          (lsp-sync server buffer)
          (let ((edits (lsp-request server "textDocument/formatting"
                                    (json "textDocument" (lsp-document buffer)
@@ -1158,16 +1688,19 @@
   "List what the language server finds wrong, in this buffer's project."
   "List what the language server finds wrong."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((first (lsp-current-server))
          (locations
-           (loop for file being the hash-keys of (lsp-server-diagnostics server)
+           (loop for server in (cons first (remove first (buffer-language-servers
+                                                          (current-buffer))))
+                 append
+                 (loop for file being the hash-keys of (lsp-server-diagnostics server)
                    using (hash-value diagnostics)
                  append (loop for (line character severity message) in diagnostics
                               collect (list file line character
                                             (format nil "~A: ~A"
                                                     (case severity
                                                       (1 "error") (2 "warning") (t "note"))
-                                                    (substitute #\Space #\Newline message)))))))
+                                                    (substitute #\Space #\Newline message))))))))
     (unless locations (editor-error "Nothing is wrong, that the server says."))
     (list-lsp-locations "*Diagnostics*" "Errors and warnings"
                         (sort locations (lambda (a b)
@@ -1184,13 +1717,17 @@
                        (editor-error "No language server for this buffer.")))
          (group (language-server-group (buffer-major-mode buffer)))
          (root (or (buffer-project-root buffer) (directory-namestring pathname)))
-         (server (buffer-language-server buffer)))
-    (unless (or server (lsp-failed-p group root))
+         (servers (buffer-language-servers buffer))
+         (groups (mode-server-groups (buffer-major-mode buffer))))
+    (declare (ignorable group))
+    (unless (or servers (some (lambda (group) (lsp-failed-p group root)) groups))
       (editor-error "No language server for this buffer."))
     ;; One that could not be started, or kept dying, is tried again.
-    (setf *lsp-failures* (remove (list group root) *lsp-failures* :test #'equal))
-    (setf *lsp-crashes* (remove (list group root) *lsp-crashes* :key #'car :test #'equal))
-    (when server (stop-language-server server))
+    (dolist (group groups)
+      (setf *lsp-failures* (remove (list group root) *lsp-failures* :test #'equal))
+      (setf *lsp-crashes* (remove (list group root) *lsp-crashes* :key #'car :test #'equal)))
+    (dolist (server servers)
+      (stop-language-server server))
     (message "The language server is starting again.")))
 
 
@@ -1289,111 +1826,129 @@
     "module" "property" "unit" "value" "enum" "keyword" "snippet" "color" "file"
     "reference" "folder" "enum member" "constant" "struct" "event" "operator" "type"))
 
+(defvar *lsp-completion-items* '()
+  "((TEXT ITEM SERVER) ...): the completions last offered, as the server
+   gave them, by the text each is known by in the popup.")
+
+(defun completion-item-text (item)
+  "What ITEM, a server's completion, is known by: what is typed to choose
+   it, without what a snippet would add."
+  (let* ((insert (or (jref item "textEdit" "newText") (jref item "insertText")))
+         (text (string-trim " " (or (jref item "filterText")
+                                    (and insert (not (find #\$ insert)) insert)
+                                    (jref item "label")
+                                    ""))))
+    ;; A label may be a whole signature.
+    (subseq text 0 (or (position-if (lambda (char) (find char "( <")) text) (length text)))))
+
 (defun lsp-completions (point)
   "The language server's completions of the word before POINT, each with
-   its kind, and where the word starts; the buffers' words when the server
-   has none to give."
+   its kind and what the server says it is, and where the word starts; the
+   buffers' words when the server has none to give."
   (let* ((buffer (line-buffer (mark-line point)))
          (server (ignore-errors (buffer-language-server buffer)))
          (items (when (and server (eq (lsp-server-state server) :ready))
-                  (lsp-sync server buffer)
-                  (let ((result (lsp-request server "textDocument/completion"
-                                             (lsp-position-params buffer point)
-                                             :timeout 2)))
-                    (jlist (if (hash-table-p result) (jref result "items") result)))))
+                  (let ((*encoding* (lsp-server-encoding server)))
+                    (lsp-sync server buffer)
+                    (let ((result (lsp-request server "textDocument/completion"
+                                               (lsp-position-params buffer point)
+                                               :timeout 2)))
+                      (jlist (if (hash-table-p result) (jref result "items") result))))))
          (start (token-start point #'word-char-p))
          (typed (region-to-string (region start point)))
+         (found '())
          (candidates
            (remove-duplicates
             (loop for item in items
-                  for text = (let ((insert (or (jref item "textEdit" "newText")
-                                               (jref item "insertText"))))
-                               (string-trim " " (if (and insert (not (find #\$ insert)))
-                                                    insert
-                                                    (or (jref item "label") ""))))
+                  for text = (completion-item-text item)
                   for kind = (jref item "kind")
+                  for detail = (jref item "detail")
                   when (and (plusp (length text))
                             (>= (length text) (length typed))
                             (string-equal typed text :end2 (length typed))
                             (string/= text typed))
-                    collect (cons text (and (integerp kind) (< 0 kind (length *completion-kinds*))
-                                            (aref *completion-kinds* kind))))
+                    collect (progn
+                              (push (list text item server) found)
+                              (cons text
+                                    (let ((kind (and (integerp kind)
+                                                     (< 0 kind (length *completion-kinds*))
+                                                     (aref *completion-kinds* kind)))
+                                          (detail (and (stringp detail)
+                                                       (substitute #\Space #\Newline detail))))
+                                      (when (or kind detail)
+                                        (let ((note (format nil "~@[~A~]~:[~;  ~]~@[~A~]"
+                                                            kind (and kind detail) detail)))
+                                          (subseq note 0 (min 44 (length note)))))))))
             :key #'car :test #'string= :from-end t)))
     (cond (candidates
+           (setf *lsp-completion-items* (nreverse found))
            (values (subseq candidates 0 (min 200 (length candidates))) start))
           (t
+           (setf *lsp-completion-items* '())
            (delete-mark start)
            (word-completions point)))))
 
+(defun resolve-completion-item (entry)
+  "The item of ENTRY, one of *LSP-COMPLETION-ITEMS*, with what its server
+   left to be asked for: what it is, and what else it changes."
+  (destructuring-bind (text item server) entry
+    (declare (ignore text))
+    (when (and (jref (lsp-server-capabilities server) "completionProvider" "resolveProvider")
+               (not (gethash "heml-resolved" item)))
+      (setf (gethash "heml-resolved" item) t)
+      (let ((resolved (let ((*encoding* (lsp-server-encoding server)))
+                        (lsp-request server "completionItem/resolve"
+                                     (let ((asked (make-hash-table :test 'equal)))
+                                       (maphash (lambda (key value)
+                                                  (unless (string= key "heml-resolved")
+                                                    (setf (gethash key asked) value)))
+                                                item)
+                                       asked)
+                                     :timeout 1))))
+        (when (hash-table-p resolved)
+          (maphash (lambda (key value) (setf (gethash key item) value)) resolved))))
+    item))
 
-;;;; Naming a mode's server.
+(defun lsp-describe-completion (text)
+  "What the server says of the completion known by TEXT."
+  (let ((entry (assoc text *lsp-completion-items* :test #'string=)))
+    (when entry
+      (let* ((item (resolve-completion-item entry))
+             (detail (jref item "detail"))
+             (documentation (hover-text (jref item "documentation"))))
+        (string-trim '(#\Space #\Newline)
+                     (format nil "~@[~A~%~%~]~A" (and (stringp detail) detail) documentation))))))
 
-(defun define-language-server (mode commands &key language-id group)
-  "MODE's files are served by a language server: COMMANDS is the command
-   lines that run one, a list of a program and its arguments each, the first
-   whose program is installed and which starts being used; LANGUAGE-ID is the protocol's name
-   for the language; and GROUP, when given, names the modes that have one
-   server between them in a project, those defined with the same GROUP.  M-. goes to a definition there, M-? lists references,
-   C-c C-d describes, C-c C-a offers fixes, C-c C-s finds a symbol in the
-   project, M-n and M-p go to the next and previous error, a call's
-   signature is shown as it is typed, and completions come from the server."
-  (setf *language-servers*
-        (cons (list mode commands (or language-id (string-downcase mode)) (or group mode))
-              (remove mode *language-servers* :key #'car :test #'string=)))
-  (defhvar "Completions Function"
-    "A function of a mark, point, that returns the completions of what is
-     before it and a mark where what they complete starts."
-    :mode mode :value 'lsp-completions)
-  (bind-key "LSP Find Definition" #k"meta-." :mode mode)
-  (bind-key "LSP Find References" #k"meta-?" :mode mode)
-  (bind-key "LSP Describe" #k"control-c control-d" :mode mode)
-  (bind-key "LSP Code Action" #k"control-c control-a" :mode mode)
-  (bind-key "LSP Find Symbol" #k"control-c control-s" :mode mode)
-  (bind-key "LSP Next Diagnostic" #k"meta-n" :mode mode)
-  (bind-key "LSP Previous Diagnostic" #k"meta-p" :mode mode)
-  (defhvar "Signature Function"
-    "A function of a mark, point, that shows the signature of the call point
-     is in with SHOW-SIGNATURE, or does nothing."
-    :mode mode :value 'lsp-signature)
-  (when (find-menu mode)
-    (add-menu-item mode :separator)
-    (dolist (entry '(("Go to Definition" "LSP Find Definition")
-                     ("Find References" "LSP Find References")
-                     ("Describe" "LSP Describe")
-                     ("Fix or Refactor…" "LSP Code Action")
-                     ("Find Symbol…" "LSP Find Symbol")
-                     ("Next Error" "LSP Next Diagnostic")
-                     ("Previous Error" "LSP Previous Diagnostic")
-                     ("Rename…" "LSP Rename")
-                     ("Format Buffer" "LSP Format Buffer")
-                     ("Errors and Warnings" "LSP Diagnostics")))
-      (add-menu-item mode entry)))
-  mode)
-
-(define-language-server "C" '(("clangd")) :language-id "c")
-(define-language-server "Python" '(("pyright-langserver" "--stdio")
-                                   ("basedpyright-langserver" "--stdio")
-                                   ("pylsp")
-                                   ("jedi-language-server"))
-  :language-id "python")
-(define-language-server "Shell Script" '(("bash-language-server" "start"))
-  :language-id "shellscript")
-(define-language-server "Pascal" '(("pasls")) :language-id "pascal")
-(define-language-server "Rust" '(("rust-analyzer")) :language-id "rust")
-(define-language-server "Go" '(("gopls")) :language-id "go")
-;;; TypeScript's compiler, from version 7, is a server too, and is tried when
-;;; typescript-language-server is missing or finds no TypeScript it can use
-;;; (it wants one older than 7).  A project's JavaScript, TypeScript and TSX
-;;; files have one server between them.
-(defvar *typescript-servers* '(("typescript-language-server" "--stdio")
-                               ("tsc" "--lsp" "--stdio")))
-(define-language-server "JavaScript" *typescript-servers*
-  :language-id "javascript" :group "TypeScript")
-(define-language-server "TS" *typescript-servers*
-  :language-id "typescript" :group "TypeScript")
-(define-language-server "TSX" *typescript-servers*
-  :language-id "typescriptreact" :group "TypeScript")
-(define-language-server "JSON" '(("vscode-json-language-server" "--stdio")
-                                 ("vscode-json-languageserver" "--stdio"))
-  :language-id "json")
-(define-language-server "YAML" '(("yaml-language-server" "--stdio")) :language-id "yaml")
+(defun lsp-accept-completion (text start point)
+  "Put in the completion known by TEXT, in place of what is between START
+   and POINT: its own text, a snippet's with its places to fill in, and
+   whatever else the server says it needs -- the line that imports it."
+  (let ((entry (assoc text *lsp-completion-items* :test #'string=)))
+    (cond ((null entry)
+           (delete-region (region start point))
+           (insert-string point text))
+          (t
+           (let* ((item (resolve-completion-item entry))
+                  (server (third entry))
+                  (buffer (line-buffer (mark-line point)))
+                  (*encoding* (lsp-server-encoding server))
+                  (edit (jref item "textEdit"))
+                  (new (or (jref edit "newText") (jref item "insertText") (jref item "label")
+                           text))
+                  (range (or (jref edit "range") (jref edit "insert"))))
+             ;; What else it changes, first: the places are the server's,
+             ;; of the text as it was, and these are other lines.
+             (let ((others (jlist (jref item "additionalTextEdits"))))
+               (when others
+                 (apply-text-edits buffer others)))
+             ;; Its edit may start before the word: at a dot, say.
+             (when (and range (eql (jref range "start" "line")
+                                   (1- (count-lines (region (buffer-start-mark buffer) start)))))
+               (let ((string (line-string (mark-line start))))
+                 (line-offset start 0 (min (mark-charpos start)
+                                           (unit-charpos string
+                                                         (jref range "start" "character"))))))
+             (delete-region (region start point))
+             (if (eql (jref item "insertTextFormat") 2)
+                 (insert-snippet point (remove #\Return new))
+                 (insert-string point (remove #\Return new))))))))

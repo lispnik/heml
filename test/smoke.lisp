@@ -216,6 +216,255 @@
               when (and (<= start column) (< column end)) return font)))))
 
 
+;;; RUN is one function, and as much as the compiler can take: these are
+;;; parts of it, called where they come.
+
+(defun language-server-feature-checks ()
+  ;; The rest of what a server gives, in a file of its own.
+  (with-open-file (out (merge-pathnames "more.pas" *out*) :direction :output :if-exists :supersede)
+    (write-line "program more;" out)
+    (write-line "  wrongthing here" out)
+    (write-line "begin end." out))
+  (ignore-errors (delete-file (merge-pathnames "more.pas.made" *out*)))
+  (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
+  (settle)
+  (flet ((point-line () (line-text (hi::mark-line (hi::current-point))))
+         (row-p (text)
+           (find text (map 'list #'heml.cocoa::row-text
+                           (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                 :test #'search))
+         (starts-p (text) (eql 0 (search text (buffer-text)))))
+    (check "the modeline says what the server says it is doing, and how far it is"
+           (wait-until (lambda () (row-p "(Indexing 50%)")) 30))
+    (check "what a server says to the user is kept in a buffer"
+           (wait-until (lambda ()
+                         (let ((buffer (hi::getstring "Language Servers" hi::*buffer-names*)))
+                           (and buffer (search "fake says hello" (buffer-text buffer)))))
+                       10))
+    (check "the other uses of the name at point are shown"
+           (wait-until (lambda ()
+                         (let ((font (run-font-at "program more" 8)))
+                           (and (consp font) (getf font :bold) (getf font :underline))))
+                       10))
+    (check "the server's own reading of the text colours it"
+           (wait-until (lambda () (eql 6 (run-font-at "begin end." 6))) 10))
+    (extended-command "LSP Inlay Hints")
+    (check "LSP Inlay Hints shows what the server infers after the line's end"
+           (wait-until (lambda () (row-p "program more;  more: hinted")) 10))
+    (extended-command "LSP Code Lenses")
+    (check "and LSP Code Lenses what it offers to do there"
+           (wait-until (lambda () (row-p "more: hinted  [Run the fake lens]")) 10))
+    (extended-command "LSP Inlay Hints")
+    (extended-command "LSP Code Lenses")
+    (check "and each is taken away again"
+           (wait-until (lambda () (not (row-p "hinted"))) 10))
+    (post-key #\c "Control") (post-key #\f "Control")
+    (check "C-c C-f folds what the server says can be folded, under its first line"
+           (wait-until (lambda ()
+                         (and (row-p "program more;  ... 1 line")
+                              (not (row-p "wrongthing here"))))
+                       10))
+    (post-key #\n "Control")
+    (settle)
+    (check "C-n goes past a fold"
+           (equal "begin end." (point-line)))
+    (post-key #\p "Control")
+    (post-key #\c "Control") (post-key #\f "Control")
+    (check "and C-c C-f on its first line opens it"
+           (wait-until (lambda () (row-p "wrongthing here")) 10))
+    (post-key #\> "Meta")
+    (post-key #\c "Control") (post-key #\t "Control")
+    (check "C-c C-t goes to the definition of a type"
+           (wait-until (lambda () (equal "program more;" (point-line))) 10))
+    (extended-command "LSP Find Implementation")
+    (check "LSP Find Implementation lists what implements a thing"
+           (wait-until (lambda ()
+                         (and (equal "*Implementations*" (hi::buffer-name (hi::current-buffer)))
+                              (search "Implementations: 2" (buffer-text))))
+                       10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
+    (settle)
+    (post-key #\c "Control") (post-key #\u "Control")
+    (check "C-c C-u lists what calls a function"
+           (wait-until (lambda ()
+                         (and (equal "*Calls*" (hi::buffer-name (hi::current-buffer)))
+                              (search "function fake_caller" (buffer-text))))
+                       10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
+    (settle)
+    (extended-command "LSP Outgoing Calls")
+    (check "and LSP Outgoing Calls what it calls"
+           (wait-until (lambda ()
+                         (and (equal "*Calls*" (hi::buffer-name (hi::current-buffer)))
+                              (search "function fake_callee" (buffer-text))))
+                       10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
+    (settle)
+    ;; A completion that is a snippet, and brings a line with it.
+    (post-key #\> "Meta")
+    (post-text "fake_")
+    (post-key #\i "Control" "Meta")
+    (wait-until (lambda () (row-p " fake_snippet ")) 10)
+    (post-key #\h "Control")
+    (check "C-h in the popup says what the server says of a completion"
+           (wait-until (lambda () (row-p " fake documentation of fake_function")) 10))
+    (post (list :named "Escape" '()))
+    (settle)
+    (post-text "s")
+    (post (list :named "Return" '()))
+    (check "a completion that is a snippet is put in with its places"
+           (wait-until (lambda () (search "fake_snippet(first, second)" (buffer-text))) 10))
+    (check "and what else the server says it needs is put in too"
+           (starts-p "{ imported }"))
+    (post-text "x")
+    (post (list :named "Tab" '()))
+    (post-text "y")
+    (settle)
+    (check "typing at a place replaces what it held, and Tab goes to the next"
+           (search "fake_snippet(x, y)" (buffer-text)))
+    (post (list :named "Tab" '()))
+    (post-text ";")
+    (settle)
+    (check "and the last Tab leaves point after it"
+           (search "fake_snippet(x, y);" (buffer-text)))
+    ;; Actions whose edits are asked for, and that make files.
+    (post-key #\< "Meta")
+    (post-key #\c "Control") (post-key #\a "Control")
+    (wait-until (lambda () (row-p " 3  Work it out later")) 10)
+    (post-key #\3)
+    (check "an action whose edit the server works out when asked is asked about"
+           (wait-until (lambda () (starts-p "{ resolved }")) 10))
+    (post-key #\c "Control") (post-key #\a "Control")
+    (wait-until (lambda () (row-p " 4  Make a file")) 10)
+    (post-key #\4)
+    (check "and an action that makes a file makes it"
+           (wait-until (lambda () (probe-file (merge-pathnames "more.pas.made" *out*))) 10))
+    (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
+    (settle)
+    (post-key #\x "Control") (post-key #\h)
+    (extended-command "LSP Format Region")
+    (check "LSP Format Region lays the region out"
+           (wait-until (lambda () (starts-p "{ ranged }")) 10))
+    (setf (hi::variable-value 'heml::lsp-format-on-type :global) t)
+    (post-key #\> "Meta")
+    (post-text ";")
+    (check "with LSP Format on Type, the server lays out what is typed"
+           (wait-until (lambda () (starts-p "{ typed }")) 10))
+    (setf (hi::variable-value 'heml::lsp-format-on-type :global) nil)
+    (post-key #\< "Meta")
+    (post-key #\c "Control") (post-key #\l "Control")
+    (check "C-c C-l does what the server offers for the line"
+           (wait-until (lambda () (starts-p "{ lens }")) 10))
+    (settle)
+    (setf (hi::buffer-modified (hi::current-buffer)) nil)
+    (let ((made (hi::getstring "more.pas.made" hi::*buffer-names*)))
+      (when made (setf (hi::buffer-modified made) nil)))))
+
+(defun language-server-watch-checks ()
+  ;; Files a server asks to hear of, and settings that change: in a
+  ;; project of its own, outside this one, whose build directory git and
+  ;; so Heml leave out.
+  (let* ((directory (ensure-directories-exist
+                     (merge-pathnames (format nil "heml-smoke-~D/" (isys:getpid))
+                                      (uiop:temporary-directory))))
+         (settings (merge-pathnames ".heml-project" directory))
+         (file (merge-pathnames "watch.pas" directory)))
+    (flet ((row-p (text)
+             (find text (map 'list #'heml.cocoa::row-text
+                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                   :test #'search))
+           (write-to (file text)
+             (with-open-file (out file :direction :output :if-exists :supersede)
+               (write-string text out))))
+      (setf heml::*lsp-watch-ticks* 1)
+      (write-to settings "()")
+      (write-to file (format nil "program watch;~%  wrongthing here~%begin end.~%"))
+      (post (list :open (namestring file)))
+      (settle)
+      (wait-until (lambda () (getf (run-font-at "wrongthing here" 1) :underline)) 30)
+      ;; The first look at the files is what the later ones are compared with.
+      (sleep 2)
+      (write-to (merge-pathnames "new.watched" directory) "x")
+      (write-to settings "(:settings ((\"fake\" (\"greeting\" . \"changed settings\"))))")
+      (sleep 2)
+      (post-key #\c "Control") (post-key #\d "Control")
+      (check "a server is told of the files it asked to hear of"
+             (wait-until (lambda () (row-p " watched: new.watched 1")) 10))
+      (check "and of its settings when the project's change"
+             (row-p " config: changed settings"))
+      (post-key #\g "Control")
+      (settle)
+      (setf heml::*lsp-watch-ticks* 10)
+      (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
+
+(defun language-server-kind-checks ()
+  ;; Servers of other kinds, for YAML and JSON while these checks run: one
+  ;; that says what is wrong only when asked, and one that keeps dying.
+  (let ((servers heml::*language-servers*)
+        (fake (namestring (merge-pathnames "test/fake-lsp.py"
+                                           (asdf:system-source-directory :heml.cocoa)))))
+    (flet ((file (name text)
+             (with-open-file (out (merge-pathnames name *out*)
+                                  :direction :output :if-exists :supersede)
+               (write-string text out))
+             (post (list :open (namestring (merge-pathnames name *out*))))
+             (settle)
+             (hi::current-buffer))
+           (wrong (buffer)
+             ;; What the server says is wrong in BUFFER, the first of it.
+             (fourth (first (gethash buffer heml::*buffer-diagnostics*)))))
+      (heml::define-language-server "YAML" (list (list "python3" fake "--pull")))
+      (let ((first (file "pulled-a.yaml" (format nil "a: 1~%b: 2~%"))))
+        (check "a server that says what is wrong only when asked is asked"
+               (wait-until (lambda () (equal "pulled error: 10" (wrong first))) 30))
+        (let ((second (file "pulled-b.yaml" (format nil "c: 3~%d: 4~%"))))
+          (check "for each file it is told of"
+                 (wait-until (lambda () (equal "pulled error: 20" (wrong second))) 30))
+          (post-text "#")
+          (check "and again when the file changes"
+                 (wait-until (lambda () (equal "pulled error: 21" (wrong second))) 30))
+          (check "about its other files too, which the change may have changed"
+                 (wait-until (lambda () (equal "pulled error: 21" (wrong first))) 30))
+          (settle)
+          (setf (hi::buffer-modified second) nil)))
+      ;; A second server for Pascal, beside the first: what is wrong is what
+      ;; either finds.
+      (heml::define-additional-language-server "Pascal" "second"
+                                               (list (list "python3" fake "--pull")))
+      (let ((buffer (file "two.pas" (format nil "program two;~%  wrongthing here~%begin end.~%"))))
+        (check "a buffer with two servers shows what both find wrong"
+               (wait-until (lambda ()
+                             (let ((messages (mapcar #'fourth
+                                                     (gethash buffer heml::*buffer-diagnostics*))))
+                               (and (member "fake error" messages :test #'equal)
+                                    (find "pulled error" messages :test #'search))))
+                           30))
+        (extended-command "LSP Diagnostics")
+        (check "and LSP Diagnostics lists both"
+               (wait-until (lambda ()
+                             (and (search "error: fake error" (buffer-text))
+                                  (search "error: pulled error" (buffer-text))))
+                           10))
+        (post-key #\x "Control") (post-key #\1))
+      (setf heml::*additional-language-servers* '())
+      (heml::define-language-server "JSON" (list (list "python3" fake "--crash")))
+      (let ((buffer (file "crash.json" (format nil "{}~%"))))
+        (check "a server that keeps dying is not started for ever"
+               (wait-until (lambda () (heml::buffer-server-failed-p buffer)) 60))
+        (check "and the modeline says there is none"
+               (wait-until (lambda ()
+                             (find "(no server)"
+                                   (map 'list #'heml.cocoa::row-text
+                                        (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                   :test #'search))
+                           10))))
+    (setf heml::*language-servers* servers)))
+
+
 ;;;; The run
 
 (defun run ()
@@ -226,6 +475,7 @@
   (setf heml::*language-servers*
         (loop for (mode nil language group) in heml::*language-servers*
               collect (list mode '() language group)))
+  (setf heml::*additional-language-servers* '())
   (sleep 2)
   (note "typing")
   (post-text "(defun hello (name)
@@ -966,47 +1216,9 @@ gamma
     ;; Left unsaved, and not asked about on the way out.
     (setf (hi::buffer-modified (hi::current-buffer)) nil))
 
-  ;; Servers of other kinds, for YAML and JSON while these checks run: one
-  ;; that says what is wrong only when asked, and one that keeps dying.
-  (let ((servers heml::*language-servers*)
-        (fake (namestring (merge-pathnames "test/fake-lsp.py"
-                                           (asdf:system-source-directory :heml.cocoa)))))
-    (flet ((file (name text)
-             (with-open-file (out (merge-pathnames name *out*)
-                                  :direction :output :if-exists :supersede)
-               (write-string text out))
-             (post (list :open (namestring (merge-pathnames name *out*))))
-             (settle)
-             (hi::current-buffer))
-           (wrong (buffer)
-             ;; What the server says is wrong in BUFFER, the first of it.
-             (fourth (first (gethash buffer heml::*buffer-diagnostics*)))))
-      (heml::define-language-server "YAML" (list (list "python3" fake "--pull")))
-      (let ((first (file "pulled-a.yaml" (format nil "a: 1~%b: 2~%"))))
-        (check "a server that says what is wrong only when asked is asked"
-               (wait-until (lambda () (equal "pulled error: 10" (wrong first))) 30))
-        (let ((second (file "pulled-b.yaml" (format nil "c: 3~%d: 4~%"))))
-          (check "for each file it is told of"
-                 (wait-until (lambda () (equal "pulled error: 20" (wrong second))) 30))
-          (post-text "#")
-          (check "and again when the file changes"
-                 (wait-until (lambda () (equal "pulled error: 21" (wrong second))) 30))
-          (check "about its other files too, which the change may have changed"
-                 (wait-until (lambda () (equal "pulled error: 21" (wrong first))) 30))
-          (settle)
-          (setf (hi::buffer-modified second) nil)))
-      (heml::define-language-server "JSON" (list (list "python3" fake "--crash")))
-      (let ((buffer (file "crash.json" (format nil "{}~%"))))
-        (check "a server that keeps dying is not started for ever"
-               (wait-until (lambda () (heml::buffer-server-failed-p buffer)) 60))
-        (check "and the modeline says there is none"
-               (wait-until (lambda ()
-                             (find "(no server)"
-                                   (map 'list #'heml.cocoa::row-text
-                                        (heml.cocoa::screen-rows heml.cocoa::*screen*))
-                                   :test #'search))
-                           10))))
-    (setf heml::*language-servers* servers))
+  (language-server-feature-checks)
+  (language-server-watch-checks)
+  (language-server-kind-checks)
 
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))

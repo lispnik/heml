@@ -28,6 +28,7 @@ rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
      "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
+        --eval '(setf (symbol-value (uiop:find-symbol* :*additional-language-servers* :heml)) nil)' \
         --eval '(let ((servers (uiop:find-symbol* :*language-servers* :heml))) (setf (symbol-value servers) (mapcar (lambda (entry) (list (first entry) nil (third entry) (fourth entry))) (symbol-value servers))))' \
         --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--refuse\") (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
         --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \
@@ -605,6 +606,38 @@ expect ' config: hello from settings' "and the setting it asked Heml for"
 send Escape
 sleep 0.3
 send C-x 1
+# What the server says of a line is shown after its end; what it says can
+# be folded is; and a completion that is a snippet has places to fill in.
+send M-x
+type_text 'LSP Inlay Hints'
+send Enter
+expect 'program fake;  fake: hinted' "LSP Inlay Hints shows what the server infers, after the line"
+send M-x
+type_text 'LSP Code Lenses'
+send Enter
+expect 'fake: hinted  [Run the fake lens]' "and LSP Code Lenses what it offers to do there"
+send M-x
+type_text 'LSP Inlay Hints'
+send Enter
+send M-x
+type_text 'LSP Code Lenses'
+send Enter
+send 'M-<'
+send C-c C-f
+expect 'program fake;  ... 1 line' "C-c C-f folds what the server says can be folded"
+send C-c C-f
+expect 'wrongthing here' "and opens the fold again"
+send 'M->'
+type_text 'fake_s'
+send C-M-i
+expect 'fake_snippet(first, second)' "a completion that is a snippet is put in with its places" 20
+expect '{ imported }' "with the line the server says it needs"
+type_text 'x'
+send Tab
+type_text 'y'
+expect 'fake_snippet(x, y)' "typing at a place replaces what it held, and Tab goes to the next"
+send C-x C-s
+sleep 0.5
 send C-x k
 sleep 0.3
 send Enter

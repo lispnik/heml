@@ -20,4 +20,5 @@
 (asdf:defsystem :heml.lsp
   :depends-on (:heml.base :heml.tree-sitter :babel :com.inuoe.jzon)
   :pathname "src/"
-  :components ((:file "lsp")))
+  :components ((:file "lsp")
+               (:file "lsp-features" :depends-on ("lsp"))))

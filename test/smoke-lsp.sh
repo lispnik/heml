@@ -67,6 +67,8 @@ project python
     printf 'y = add_one(1)\nz = y +\n'
 } > "$dir/python/main.py"
 
+printf 'import os\n\nprint("hello")\n' > "$dir/python/lint.py"
+
 project shell
 {
     printf '#!/bin/sh\nadd_one() {\n    echo $(($1 + 1))\n}\n'
@@ -236,12 +238,51 @@ function_checks() {
 
 if wanted c clangd; then
     mistake "$dir/c/main.c" 'return y +'
+    # What the server says can be folded: main, from its first line.
+    send C-p C-p
+    send C-c C-f
+    expect_re 'int main(void) {  \.\.\. [0-9]* line' "C-c C-f folds what its server says can be folded"
+    send C-c C-f
+    expect 'return y +' "and opens the fold again"
+    send C-n C-n
     function_checks "$dir/c/main.c" add_one 'function add_one' 'static int add_one' 1
+    # On the function's name, where it is defined: who calls it, and
+    # another name for it.
+    send 'M-<'
+    press C-f 11
+    send C-c C-u
+    expect 'function main' "C-c C-u lists what calls a function" 30
+    send C-x 1
+    visit "$dir/c/main.c"
+    sleep 0.5
+    send 'M-<'
+    press C-f 11
+    send M-x
+    type_text 'LSP Rename'
+    send Enter
+    expect 'Rename to:' "LSP Rename asks for the new name, when the server says the thing can be renamed" 20
+    send C-a C-k
+    type_text 'plus_one'
+    send Enter
+    expect 'static int plus_one(int x)' "and renames it" 30
 fi
 
 if wanted python pyright-langserver basedpyright-langserver pylsp jedi-language-server; then
     mistake "$dir/python/main.py" 'z = y +'
     function_checks "$dir/python/main.py" add_one '(function)' 'def add_one' 0
+fi
+
+# Ruff, a second server for Python's buffers: what is wrong is what either
+# server finds.
+if wanted ruff ruff; then
+    visit "$dir/python/lint.py"
+    expect_re '([0-9]* \(error\|warning\).*lint.py' "a second server's findings are counted too" 60
+    send M-x
+    type_text 'LSP Diagnostics'
+    send Enter
+    expect 'imported but unused' "and listed with the first's" 30
+    send C-x 1
+    sleep 0.3
 fi
 
 # What bash-language-server finds wrong, ShellCheck finds for it.
@@ -259,6 +300,15 @@ fi
 
 if wanted rust rust-analyzer; then
     mistake "$dir/rust/src/main.rs" 'y +'
+    # The type it infers for y, after the end of y's line.
+    send M-x
+    type_text 'LSP Inlay Hints'
+    send Enter
+    expect 'let y = add_one(1);  y: i32' "LSP Inlay Hints shows the types its server infers" 60
+    send M-x
+    type_text 'LSP Inlay Hints'
+    send Enter
+    sleep 0.5
     function_checks "$dir/rust/src/main.rs" add_one 'fn add_one(x: i32) -> i32' 'fn add_one' 1
 fi
 
