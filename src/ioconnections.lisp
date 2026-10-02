@@ -139,18 +139,26 @@
        :write
        (lambda (.fd event error)
          (declare (ignore event))
-         (when (eq error :error) (error "error with ~A" .fd))
-         ;; fixme: with-pointer-to-vector-data isn't portable
-         (let ((bytes (pop (connection-write-buffers connection))))
-           (check-type bytes (simple-array (unsigned-byte 8) (*)))
-           (cffi-sys:with-pointer-to-vector-data (ptr bytes)
-             (let ((n-bytes-written
-                     (isys:write fd ptr (length bytes))))
-               (unless (eql n-bytes-written (length bytes))
-                 (push (subseq bytes n-bytes-written)
-                       (connection-write-buffers connection)))))
-           (unless (connection-write-buffers connection)
-             (iolib:remove-fd-handlers *event-base* fd :write t))))))))
+         ;; What cannot be written -- the other end has gone -- is dropped,
+         ;; with the rest of the queue: the handler must not stay with
+         ;; nothing to write, and whoever reads the connection will find
+         ;; it closed.
+         (handler-case
+             (progn
+               (when (eq error :error) (error "error with ~A" .fd))
+               ;; fixme: with-pointer-to-vector-data isn't portable
+               (let ((bytes (pop (connection-write-buffers connection))))
+                 (when bytes
+                   (cffi-sys:with-pointer-to-vector-data (ptr bytes)
+                     (let ((n-bytes-written
+                             (isys:write fd ptr (length bytes))))
+                       (unless (eql n-bytes-written (length bytes))
+                         (push (subseq bytes n-bytes-written)
+                               (connection-write-buffers connection))))))))
+           (error ()
+             (setf (connection-write-buffers connection) nil)))
+         (unless (connection-write-buffers connection)
+           (ignore-errors (iolib:remove-fd-handlers *event-base* fd :write t))))))))
 
 
 ;;;;

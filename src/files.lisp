@@ -22,17 +22,35 @@
 
 ;;; Read-File:
 
+;;; What is inserted is noted for undoing (new-undo.lisp, loaded after
+;;; this) by where it went, as a line's number, which is found by counting
+;;; lines from the start of the buffer.  Noting every line of a file as it
+;;; is read made reading take time as the square of the file's length --
+;;; minutes for a few hundred thousand lines -- so the whole of what is read
+;;; is noted once, when it has been.
+;;;
+(declaim (special *insert-noted-p*))
+
 (defun read-file (pathname mark)
   "Inserts the contents of the file named by Pathname at the Mark."
-  (with-mark ((mark mark :left-inserting))
+  (with-mark ((mark mark :left-inserting)
+              (start mark :right-inserting))
     (let* ((first-line (mark-line mark))
-           (buffer (line-%buffer first-line)))
+           (buffer (line-%buffer first-line))
+           (noted (and (bufferp buffer) (buffer-undo-p buffer)))
+           (position (and noted (mark-position mark))))
       (modifying-buffer buffer)
-      (with-open-file (input pathname :direction :input :element-type 'character)
-        (do ((line (read-line input nil :eof) (read-line input nil :eof)))
-            ((eql line :eof))
-          (insert-string mark line)
-          (insert-character mark #\newline))))))
+      (when (bufferp buffer)
+        (update-tag-line-number mark))
+      (let ((*insert-noted-p* t))
+        (with-open-file (input pathname :direction :input :element-type 'character)
+          (do ((line (read-line input nil :eof) (read-line input nil :eof)))
+              ((eql line :eof))
+            (insert-string mark line)
+            (insert-character mark #\newline))))
+      (when noted
+        (push `(insert-string ,position ,(region-to-string (region start mark)))
+              (buffer-undo-list buffer))))))
 
 
 ;;; Write-File:
