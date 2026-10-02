@@ -40,6 +40,7 @@
      make smoke      # drive it end to end and check it; pictures in build/smoke
      make smoke-tty  # the same for the TTY backend, in tmux
      make smoke-tty-ecl  # the TTY checks under ECL
+     make smoke-lsp  # the language servers that are installed, each asked about a small project
      make demo       # a video of the TTY editor in build/demo (needs vhs)
      make demo-full  # that, the Cocoa editor's, and both with titles (needs ffmpeg)
      make run-tty    # the terminal editor, in this terminal (LISP=ecl for ECL)

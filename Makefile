@@ -28,12 +28,18 @@ smoke:
 smoke-tty:
 	test/smoke-tty.sh
 
-# The same under ECL.  Built first: ECL compiles through C, and a first
-# build takes longer than the checks wait for the editor to start.
+# The language servers themselves, each asked about a small project of its
+# language, in the TTY editor.  One that is not installed is skipped, or
+# with SMOKE_LSP_STRICT=1 is a failure.  Needs tmux.
+smoke-lsp:
+	test/smoke-lsp.sh
+
 # The app's command, bin/heml, from a shell.  Builds the app first.
 smoke-cli: app
 	test/smoke-cli.sh
 
+# The same as smoke-tty under ECL.  Built first: ECL compiles through C, and
+# a first build takes longer than the checks wait for the editor to start.
 smoke-tty-ecl:
 	ecl --eval '(asdf:load-system :heml.tty)' --eval '(ext:quit)'
 	LISP=ecl test/smoke-tty.sh
@@ -251,5 +257,5 @@ clean:
 
 FORCE:
 
-.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl demo demo-cocoa demo-full app run-app install-app \
+.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl smoke-lsp demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean

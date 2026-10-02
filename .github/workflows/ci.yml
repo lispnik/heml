@@ -8,7 +8,8 @@
 # are kept as an artifact: they are what to look at when a run is green but
 # something is wrong, since a check says what the editor holds and only a
 # picture says what it drew.  `make smoke-tty` runs the TTY backend in tmux,
-# and `make smoke-tty-ecl` does the same under ECL.
+# and `make smoke-tty-ecl` does the same under ECL.  `make smoke-lsp` asks each
+# language server Homebrew has about a small project of its language.
 #
 # This uses Homebrew's SBCL, whose runtime links libzstd, so the bundle
 # built here is fine to test and not distributable; `make check-app` says so
@@ -110,6 +111,22 @@ jobs:
 
       - name: Drive the TTY editor under ECL (make smoke-tty-ecl)
         run: make smoke-tty-ecl
+
+      # The servers Homebrew has; Pascal's, pasls, is built from source with
+      # Lazarus, and is left to the stand-in the other tests use.  clangd is
+      # Xcode's, and the runner has Rust, Go and Node.
+      - name: Install the language servers
+        run: |
+          brew install rust-analyzer gopls typescript-language-server \
+               vscode-langservers-extracted yaml-language-server \
+               bash-language-server shellcheck basedpyright
+          command -v go || brew install go
+          command -v cargo || brew install rust
+
+      - name: Ask each language server about a project (make smoke-lsp)
+        run: make smoke-lsp
+        env:
+          SMOKE_LSP_STRICT: 1
 
       - name: Build Heml.app and check it
         run: make check-app

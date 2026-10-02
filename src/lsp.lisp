@@ -48,8 +48,8 @@
 
 (defvar *language-servers* '()
   "((MODE COMMANDS LANGUAGE-ID) ...): for a major mode, the commands that
-   run a server for it, the first whose program is installed being used,
-   and what the protocol calls the language.")
+   run a server for it, the first whose program is installed and which
+   starts being used, and what the protocol calls the language.")
 
 (defhvar "Language Servers"
   "When true, a language server is started for a file whose mode has one
@@ -59,6 +59,7 @@
 (defstruct (lsp-server (:constructor %make-lsp-server))
   mode                                  ; the major mode it serves
   root                                  ; the directory it was started in
+  commands                              ; what to run instead, if it cannot start
   language-id
   connection
   (state :starting)                     ; :STARTING, :READY or :DEAD
@@ -67,19 +68,40 @@
   (input (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   capabilities
   (documents (make-hash-table :test 'eq)) ; buffer to a DOCUMENT
-  (diagnostics (make-hash-table :test 'equal))) ; file to ((LINE COLUMN SEVERITY MESSAGE) ...)
+  (diagnostics (make-hash-table :test 'equal)) ; file to ((LINE COLUMN SEVERITY MESSAGE) ...)
+  ;; A server says what is wrong with a file, or is asked, or both, each for
+  ;; different things: what it said and what it answered are kept apart, a
+  ;; file to the protocol's diagnostics, and DIAGNOSTICS is both.
+  (pushed (make-hash-table :test 'equal))
+  (pulled (make-hash-table :test 'equal)))
+
+;;; What the server has of a buffer: the version last sent, the buffer's
+;;; signature then, and, for a server that takes changes, the text, so that
+;;; the next change can be told as a span of it.  Here, before anything
+;;; sets a slot: a structure's SETF is not a function on ECL.
+;;;
+(defstruct (document (:constructor make-document (version signature text)))
+  version signature text
+  (pull t))                             ; whether to ask what is wrong with it
 
 (defvar *lsp-servers* '()
   "The servers running, or starting.")
 
-(defun find-language-server-command (mode)
-  "The command to run MODE's language server, and its language's name; NIL
-   when none is installed."
+(defun language-server-commands (mode)
+  "The commands that might run MODE's language server, those whose programs
+   are installed, and its language's name."
   (let ((entry (assoc mode *language-servers* :test #'string=)))
     (when entry
-      (let ((command (find-if (lambda (command) (find-program (first command)))
-                              (second entry))))
-        (when command (values command (third entry)))))))
+      (values (remove-if-not (lambda (command) (find-program (first command)))
+                             (second entry))
+              (third entry)))))
+
+(defvar *lsp-failures* '()
+  "((MODE ROOT) ...): where no server could be started, so that none is
+   tried again until \"LSP Restart\" asks.")
+
+(defun lsp-failed-p (mode root)
+  (member (list mode root) *lsp-failures* :test #'equal))
 
 
 ;;;; Messages.
@@ -106,9 +128,12 @@
                       (format nil "Content-Length: ~D~C~C~C~C" (length body)
                               #\Return #\Linefeed #\Return #\Linefeed)
                       :encoding :utf-8)))
-        (ignore-errors
-         (connection-write (concatenate '(simple-array (unsigned-byte 8) (*)) header body)
-                           connection))))))
+        ;; What goes wrong is in the log, when there is one.
+        (handler-case
+            (connection-write (concatenate '(simple-array (unsigned-byte 8) (*)) header body)
+                              connection)
+          (error (condition)
+            (lsp-log "!!" (format nil "not sent: ~A" condition))))))))
 
 (defun lsp-notify (server method params)
   (lsp-send server (json "jsonrpc" "2.0" "method" method "params" params)))
@@ -183,13 +208,21 @@
                                               (apply-workspace-edit (jref message "params" "edit"))
                                               t)
                                              t)))
+                                 ;; What it would answer has changed: its
+                                 ;; documents are asked about again.
+                                 ((string= method "workspace/diagnostic/refresh")
+                                  (loop for document being the hash-values
+                                          of (lsp-server-documents server)
+                                        do (setf (document-pull document) t))
+                                  'null)
                                  ((string= method "workspace/configuration")
                                   (map 'vector (constantly 'null)
                                        (jlist (jref message "params" "items"))))
                                  (t 'null)))))
           (method
            (when (string= method "textDocument/publishDiagnostics")
-             (lsp-note-diagnostics server (jref message "params"))))
+             (lsp-note-diagnostics server (jref message "params" "uri")
+                                   (jlist (jref message "params" "diagnostics")))))
           (id
            (let ((function (gethash id (lsp-server-pending server))))
              (when function
@@ -273,10 +306,17 @@
 
 ;;;; Starting and stopping.
 
-(defun start-language-server (mode root)
-  (multiple-value-bind (command language-id) (find-language-server-command mode)
-    (when command
-      (let ((server (%make-lsp-server :mode mode :root root :language-id language-id)))
+(defun start-language-server (mode root &optional (commands nil commands-p))
+  "Start MODE's server in ROOT: the first of COMMANDS, by default the
+   commands for MODE that are installed.  One that cannot start, or will not
+   be initialized, gives way to the next (LSP-SERVER-DIED), and when there
+   is no next the place is remembered in *LSP-FAILURES*."
+  (multiple-value-bind (installed language-id) (language-server-commands mode)
+    (let ((command (first (if commands-p commands installed)))
+          (others (rest (if commands-p commands installed))))
+     (when command
+      (let ((server (%make-lsp-server :mode mode :root root :language-id language-id
+                                      :commands others)))
         (setf (lsp-server-connection server)
               (make-process-connection
                ;; What the server says on its error output is no one's to read.
@@ -285,7 +325,9 @@
                :directory root
                :filter (lambda (connection bytes)
                          (declare (ignore connection))
-                         (ignore-errors (lsp-receive server bytes))
+                         (handler-case (lsp-receive server bytes)
+                           (error (condition)
+                             (lsp-log "!!" (format nil "not read: ~A" condition))))
                          nil)
                :sentinel (lambda (connection event)
                            (declare (ignore connection))
@@ -304,6 +346,8 @@
                (json "textDocument"
                      (json "synchronization" (json "didSave" t)
                            "publishDiagnostics" (json)
+                           "diagnostic" (json "dynamicRegistration" nil
+                                              "relatedDocumentSupport" nil)
                            "hover" (json "contentFormat" (vector "plaintext" "markdown"))
                            "completion" (json "completionItem" (json "snippetSupport" nil))
                            "definition" (json)
@@ -323,7 +367,8 @@
                                                      "refactor.inline" "refactor.rewrite"
                                                      "source" "source.organizeImports")))))
                      "workspace" (json "workspaceFolders" t "configuration" t
-                                       "applyEdit" t "symbol" (json))))
+                                       "applyEdit" t "symbol" (json)
+                                       "diagnostics" (json "refreshSupport" t))))
          (lambda (result error)
            (cond ((or error (not (hash-table-p result)))
                   (lsp-server-died server))
@@ -331,10 +376,20 @@
                   (setf (lsp-server-capabilities server) (jref result "capabilities"))
                   (lsp-notify server "initialized" (json))
                   (setf (lsp-server-state server) :ready)))))
-        server))))
+        server)))))
 
-(defun lsp-server-died (server)
+(defun lsp-server-died (server &optional stopped)
+  "SERVER is gone.  One that went before it was ready, unless Heml STOPPED
+   it, could not be started: the next command for its mode is tried, and
+   when there is none, none is tried there again."
   (unless (eq (lsp-server-state server) :dead)
+    (when (and (eq (lsp-server-state server) :starting) (not stopped))
+      (let ((mode (lsp-server-mode server))
+            (root (lsp-server-root server)))
+        (unless (and (lsp-server-commands server)
+                     (ignore-errors
+                      (start-language-server mode root (lsp-server-commands server))))
+          (pushnew (list mode root) *lsp-failures* :test #'equal))))
     (setf (lsp-server-state server) :dead)
     (setf *lsp-servers* (remove server *lsp-servers*))
     (loop for buffer being the hash-keys of (lsp-server-documents server)
@@ -350,7 +405,7 @@
     (lsp-request server "shutdown" 'null :timeout 1)
     (lsp-notify server "exit" 'null)
     (lsp-wait (lambda () nil) 0.1))
-  (lsp-server-died server))
+  (lsp-server-died server t))
 
 (defun buffer-language-server (buffer &optional start)
   "The language server for BUFFER, started if START and it can be."
@@ -363,7 +418,8 @@
                        (and (string= (lsp-server-mode server) mode)
                             (string= (lsp-server-root server) root)))
                      *lsp-servers*)
-            (and start (start-language-server mode root)))))))
+            (and start (not (lsp-failed-p mode root))
+                 (start-language-server mode root)))))))
 
 (defun stop-language-servers ()
   (dolist (server (copy-list *lsp-servers*))
@@ -373,13 +429,6 @@
 
 
 ;;;; Keeping the server's copy of a buffer up to date.
-
-;;; What the server has of a buffer: the version last sent, the buffer's
-;;; signature then, and, for a server that takes changes, the text, so that
-;;; the next change can be told as a span of it.
-;;;
-(defstruct (document (:constructor make-document (version signature text)))
-  version signature text)
 
 (defun incremental-sync-p (server)
   "Whether SERVER takes a change as the span that changed (the protocol's
@@ -458,8 +507,34 @@
                                                                "character" end-character))
                                      "text" inserted))
                              (json "text" text)))))
+                 (setf (document-pull document) t)
                  (when incremental
-                   (setf (document-text document) text)))))))))
+                   (setf (document-text document) text))))))
+      (let ((document (gethash buffer (lsp-server-documents server))))
+        (when (and document (document-pull document))
+          (setf (document-pull document) nil)
+          (lsp-pull-diagnostics server buffer document))))))
+
+(defun lsp-pull-diagnostics (server buffer document)
+  "Ask SERVER what is wrong in BUFFER, if it is a server that is asked (the
+   protocol's pull diagnostics).  One that was busy, or whose answer the
+   buffer's change overtook, is asked again at the next LSP-SYNC."
+  (let ((provider (jref (lsp-server-capabilities server) "diagnosticProvider")))
+    (when provider
+      (let ((uri (file-uri (buffer-pathname buffer)))
+            (identifier (jref provider "identifier")))
+        (lsp-request-async
+         server "textDocument/diagnostic"
+         (if (stringp identifier)
+             (json "textDocument" (json "uri" uri) "identifier" identifier)
+             (json "textDocument" (json "uri" uri)))
+         (lambda (result error)
+           (cond (error
+                  ;; ServerCancelled and ContentModified.
+                  (when (member (jref error "code") '(-32802 -32801))
+                    (setf (document-pull document) t)))
+                 ((equal (jref result "kind") "full")
+                  (lsp-note-diagnostics server uri (jlist (jref result "items")) t)))))))))
 
 (defun lsp-buffer-closed (buffer)
   (dolist (server *lsp-servers*)
@@ -502,8 +577,14 @@
                      (editor-error "No language server for this buffer."))))
     (unless (lsp-wait (lambda () (not (eq (lsp-server-state server) :starting))) 10)
       (editor-error "The language server has not started."))
+    ;; One that could not start may have given way to another.
     (when (eq (lsp-server-state server) :dead)
-      (editor-error "The language server could not be started."))
+      (setf server (or (buffer-language-server buffer)
+                       (editor-error "The language server could not be started.")))
+      (unless (lsp-wait (lambda () (not (eq (lsp-server-state server) :starting))) 10)
+        (editor-error "The language server has not started."))
+      (when (eq (lsp-server-state server) :dead)
+        (editor-error "The language server could not be started.")))
     (lsp-sync server buffer)
     server))
 
@@ -531,11 +612,17 @@
         :key (lambda (buffer) (let ((p (buffer-pathname buffer))) (and p (namestring p))))
         :test #'equal))
 
-(defun lsp-note-diagnostics (server params)
-  (let* ((file (uri-file (or (jref params "uri") "")))
-         (diagnostics (jlist (jref params "diagnostics")))
+(defun lsp-note-diagnostics (server uri diagnostics &optional pulled)
+  "SERVER says that DIAGNOSTICS, the protocol's, are what is wrong with the
+   file at URI; or, if PULLED, answers that they are.  Each replaces what it
+   last said or answered, and what is wrong is both."
+  (let* ((file (uri-file (or uri "")))
          (buffer (and file (file-buffer file))))
     (when file
+      (setf (gethash file (if pulled (lsp-server-pulled server) (lsp-server-pushed server)))
+            diagnostics)
+      (setf diagnostics (append (gethash file (lsp-server-pushed server))
+                                (gethash file (lsp-server-pulled server))))
       (setf (gethash file (lsp-server-diagnostics server))
             (loop for diagnostic in diagnostics
                   collect (list (jref diagnostic "range" "start" "line")
@@ -957,9 +1044,17 @@
   "Stop this buffer's language server; it is started again a moment later."
   "Restart this buffer's language server."
   (declare (ignore p))
-  (let ((server (or (buffer-language-server (current-buffer))
-                    (editor-error "No language server for this buffer."))))
-    (stop-language-server server)
+  (let* ((buffer (current-buffer))
+         (pathname (or (buffer-pathname buffer)
+                       (editor-error "No language server for this buffer.")))
+         (mode (buffer-major-mode buffer))
+         (root (or (buffer-project-root buffer) (directory-namestring pathname)))
+         (server (buffer-language-server buffer)))
+    (unless (or server (lsp-failed-p mode root))
+      (editor-error "No language server for this buffer."))
+    ;; One that could not be started is tried again.
+    (setf *lsp-failures* (remove (list mode root) *lsp-failures* :test #'equal))
+    (when server (stop-language-server server))
     (message "The language server is starting again.")))
 
 
@@ -1100,7 +1195,7 @@
 (defun define-language-server (mode commands &key language-id)
   "MODE's files are served by a language server: COMMANDS is the command
    lines that run one, a list of a program and its arguments each, the first
-   whose program is installed being used; LANGUAGE-ID is the protocol's name
+   whose program is installed and which starts being used; LANGUAGE-ID is the protocol's name
    for the language.  M-. goes to a definition there, M-? lists references,
    C-c C-d describes, C-c C-a offers fixes, C-c C-s finds a symbol in the
    project, M-n and M-p go to the next and previous error, a call's
@@ -1149,12 +1244,14 @@
 (define-language-server "Pascal" '(("pasls")) :language-id "pascal")
 (define-language-server "Rust" '(("rust-analyzer")) :language-id "rust")
 (define-language-server "Go" '(("gopls")) :language-id "go")
-(define-language-server "JavaScript" '(("typescript-language-server" "--stdio"))
-  :language-id "javascript")
-(define-language-server "TS" '(("typescript-language-server" "--stdio"))
-  :language-id "typescript")
-(define-language-server "TSX" '(("typescript-language-server" "--stdio"))
-  :language-id "typescriptreact")
+;;; TypeScript's compiler, from version 7, is a server too, and is tried when
+;;; typescript-language-server is missing or finds no TypeScript it can use
+;;; (it wants one older than 7).
+(defvar *typescript-servers* '(("typescript-language-server" "--stdio")
+                               ("tsc" "--lsp" "--stdio")))
+(define-language-server "JavaScript" *typescript-servers* :language-id "javascript")
+(define-language-server "TS" *typescript-servers* :language-id "typescript")
+(define-language-server "TSX" *typescript-servers* :language-id "typescriptreact")
 (define-language-server "JSON" '(("vscode-json-language-server" "--stdio")
                                  ("vscode-json-languageserver" "--stdio"))
   :language-id "json")

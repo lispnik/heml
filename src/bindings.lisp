@@ -455,7 +455,6 @@
 (bind-key "Indent Or Complete" #k"tab")
 (bind-key "Indent Or Complete" #k"control-i")
 (bind-key "Indent Region" #k"control-meta-\\")
-(bind-key "Quote Tab" #k"meta-tab")
 
 (bind-key "Directory" #k"control-x control-\d")
 (bind-key "Verbose Directory" #k"control-x control-D")
