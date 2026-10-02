@@ -15,63 +15,10 @@ case $(basename "$LISP") in
     *) quiet=--noinform ;;
 esac
 session=heml-smoke-tty-$$
-failures=0
-checks=0
 
 cd "$(dirname "$0")/.." || exit 1
 
-screen() { tmux capture-pane -p -t "$session"; }
-send() { tmux send-keys -t "$session" "$@"; }
-# A ; ending an argument separates tmux commands: escape it to type it.
-type_text() {
-    case $1 in
-        *\;) tmux send-keys -t "$session" -l "${1%;}\\;" ;;
-        *) tmux send-keys -t "$session" -l "$1" ;;
-    esac
-}
-
-# expect PATTERN DESCRIPTION [SECONDS]: wait for PATTERN (a fixed string) on
-# the screen.
-expect() {
-    checks=$((checks + 1))
-    tries=$(( ${3:-10} * 5 ))
-    while [ "$tries" -gt 0 ]; do
-        if screen | grep -qF -- "$1"; then
-            echo "  ok    $2"
-            return 0
-        fi
-        sleep 0.2
-        tries=$((tries - 1))
-    done
-    echo "  FAIL  $2"
-    echo "        (no \"$1\" on the screen:)"
-    screen | sed 's/^/        | /'
-    failures=$((failures + 1))
-    return 1
-}
-
-# expect_re REGEX DESCRIPTION [SECONDS]: the same, for a basic regular
-# expression.
-expect_re() {
-    checks=$((checks + 1))
-    tries=$(( ${3:-10} * 5 ))
-    while [ "$tries" -gt 0 ]; do
-        if screen | grep -q -- "$1"; then
-            echo "  ok    $2"
-            return 0
-        fi
-        sleep 0.2
-        tries=$((tries - 1))
-    done
-    echo "  FAIL  $2"
-    echo "        (nothing matching \"$1\" on the screen:)"
-    screen | sed 's/^/        | /'
-    failures=$((failures + 1))
-    return 1
-}
-
-cleanup() { tmux kill-session -t "$session" 2>/dev/null; }
-trap cleanup EXIT
+. test/tmux-lib.sh
 
 # Projects' sessions are kept here, not in ~/.heml, and start empty.
 state=$PWD/build/smoke-tty-state
@@ -215,9 +162,40 @@ if screen | grep -q -E '^  [dlpscb-][rwxs-]{9}[0-9]'; then
 else
     echo "  ok    the link count has a column of its own"
 fi
-send h
-expect 'Showing hidden files.' "h shows the hidden files"
 send g
+sleep 0.5
+
+# Hidden files are listed, until h hides them.
+H=$PWD/build/smoke-tty-hidden
+rm -rf "$H"
+mkdir -p "$H"
+printf 'secret\n' > "$H/.secret"
+printf 'plain\n' > "$H/plain.txt"
+send C-x d
+sleep 0.5
+send C-a C-k
+type_text "$H/"
+send Enter
+expect_re ' \.secret$' "Dired lists the files whose names start with a dot"
+send h
+expect 'Hiding hidden files.' "h hides them"
+checks=$((checks + 1))
+tries=25
+while [ "$tries" -gt 0 ] && screen | grep -q ' \.secret'; do
+    sleep 0.2
+    tries=$((tries - 1))
+done
+if screen | grep -q ' plain\.txt' && ! screen | grep -q ' \.secret'; then
+    echo "  ok    and they are gone from the listing"
+else
+    echo "  FAIL  and they are gone from the listing"; screen | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+send h
+expect 'Showing hidden files.' "and h shows them again"
+send C-x k
+sleep 0.5
+send Enter
 sleep 0.5
 
 # Marks and operations, in a directory of the test's own.

@@ -71,29 +71,51 @@
      (declare (ignore buffer window))
      "  Type ? for help.  "))
 
+(defhvar "Dired Show Hidden Files"
+  "When true, Dired lists the files whose names start with a dot.  In a
+   Dired buffer h shows or hides them, and an argument to \"Dired\" does
+   what this does not."
+  :value t)
+
+(defun dired-hidden-files-p (&optional p)
+  "Whether a new Dired buffer lists the files whose names start with a dot:
+   what \"Dired Show Hidden Files\" says, or with P, the argument to the
+   command, the other."
+  (if p
+      (not (value dired-show-hidden-files))
+      (value dired-show-hidden-files)))
+
 (defcommand "Dired" (p &optional directory)
   "Prompts for a directory and edits it.  If a dired for that directory already
-   exists, go to that buffer, otherwise create one.  With an argument, include
-   UNIX dot files."
+   exists, go to that buffer, otherwise create one.  The files whose names
+   start with a dot are listed if \"Dired Show Hidden Files\" is true, and
+   with an argument if it is not."
   "Prompts for a directory and edits it.  If a dired for that directory already
-   exists, go to that buffer, otherwise create one.  With an argument, include
-   UNIX dot files."
+   exists, go to that buffer, otherwise create one.  With an argument, do
+   with hidden files what \"Dired Show Hidden Files\" does not."
   (let ((info (if (heml-bound-p 'dired-information)
                   (value dired-information))))
     (dired-guts nil
-                ;; Propagate dot-files property to subdirectory edits.
-                (or (and info (dired-info-dot-files-p info))
-                    p)
-                directory)))
+                ;; A directory edited from a Dired buffer is listed as that
+                ;; one is.
+                (cond (p (dired-hidden-files-p p))
+                      (info (dired-info-dot-files-p info))
+                      (t (dired-hidden-files-p)))
+                directory
+                p)))
 
 (defcommand "Dired with Pattern" (p)
   "Do a dired, prompting for a pattern which may include a single *.  With an
-   argument, include UNIX dit files."
+   argument, do with hidden files what \"Dired Show Hidden Files\" does not."
   "Do a dired, prompting for a pattern which may include a single *.  With an
-   argument, include UNIX dit files."
-  (dired-guts t p nil))
+   argument, do with hidden files what \"Dired Show Hidden Files\" does not."
+  (dired-guts t (dired-hidden-files-p p) nil p))
 
-(defun dired-guts (patternp dot-files-p directory)
+;;; DIRED-GUTS edits DIRECTORY, in the Dired buffer there is for it or a new
+;;; one, which lists hidden files if DOT-FILES-P.  A buffer there already is
+;;; keeps what its h last chose, unless the command had an argument, ASKED.
+;;;
+(defun dired-guts (patternp dot-files-p directory &optional asked)
   (start-dired-watch)
   (let* ((dpn (value pathname-defaults))
          (directory (or directory
@@ -121,13 +143,15 @@
     (setf (value pathname-defaults) (merge-pathnames directory dpn))
     (change-to-buffer
      (cond (buffer
-            (when (and dot-files-p
-                       (not (dired-info-dot-files-p
-                             (variable-value 'dired-information
-                                             :buffer buffer))))
+            (when (and asked
+                       (not (eq (and dot-files-p t)
+                                (and (dired-info-dot-files-p
+                                      (variable-value 'dired-information
+                                                      :buffer buffer))
+                                     t))))
               (setf (dired-info-dot-files-p (variable-value 'dired-information
                                                             :buffer buffer))
-                    t)
+                    dot-files-p)
               (update-dired-buffer directory pattern buffer))
             buffer)
            (t

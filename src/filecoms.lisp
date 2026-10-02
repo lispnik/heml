@@ -471,7 +471,7 @@
            (let ((kind (iolib.os::get-file-kind trial-pathname t)))
              (case kind
                (:directory
-                (dired-guts nil nil trial-pathname))
+                (dired-guts nil (dired-hidden-files-p) trial-pathname))
                ;; NIL is a file that does not exist yet: a new file.
                ((:regular-file nil)
                 (let* ((name (pathname-to-buffer-name trial-pathname))
