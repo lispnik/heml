@@ -37,6 +37,37 @@
 (defvar *popup* nil
   "The popup shown, or NIL.")
 
+;;; An annotation is text shown after a line's end that is not the
+;;; buffer's: what a language server says of the line.  Each function in
+;;; *LINE-ANNOTATION-FUNCTIONS* is called with a line and returns NIL or
+;;; (TEXT . FONT); what they return is shown, two columns after the line,
+;;; as far as the window's width allows.
+;;;
+(defvar *line-annotation-functions* '())
+
+(defun annotate-dis-line (dis-line line width)
+  (let ((x0 (+ (dis-line-length dis-line) 2)))
+    (dolist (function *line-annotation-functions*)
+      (let ((annotation (funcall function line)))
+        (when annotation
+          (let ((x1 (min (1- width) (+ x0 (length (car annotation))))))
+            (when (< x0 x1)
+              (overlay-dis-line dis-line x0 x1 (car annotation) (cdr annotation))
+              (setf x0 (+ x1 2)))))))))
+
+;;; A hidden line is one of a fold's (fold.lisp): the image goes from the
+;;; line before it to the next that is shown.
+;;;
+(declaim (inline line-hidden-p))
+(defun line-hidden-p (line)
+  (getf (line-plist line) 'hidden))
+
+(defun next-shown-line (line)
+  (loop
+    (setq line (line-next line))
+    (unless (and line (line-hidden-p line))
+      (return line))))
+
 ;;; update-window-image  --  Internal
 ;;;
 ;;;    Rebuild Window's image from its display start.  Every dis-line is
@@ -58,6 +89,10 @@
          (offset (mark-charpos start))
          (trail first)
          string underhang)
+    ;; An image never starts within a fold.
+    (when (and line (line-hidden-p line))
+      (setq line (next-shown-line line)
+            offset 0))
     (unless (eq (cdr first) the-sentinel)
       (shiftf (cdr (window-last-line window))
               (window-spare-lines window)
@@ -76,7 +111,9 @@
         (multiple-value-setq (string underhang offset)
           (compute-line-image string underhang line offset dis-line width))
         (unless underhang
-          (setq line (line-next line)
+          (when *line-annotation-functions*
+            (annotate-dis-line dis-line line width))
+          (setq line (next-shown-line line)
                 offset 0))))
     (move-mark (window-old-start window) start)
     (cond ((eq trail first)

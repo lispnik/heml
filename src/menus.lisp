@@ -214,7 +214,11 @@ while the current buffer is in the mode."
   ("Balance Windows" "Balance Windows")
   ("Next Window" "Next Window")
   ("Delete Window" "Delete Window")
-  ("Delete Other Windows" "Delete Other Windows"))
+  ("Delete Other Windows" "Delete Other Windows")
+  :separator
+  ("Fold or Unfold" "Toggle Fold")
+  ("Fold All" "Fold All")
+  ("Unfold All" "Unfold All"))
 
 (define-menu "Buffer" ()
   ("Switch to Buffer…" "Select Buffer" :key "b")

@@ -220,6 +220,7 @@
                (:file "xref")
                (:file "completion" :depends-on ("lispmode"))
                (:file "popup" :depends-on ("completion" "lispeval" "shell"))
+               (:file "fold")
                (:file "cpc")
                (:file "fuzzy" :depends-on ("cpc"))
                (:file "shell")
