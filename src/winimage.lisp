@@ -110,6 +110,7 @@
               (dis-line-position dis-line) pos)
         (multiple-value-setq (string underhang offset)
           (compute-line-image string underhang line offset dis-line width))
+        (setf (dis-line-text-length dis-line) (dis-line-length dis-line))
         (unless underhang
           (when *line-annotation-functions*
             (annotate-dis-line dis-line line width))

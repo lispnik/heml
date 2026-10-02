@@ -294,7 +294,9 @@
   font-changes                ; Font-Change structures for changes in this line.
   line                        ; Line displayed.
   (position 0 :type fixnum)   ; Line # to be displayed on.
-  (end 0 :type fixnum))       ; Index after last logical character displayed.
+  (end 0 :type fixnum)        ; Index after last logical character displayed.
+  (text-length 0 :type fixnum)) ; Length of the line's own text in the image,
+                              ; before what is shown after its end.
 
 (defstruct (font-change (:copier nil)
                         (:constructor make-font-change (next)))

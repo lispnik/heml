@@ -219,8 +219,9 @@
   :value t)
 
 (defhvar "LSP Inlay Hints"
-  "When true, what a language server infers -- the type of a variable
-   declared without one -- is shown after the end of the line it is on."
+  "When true, what a language server infers is shown where it would be
+   written: the type of a variable declared without one after its name, and
+   the name of a parameter before the argument given for it."
   :value nil)
 
 (defhvar "LSP Code Lenses"
@@ -286,41 +287,52 @@
          (table (and buffer (gethash buffer *buffer-tokens*))))
     (and table (gethash line table))))
 
-(defun hint-text (hint string)
-  "What the protocol's HINT says, for the end of the line STRING: a type,
-   which the server would have after a name, has the name before it."
+(defun hint-text (hint)
+  "What the protocol's HINT says, with the space the server wants round it."
   (let* ((label (jref hint "label"))
-         (text (string-trim " " (if (stringp label)
-                                    label
-                                    (format nil "~{~A~}"
-                                            (mapcar (lambda (part) (or (jref part "value") ""))
-                                                    (jlist label)))))))
-    (if (and (plusp (length text)) (char= (char text 0) #\:))
-        (let* ((end (min (length string) (unit-charpos string (jref hint "position" "character"))))
-               (start (or (position-if-not #'word-char-p string :end end :from-end t) -1)))
-          (concatenate 'string (subseq string (1+ start) end) text))
-        text)))
+         (text (if (stringp label)
+                   label
+                   (format nil "~{~A~}"
+                           (mapcar (lambda (part) (or (jref part "value") "")) (jlist label))))))
+    (format nil "~:[~; ~]~A~:[~; ~]" (jref hint "paddingLeft") text (jref hint "paddingRight"))))
+
+(defun drop-inlay-hints (buffer)
+  "Forget BUFFER's hints, and the marks that kept their places."
+  (let ((table (gethash buffer *buffer-hints*)))
+    (when table
+      (maphash (lambda (line hints)
+                 (declare (ignore line))
+                 (loop for (mark) in hints do (delete-mark mark)))
+               table)
+      (remhash buffer *buffer-hints*))))
 
 (defun note-inlay-hints (buffer hints)
-  (let ((table (make-hash-table :test 'eq))
-        (lines (coerce (loop for line = (buffer-lines-from buffer) then (line-next line)
-                             while line collect line)
-                       'vector)))
-    (dolist (hint (sort (copy-list hints)
-                        (lambda (a b)
-                          (let ((la (jref a "position" "line")) (lb (jref b "position" "line")))
-                            (or (< la lb)
-                                (and (= la lb) (< (jref a "position" "character")
-                                                  (jref b "position" "character"))))))))
-      (let ((number (jref hint "position" "line")))
-        ;; Not the names of arguments, which mean nothing away from them.
-        (when (and (< -1 number (length lines)) (not (eql (jref hint "kind") 2)))
-          (let* ((line (aref lines number))
-                 (text (hint-text hint (line-string line))))
-            (when (plusp (length text))
-              (setf (gethash line table)
-                    (format nil "~@[~A, ~]~A" (gethash line table) text)))))))
+  "Keep HINTS, the protocol's, by line: ((MARK . TEXT) ...) for each.  A
+   mark, so that a hint stays with its text as the line is typed in, until
+   the server is asked again: a type stays after its name as the name
+   grows, and a parameter's name before its argument."
+  (let ((table (make-hash-table :test 'eq)))
+    (drop-inlay-hints buffer)
+    (dolist (hint hints)
+      (let ((number (jref hint "position" "line"))
+            (text (hint-text hint)))
+        (when (and (integerp number) (plusp (length text)))
+          (let ((mark (copy-mark (buffer-start-mark buffer)
+                                 (if (eql (jref hint "kind") 2)
+                                     :right-inserting
+                                     :left-inserting))))
+            (lsp-move-mark mark number (or (jref hint "position" "character") 0))
+            (push (cons mark text) (gethash (mark-line mark) table))))))
     (setf (gethash buffer *buffer-hints*) table)))
+
+(defun lsp-line-inlines (line)
+  "The server's hints for LINE, where they belong among its characters."
+  (let* ((buffer (line-buffer line))
+         (table (and buffer (gethash buffer *buffer-hints*))))
+    (when table
+      (loop for (mark . text) in (gethash line table)
+            when (eq (mark-line mark) line)
+              collect (list (mark-charpos mark) text *lsp-annotation-font*)))))
 
 (defun lens-title (lens)
   (jref lens "command" "title"))
@@ -350,17 +362,13 @@
     (setf (gethash buffer *buffer-lenses*) table)))
 
 (defun lsp-line-annotation (line)
-  "What the server says of LINE, for after its end: what it infers there,
-   and what it offers to do."
+  "What the server offers to do with LINE, for after its end."
   (let ((buffer (line-buffer line)))
     (when buffer
-      (let* ((hints (gethash buffer *buffer-hints*))
-             (lenses (gethash buffer *buffer-lenses*))
-             (hint (and hints (gethash line hints)))
+      (let* ((lenses (gethash buffer *buffer-lenses*))
              (titles (and lenses (remove nil (mapcar #'lens-title (gethash line lenses))))))
-        (when (or hint titles)
-          (cons (format nil "~@[~A~]~:[~;  ~]~@[[~{~A~^ | ~}]~]" hint (and hint titles) titles)
-                *lsp-annotation-font*))))))
+        (when titles
+          (cons (format nil "[~{~A~^ | ~}]" titles) *lsp-annotation-font*))))))
 
 (defun whole-buffer-range (buffer)
   (json "start" (json "line" 0 "character" 0)
@@ -398,7 +406,9 @@
                   (declare (ignore error))
                   (when (current-p)
                     (note-inlay-hints buffer (jlist result))))))
-              (t (remhash buffer *buffer-hints*)))
+              ((gethash buffer *buffer-hints*)
+               (drop-inlay-hints buffer)
+               (incf hi:*decoration-tick*)))
         (cond ((and (value lsp-code-lenses) (jref capabilities "codeLensProvider"))
                (lsp-request-async
                 server "textDocument/codeLens"
@@ -415,6 +425,7 @@
 (pushnew 'lsp-highlight-decorations hi:*line-decoration-functions*)
 (pushnew 'lsp-token-decorations hi:*line-decoration-functions*)
 (pushnew 'lsp-line-annotation hi:*line-annotation-functions*)
+(pushnew 'lsp-line-inlines hi:*line-inline-functions*)
 
 (defun lsp-ask-again ()
   "Have every buffer's colours, hints and lenses asked for again."
@@ -430,7 +441,8 @@
 
 (defcommand "LSP Inlay Hints" (p)
   "Show what the language server infers -- the types of variables declared
-   without them -- after the ends of their lines, or stop showing it."
+   without them, the names of the parameters arguments are for -- where it
+   would be written, or stop showing it."
   "Show or hide the language server's hints."
   (declare (ignore p))
   (toggle-lsp-variable 'lsp-inlay-hints "Hints"))

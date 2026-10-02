@@ -85,7 +85,8 @@
   `(cond
     ((= ,charpos ,length)
      (find-last ,line ,ypos ,dis-line)
-     (values (min (dis-line-length ,dis-line) (1- ,width)) ,ypos))
+     ;; The end of the line's text, not of what is shown after it.
+     (values (min (dis-line-text-length ,dis-line) (1- ,width)) ,ypos))
     ((= ,charpos (1- ,length))
      (multiple-value-bind (x dy)
                           (,fun ,line (1- ,width) ,offset ,charpos)
@@ -109,6 +110,10 @@
 ;;;
 (defun real-line-length (line width start end)
   (declare (fixnum width start end))
+  ;; A line with text shown among its characters counts that too.
+  (let ((inlines (line-inlines line)))
+    (when inlines
+      (return-from real-line-length (inline-line-length line inlines width start end))))
   (do ((xpos 0)
        (ypos 0)
        (chars (line-chars line))
@@ -139,7 +144,11 @@
 ;;; same.
 ;;;
 (defun cached-real-line-length (line width start end)
-  (declare (fixnum width start end) (ignore line))
+  (declare (fixnum width start end))
+  (let ((inlines (line-inlines line)))
+    (when inlines
+      (return-from cached-real-line-length
+        (inline-line-length line inlines width start end))))
   (let ((offset (- right-open-pos left-open-pos))
         (bound 0))
     (declare (fixnum offset bound))
@@ -211,6 +220,13 @@
      (t
       (find-line line offset charpos ypos dis-lines dis-line)
       (cond
+       ;; A line with text shown among its characters: where its image put
+       ;; the character, which is before any such text there.
+       ((line-inlines line)
+        (multiple-value-bind (x dy) (real-line-length line (1- width) offset charpos)
+          (if (and (zerop x) (plusp dy) (= charpos (line-length line)))
+              (values (1- width) (1- (+ ypos dy)))
+              (values x (+ ypos dy)))))
        ((eq line open-line)
         (let ((len (- line-cache-length (- right-open-pos left-open-pos))))
           (declare (fixnum len))

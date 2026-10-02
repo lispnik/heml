@@ -611,11 +611,11 @@ send C-x 1
 send M-x
 type_text 'LSP Inlay Hints'
 send Enter
-expect 'program fake;  fake: hinted' "LSP Inlay Hints shows what the server infers, after the line"
+expect 'argument: program fake: hinted;' "LSP Inlay Hints shows what the server infers, where it would be written"
 send M-x
 type_text 'LSP Code Lenses'
 send Enter
-expect 'fake: hinted  [Run the fake lens]' "and LSP Code Lenses what it offers to do there"
+expect 'hinted;  [Run the fake lens]' "and LSP Code Lenses what it offers to do there"
 send M-x
 type_text 'LSP Inlay Hints'
 send Enter

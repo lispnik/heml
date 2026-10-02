@@ -300,11 +300,11 @@ fi
 
 if wanted rust rust-analyzer; then
     mistake "$dir/rust/src/main.rs" 'y +'
-    # The type it infers for y, after the end of y's line.
+    # The type it infers for y, after y.
     send M-x
     type_text 'LSP Inlay Hints'
     send Enter
-    expect 'let y = add_one(1);  y: i32' "LSP Inlay Hints shows the types its server infers" 60
+    expect 'let y: i32 = add_one(1);' "LSP Inlay Hints shows the types its server infers, where they would be written" 60
     send M-x
     type_text 'LSP Inlay Hints'
     send Enter

@@ -592,6 +592,7 @@
    #:line-links #:link-font #:link-at-mark
    #:line-decorations #:*line-decoration-functions* #:*decoration-tick*
    #:*line-annotation-functions* #:line-hidden-p #:next-shown-line
+   #:*line-inline-functions*
 
    ;; htext1.lisp
    #:line-length #:line-buffer #:line-string #:line-character #:mark #:mark-kind

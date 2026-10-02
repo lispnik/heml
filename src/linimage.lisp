@@ -396,6 +396,12 @@
            (shiftf (font-change-next prev) *free-font-changes* changes))
         (setf (font-change-mark current) nil))))
   ;;
+  ;; A line with text shown among its characters is made its own way.
+  (let ((inlines (line-inlines line)))
+    (when inlines
+      (return-from compute-line-image
+        (compute-inline-line-image string underhang line offset dis-line width inlines))))
+  ;;
   ;; If the line has any Font-Marks, add Font-Changes for them.
   (let ((marks (line-marks line)))
     (when (dolist (m marks nil)
@@ -463,6 +469,157 @@
     (compute-cached-line-image offset dis-line 0 width))
    (t
     (compute-normal-line-image line offset dis-line 0 width))))
+
+
+;;;; Text shown among a line's characters.
+
+;;; What something other than the buffer says belongs within a line -- the
+;;; type a language server infers for a name, after the name -- is drawn
+;;; there, and everything after it on the line is that much further along.
+;;; Each function in *LINE-INLINE-FUNCTIONS* is called with a line and
+;;; returns ((CHARPOS TEXT FONT) ...): TEXT is shown, in FONT, before the
+;;; character at CHARPOS, or after the last when CHARPOS is the line's
+;;; length.
+;;;
+;;; Two things must agree on where a character is: the image of the line,
+;;; made here, and the arithmetic that says where the cursor goes, which
+;;; character a column is, and where a line wraps (REAL-LINE-LENGTH and its
+;;; callers in cursor.lisp).  For a line with such text both come from
+;;; FLATTEN-INLINE-LINE, the characters the line shows in a row of any
+;;; length; an image is that cut into rows.  Other lines go the fast way,
+;;; as they always did.
+;;;
+(defvar *line-inline-functions* '())
+
+(defun line-inlines (line)
+  "What is shown among LINE's characters: ((CHARPOS TEXT FONT) ...), in
+   order; NIL for nothing."
+  (when *line-inline-functions*
+    (let ((all (loop for function in *line-inline-functions*
+                     append (funcall function line))))
+      (if (rest all)
+          (stable-sort (copy-list all) #'< :key #'first)
+          all))))
+
+(defun line-display-string (line)
+  "LINE's characters, without moving the line that is open."
+  (if (eq line open-line)
+      (let ((string (make-string (- line-cache-length (- right-open-pos left-open-pos)))))
+        (replace string open-chars :end2 left-open-pos)
+        (replace string open-chars :start1 left-open-pos
+                                   :start2 right-open-pos :end2 line-cache-length)
+        string)
+      (line-chars line)))
+
+(defun flatten-inline-line (line inlines width start end at-end)
+  "The characters shown for LINE's from START to END, with INLINES where
+   they belong and each character as it is drawn (a tab as its spaces, for
+   rows WIDTH wide); and, as a second value, for each of those characters of
+   LINE and for END, how far into the first value it starts -- before any
+   text shown at it.  With AT-END, what is shown after END is included."
+  (let* ((chars (line-display-string line))
+         (end (min end (length chars)))
+         (out (make-array 64 :element-type 'character :adjustable t :fill-pointer 0))
+         (map (make-array (1+ (max 0 (- end start))) :element-type 'fixnum :initial-element 0))
+         (last (length chars)))
+    (flet ((shown-at (position)
+             (loop for (at text) in inlines
+                   when (= (min at last) position)
+                     do (loop for char across text do (vector-push-extend char out)))))
+      (loop for i from start below end
+            do (setf (aref map (- i start)) (fill-pointer out))
+               (shown-at i)
+               (let ((char (schar chars i)))
+                 (if (= (char-set-ref *losing-character-mask* (char-code char)) winning-char)
+                     (vector-push-extend char out)
+                     (let ((rep (get-rep char)))
+                       (unless (simple-string-p rep)
+                         (setq rep (funcall rep (mod (fill-pointer out) width))))
+                       (loop for c across rep do (vector-push-extend c out))))))
+      (when (>= end start)
+        (setf (aref map (- end start)) (fill-pointer out)))
+      (when at-end (shown-at end)))
+    (values (coerce out 'simple-string) map)))
+
+(defun inline-line-length (line inlines width start end)
+  "As REAL-LINE-LENGTH, for a line with INLINES."
+  (multiple-value-bind (dy xpos)
+      (truncate (length (flatten-inline-line line inlines width start end nil)) width)
+    (values xpos dy)))
+
+(defvar *inline-layout* nil
+  "(STRING MAP ORIGIN): the line whose image is being made, flattened from
+   its character ORIGIN, for the rows after its first.")
+
+(defun compute-inline-line-image (string underhang line offset dis-line width inlines)
+  "COMPUTE-LINE-IMAGE for a line with INLINES: one row of it.  The whole of
+   what the line shows is the string handed from row to row, as the rest of
+   a character's representation is for other lines."
+  (let* ((w (1- width))
+         (length (line-length line))
+         (continued (and string *inline-layout* (eq string (first *inline-layout*)))))
+    (unless continued
+      (multiple-value-bind (flat map) (flatten-inline-line line inlines w offset length t)
+        (setf *inline-layout* (list flat map offset))))
+    (destructuring-bind (flat map origin) *inline-layout*
+      (let* ((k (if continued underhang 0))
+             (remaining (- (length flat) k))
+             (done (<= remaining width))
+             (shown (if done remaining w))
+             (chars (dis-line-chars dis-line)))
+        (replace chars flat :start1 0 :end1 shown :start2 k)
+        (unless done
+          (setf (schar chars w) *line-wrap-char*))
+        (setf (dis-line-length dis-line) (if done remaining width))
+        ;; Font changes, from the line's font marks: each where its
+        ;; character is in this row, and the last of those before the row
+        ;; at its start.
+        (let ((marks (stable-sort (remove-if-not (lambda (mark) (fast-font-mark-p mark))
+                                                 (line-marks line))
+                                  #'< :key #'mark-charpos))
+              (first nil)
+              (prev nil))
+          (flet ((add (x mark)
+                   (let ((new (alloc-font-change x (font-mark-font mark) mark)))
+                     (if prev
+                         (setf (font-change-next prev) new)
+                         (setf (dis-line-font-changes dis-line) new))
+                     (setq prev new))))
+            (dolist (mark marks)
+              (let* ((charpos (min (mark-charpos mark) length))
+                     (x (if (< charpos origin)
+                            -1
+                            (- (aref map (- charpos origin)) k))))
+                (cond ((<= x 0) (setq first mark))
+                      ((< x shown)
+                       (when first
+                         (add 0 first)
+                         (setq first nil))
+                       (add x mark)))))
+            (when first (add 0 first))))
+        ;; And what is shown among the characters, in its own font.
+        (let ((at nil) (along 0))
+          (loop for (position text font) in inlines
+                do (let ((position (min position length)))
+                     (unless (eql position at)
+                       (setq at position  along 0))
+                     (when (>= position origin)
+                       (let* ((from (+ (aref map (- position origin)) along))
+                              (to (+ from (length text)))
+                              (x0 (max from k))
+                              (x1 (min to (+ k shown))))
+                         (when (< x0 x1)
+                           (overlay-dis-line dis-line (- x0 k) (- x1 k)
+                                             (subseq flat x0 x1) font))))
+                     (incf along (length text)))))
+        (cond (done
+               (setq *inline-layout* nil)
+               (values nil nil (setf (dis-line-end dis-line) length)))
+              (t
+               (let* ((next (+ k w))
+                      (index (+ origin (or (position-if (lambda (x) (>= x next)) map)
+                                           (- length origin)))))
+                 (values flat next (setf (dis-line-end dis-line) index)))))))))
 
 
 ;;;; Popups: rows of text laid over a window's image (winimage.lisp).

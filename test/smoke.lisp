@@ -249,11 +249,69 @@
     (check "the server's own reading of the text colours it"
            (wait-until (lambda () (eql 6 (run-font-at "begin end." 6))) 10))
     (extended-command "LSP Inlay Hints")
-    (check "LSP Inlay Hints shows what the server infers after the line's end"
-           (wait-until (lambda () (row-p "program more;  more: hinted")) 10))
+    (check "LSP Inlay Hints shows what the server infers, where it would be written"
+           (wait-until (lambda () (row-p "argument: program more: hinted;")) 10))
+    (check "in a font of its own, the text's own colours after it"
+           (let ((hint (run-font-at "argument: program" 0))
+                 (text (run-font-at "argument: program" 10)))
+             (and (consp hint) (getf hint :italic) (not (equal hint text)))))
+    ;; The cursor, and a click, are where the characters are drawn.
+    (post-key #\< "Meta")
+    (settle)
+    (check "the cursor at a hint's place is before the hint"
+           (eql 0 (heml.cocoa::screen-cursor-x heml.cocoa::*screen*)))
+    (post-key #\f "Control")
+    (settle)
+    (check "and after the next character, past both"
+           (eql 11 (heml.cocoa::screen-cursor-x heml.cocoa::*screen*)))
+    (post-key #\e "Control")
+    (settle)
+    (check "and at the end of the line, at the end of its text"
+           (eql (length "argument: program more: hinted;")
+                (heml.cocoa::screen-cursor-x heml.cocoa::*screen*)))
+    ;; The line being typed in is kept apart from the others, and is drawn
+    ;; and measured its own way.
+    (post-key #\< "Meta")
+    (post-text "Z")
+    (settle)
+    (check "a line with hints is drawn right as it is typed in"
+           (and (row-p "argument: Zprogram more: hinted;")
+                (eql 11 (heml.cocoa::screen-cursor-x heml.cocoa::*screen*))))
+    (post (list :named "Backspace" '()))
+    (settle)
+    ;; What a line with text among its characters shows, and where each
+    ;; character is in that: a tab is as wide as where it comes makes it.
+    (check "text among a line's characters moves what follows, tabs and wrapping too"
+           (let ((line (hi::make-line :chars (coerce (format nil "abc~Cdef" #\Tab) 'simple-string)))
+                 (inlines '((1 "XX" 8) (3 "Y" 8))))
+             (multiple-value-bind (flat map)
+                 (hi::flatten-inline-line line inlines 10000 0 7 t)
+               (and (string= flat "aXXbcY  def")
+                    (equalp map #(0 1 4 5 8 9 10 11))
+                    ;; In rows five wide the tab comes at the second column
+                    ;; of its row, and is seven spaces: sixteen columns.
+                    (equal '(1 3) (multiple-value-list
+                                   (hi::inline-line-length line inlines 5 0 7)))))))
+    (let* ((rows (heml.cocoa::screen-shown-rows heml.cocoa::*screen*))
+           (row (position-if (lambda (row) (search "argument: program" (heml.cocoa::row-text row)))
+                             rows))
+           (column (and row (search "argument: program" (heml.cocoa::row-text (svref rows row))))))
+      (when row
+        (mouse :down (+ column 12) row)
+        (mouse :up (+ column 12) row)
+        (settle))
+      (check "a click on a character after a hint is on that character"
+             (and row (eql 2 (hi::mark-charpos (hi::current-point)))))
+      (when row
+        (mouse :down (+ column 3) row)
+        (mouse :up (+ column 3) row)
+        (settle))
+      (check "and a click on a hint is where the hint is"
+             (and row (eql 0 (hi::mark-charpos (hi::current-point))))))
+    (post-key #\< "Meta")
     (extended-command "LSP Code Lenses")
-    (check "and LSP Code Lenses what it offers to do there"
-           (wait-until (lambda () (row-p "more: hinted  [Run the fake lens]")) 10))
+    (check "and LSP Code Lenses what it offers to do there, after the line's end"
+           (wait-until (lambda () (row-p "hinted;  [Run the fake lens]")) 10))
     (extended-command "LSP Inlay Hints")
     (extended-command "LSP Code Lenses")
     (check "and each is taken away again"

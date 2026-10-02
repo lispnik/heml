@@ -184,8 +184,12 @@ def answer(method, params):
         # "end", on the third line, is a function.
         return {"data": [2, 6, 3, 0, 0]}
     if method == "textDocument/inlayHint":
-        return [{"position": {"line": 0, "character": 12}, "label": ": hinted", "kind": 1},
-                {"position": {"line": 0, "character": 0}, "label": "argument:", "kind": 2}]
+        # After the name on the first line, which ends at its semicolon.
+        name_end = documents.get(uri, "").split("\n")[0].find(";")
+        return [{"position": {"line": 0, "character": name_end if name_end >= 0 else 12},
+                 "label": ": hinted", "kind": 1},
+                {"position": {"line": 0, "character": 0}, "label": "argument:", "kind": 2,
+                 "paddingRight": True}]
     if method == "textDocument/codeLens":
         return [{"range": place(uri, 0, 0, 7)["range"], "data": uri}]
     if method == "codeLens/resolve":
