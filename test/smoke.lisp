@@ -162,8 +162,29 @@
 
 ;;;; Reading the editor's state, after SETTLE, while it waits for input
 
+;;; This thread only reads.  The editor keeps the line being edited in a
+;;; cache, and LINE-STRING and REGION-TO-STRING put the cache back in the
+;;; line first: done from here while the editor's thread is typing into the
+;;; line, that corrupts it.  So a line's text is read where it is, cache or
+;;; line, and a read the editor's thread overtakes is at worst wrong once.
+
+(defun line-text (line)
+  (if (eq line hi::open-line)
+      (let ((chars hi::open-chars)
+            (left hi::left-open-pos)
+            (right hi::right-open-pos)
+            (length hi::line-cache-length))
+        (concatenate 'string (subseq chars 0 (min left (length chars)))
+                     (subseq chars (min right (length chars)) (min length (length chars)))))
+      (hi::line-chars line)))
+
 (defun buffer-text (&optional (buffer (hi::current-buffer)))
-  (hi::region-to-string (hi::buffer-region buffer)))
+  (with-output-to-string (out)
+    (loop for line = (hi::mark-line (hi::buffer-start-mark buffer)) then next
+          for next = (hi::line-next line)
+          do (write-string (line-text line) out)
+             (when next (terpri out))
+          while next)))
 
 (defun region-text () (hi::region-to-string (heml::current-region nil nil)))
 
@@ -414,7 +435,7 @@ café λ 日本語 end")
            (find name hi::*buffer-list*
                  :key (lambda (b) (and (hi::buffer-pathname b) (file-namestring (hi::buffer-pathname b))))
                  :test #'equal))
-         (point-line () (hi::line-string (hi::mark-line (hi::current-point))))
+         (point-line () (line-text (hi::mark-line (hi::current-point))))
          (write-file (name &rest lines)
            (with-open-file (out (merge-pathnames name *out*) :direction :output :if-exists :supersede)
              (dolist (line lines) (write-line line out)))
@@ -478,9 +499,12 @@ gamma
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-python.dylib")
       (extended-command "Outline")
       (settle)
+      ;; As its grammar has them, or, where a Python language server is
+      ;; installed and ready, as the server names them.
       (check "Outline lists a Python file's definitions"
              (and (equal "Outline" (hi::buffer-major-mode (hi::current-buffer)))
-                  (search "def f():" (buffer-text))))
+                  (or (search "def f():" (buffer-text))
+                      (search "function f" (buffer-text)))))
       (post-key #\x "Control") (post-key #\1))
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-c.dylib")
       (post (list :open (namestring (write-file "defs.c" "int a(void) {" "  return 1;" "}"
@@ -642,7 +666,7 @@ gamma
     (write-line "begin end." out))
   (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
   (settle)
-  (flet ((point-line () (hi::line-string (hi::mark-line (hi::current-point)))))
+  (flet ((point-line () (line-text (hi::mark-line (hi::current-point)))))
     (check "a language server's error is underlined where it is"
            (wait-until (lambda ()
                          (and (getf (run-font-at "wrongthing here" 1) :underline)
@@ -787,7 +811,7 @@ gamma
                    :key (lambda (w) (let ((p (hi::buffer-pathname (hi::window-buffer w))))
                                       (and p (file-namestring p))))
                    :test #'equal))
-           (line-text () (hi::line-string (hi::mark-line (hi::current-point))))
+           (current-line-text () (line-text (hi::mark-line (hi::current-point))))
            (current-file () (let ((p (hi::buffer-pathname (hi::current-buffer))))
                               (and p (file-namestring p)))))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)
@@ -871,7 +895,7 @@ gamma
       (check "with their points"
              (let ((w (file-shown-p "a.c")))
                (and w (equal "  return 1;"
-                             (hi::line-string (hi::mark-line (hi::window-point w)))))))
+                             (line-text (hi::mark-line (hi::window-point w)))))))
       ;; A window on one of the project's directories comes back too.
       (post-key #\x "Control") (post-key #\p) (post-key #\d)
       (settle)
@@ -1276,7 +1300,7 @@ gamma
   (check "a colour code becomes a font"
          (let ((line (hi::mark-line (hi::buffer-start-mark (hi::current-buffer)))))
            (loop while line
-                 thereis (and (search "red plain" (hi::line-string line))
+                 thereis (and (search "red plain" (line-text line))
                               (some (lambda (m) (and (hi::fast-font-mark-p m)
                                                      (eql (hi::font-mark-font m) 1)))
                                     (hi::line-marks line)))
@@ -1287,7 +1311,7 @@ gamma
   (post-key #\c "Control") (post-key #\p "Control")
   (settle)
   (check "C-c C-p goes back to the last input"
-         (search "echo first-in" (hi::line-string (hi::mark-line (hi::current-point)))))
+         (search "echo first-in" (line-text (hi::mark-line (hi::current-point)))))
   (post (list :named "Return" '()))
   (check "Return on it sends it again"
          (wait-until (lambda () (<= 4 (count-matches "first-in" (buffer-text))))))
