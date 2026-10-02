@@ -457,6 +457,17 @@ café λ 日本語 end")
              (and (equal "JSON" (hi::buffer-major-mode (hi::current-buffer)))
                   (eql 4 (run-font-at "\"value\"" 1))
                   (eql 3 (run-font-at "12}" 0)))))
+    ;; A Markdown code block that names its language is coloured as that
+    ;; language; one that names none Heml knows stays as code.
+    (visit "blocks.md" "# Blocks" "" "```c" "int x = 1; /* note */" "```" ""
+           "```nosuchlanguage" "plain words" "```")
+    (when (and (grammar-p "markdown") (grammar-p "c"))
+      (check "a Markdown code block is coloured by the language it names"
+             (and (eql 2 (run-font-at "int x = 1;" 0))
+                  (eql 3 (run-font-at "int x = 1;" 8))
+                  (eql 1 (run-font-at "/* note */" 0))))
+      (check "and one in a language Heml has not is left as code"
+             (eql 2 (run-font-at "plain words" 0))))
     (visit "conf.yaml" "# a YAML comment" "key: value")
     (when (grammar-p "yaml")
       (check "and YAML's comment"

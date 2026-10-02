@@ -234,6 +234,8 @@ copies them to $XDG_DATA_HOME/heml/tree-sitter/ (~/.local/share/heml/).")
   opens-always         ; true when a new line after one that OPENS is always indented
   inline               ; the language of what its (inline) nodes hold, or NIL
   inline-node-query    ; the query finding those nodes
+  code-blocks          ; true when its fenced code blocks are coloured by their languages
+  code-block-query     ; the query finding those blocks, with their languages' names
   mode                 ; the major mode it colours
   definitions)         ; node types "Beginning of Definition" moves among
 
@@ -241,7 +243,8 @@ copies them to $XDG_DATA_HOME/heml/tree-sitter/ (~/.local/share/heml/).")
 
 (defun define-tree-sitter-language (name &key mode (precedence :first) fallback
                                                 indent (indent-width 4) opens closes finishes
-                                                single opens-always inline definitions)
+                                                single opens-always inline code-blocks
+                                                definitions)
   "Highlight buffers whose major mode is MODE with tree-sitter's grammar NAME
 and its highlight query.  PRECEDENCE says which pattern wins when two capture
 the same text: :FIRST, tree-sitter's own rule, followed by the queries that
@@ -261,6 +264,7 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
                                   :finishes (and finishes (ppcre:create-scanner finishes))
                                   :single (and single (ppcre:create-scanner single))
                                   :opens-always opens-always
+                                  :code-blocks code-blocks
                                   :inline (and inline (%make-language :name inline :precedence :first)))))
     (setf (gethash name *languages*) language)
     (when (and mode indent)
@@ -386,7 +390,8 @@ coloured.")
   lines                ; row to line
   (indents :unmade)    ; node id to its indentation captures, made when needed
   inline-tree          ; the inline language's tree, over the (inline) nodes
-  inline-root)         ; foreign memory holding its root node, or NIL
+  inline-root          ; foreign memory holding its root node, or NIL
+  injections)          ; ((LANGUAGE TREE ROOT RANGES) ...): its code blocks, by language
 
 (defvar *parses* (make-hash-table :test 'eq :weakness :key)
   "Buffer to its latest parse.")
@@ -425,7 +430,11 @@ coloured.")
 (defun free-parse (parse)
   (ts "ts_tree_delete" :void (:pointer (parse-tree parse)))
   (deallocate (parse-root parse))
-  (free-inline parse))
+  (free-inline parse)
+  (loop for (nil tree root) in (parse-injections parse)
+        do (ts "ts_tree_delete" :void (:pointer tree))
+           (deallocate root))
+  (setf (parse-injections parse) '()))
 
 ;;; Markdown is two grammars: the block grammar finds headings, lists and
 ;;; paragraphs, whose text it leaves in (inline) nodes, and the inline
@@ -466,29 +475,130 @@ is at ROOT, and foreign memory holding its root; or NIL."
                                     (push (list srow scol erow ecol start end) ranges)))))))))
           (ts "ts_query_cursor_delete" :void (:pointer cursor)))
         (when ranges
-          (setf ranges (nreverse ranges))
-          (unless *inline-parser*
-            (setf *inline-parser* (ts "ts_parser_new" :pointer)))
-          (ts "ts_parser_set_language" :bool
-              (:pointer *inline-parser*) (:pointer (language-pointer inline)))
-          (with-foreign-memory (memory (* +range-size+ (length ranges)))
-            (loop for (srow scol erow ecol start end) in ranges
-                  for offset from 0 by +range-size+
-                  do (setf (u32 memory offset) srow
-                           (u32 memory (+ offset 4)) scol
-                           (u32 memory (+ offset 8)) erow
-                           (u32 memory (+ offset 12)) ecol
-                           (u32 memory (+ offset 16)) start
-                           (u32 memory (+ offset 20)) end))
-            (ts "ts_parser_set_included_ranges" :bool
-                (:pointer *inline-parser*) (:pointer memory) (:uint32 (length ranges)))
-            (let ((tree (with-vector-pointer (text octets)
-                          (ts "ts_parser_parse_string" :pointer
-                              (:pointer *inline-parser*) (:pointer (cffi:null-pointer))
-                              (:pointer text) (:uint32 (length octets)))))
-                  (inline-root (allocate +node-size+)))
-              (ts "ts_tree_root_node" (:node inline-root) (:pointer tree))
-              (values tree inline-root))))))))
+          (parse-ranges inline octets (nreverse ranges)))))))
+
+(defun parse-ranges (language octets ranges)
+  "LANGUAGE's tree over RANGES of the text OCTETS, each (START-ROW
+START-COLUMN END-ROW END-COLUMN START-BYTE END-BYTE), and foreign memory
+holding its root."
+  (unless *inline-parser*
+    (setf *inline-parser* (ts "ts_parser_new" :pointer)))
+  (ts "ts_parser_set_language" :bool
+      (:pointer *inline-parser*) (:pointer (language-pointer language)))
+  (with-foreign-memory (memory (* +range-size+ (length ranges)))
+    (loop for (srow scol erow ecol start end) in ranges
+          for offset from 0 by +range-size+
+          do (setf (u32 memory offset) srow
+                   (u32 memory (+ offset 4)) scol
+                   (u32 memory (+ offset 8)) erow
+                   (u32 memory (+ offset 12)) ecol
+                   (u32 memory (+ offset 16)) start
+                   (u32 memory (+ offset 20)) end))
+    (ts "ts_parser_set_included_ranges" :bool
+        (:pointer *inline-parser*) (:pointer memory) (:uint32 (length ranges)))
+    (let ((tree (with-vector-pointer (text octets)
+                  (ts "ts_parser_parse_string" :pointer
+                      (:pointer *inline-parser*) (:pointer (cffi:null-pointer))
+                      (:pointer text) (:uint32 (length octets)))))
+          (root (allocate +node-size+)))
+      (ts "ts_tree_root_node" (:node root) (:pointer tree))
+      (values tree root))))
+
+;;; A fenced code block that names its language is coloured as that
+;;; language: its text is parsed again with the language's grammar, all the
+;;; blocks of one language together, as the inline grammar parses the
+;;; (inline) nodes.
+
+(defparameter *code-block-languages*
+  '(("c" . "c") ("h" . "c")
+    ("python" . "python") ("py" . "python") ("python3" . "python")
+    ("bash" . "bash") ("sh" . "bash") ("shell" . "bash") ("zsh" . "bash") ("console" . "bash")
+    ("lisp" . "commonlisp") ("commonlisp" . "commonlisp") ("common-lisp" . "commonlisp")
+    ("cl" . "commonlisp") ("elisp" . "commonlisp") ("emacs-lisp" . "commonlisp")
+    ("pascal" . "pascal") ("delphi" . "pascal") ("objectpascal" . "pascal")
+    ("rust" . "rust") ("rs" . "rust")
+    ("go" . "go") ("golang" . "go")
+    ("javascript" . "javascript") ("js" . "javascript") ("jsx" . "javascript")
+    ("node" . "javascript")
+    ("typescript" . "typescript") ("ts" . "typescript") ("tsx" . "tsx")
+    ("json" . "json") ("jsonc" . "json")
+    ("yaml" . "yaml") ("yml" . "yaml"))
+  "What a code block may call its language, and the grammar that is.")
+
+(defun code-block-language (name)
+  "The language a code block calls NAME, when its grammar is installed."
+  (let* ((grammar (cdr (assoc (string-downcase name) *code-block-languages* :test #'string=)))
+         (language (and grammar (gethash grammar *languages*))))
+    (and language (language-ready-p language) language)))
+
+(defun capture-range (capture)
+  "The node at CAPTURE as a range: (START-ROW START-COLUMN END-ROW END-COLUMN
+START-BYTE END-BYTE)."
+  (let ((node (node-copy capture)))
+    (multiple-value-bind (start end) (node-bytes capture)
+      (multiple-value-bind (start-row start-column) (node-start node)
+        (multiple-value-bind (end-row end-column) (node-end node)
+          (list start-row start-column end-row end-column start end))))))
+
+(defun match-capture (captures count index)
+  "The capture numbered INDEX among a match's COUNT CAPTURES, or NIL."
+  (loop for k below count
+        for capture = (ptr+ captures (* k +capture-size+))
+        when (= index (u32 capture +node-size+))
+          return capture))
+
+(defun code-block-ranges (language octets root)
+  "The fenced code blocks in the tree whose root is at ROOT that name a
+language Heml has, as ((LANGUAGE RANGE ...) ...), the ranges in order."
+  (let ((blocks '())
+        (cursor (ts "ts_query_cursor_new" :pointer)))
+    (unwind-protect
+         (progn
+           (ts "ts_query_cursor_exec" :void
+               (:pointer cursor) (:pointer (language-code-block-query language)) (:node root))
+           (with-foreign-memory (match (+ +match-size+ 4))
+             (let ((capture-index (ptr+ match +match-size+)))
+               (loop while (ts "ts_query_cursor_next_capture" :bool
+                               (:pointer cursor) (:pointer match) (:pointer capture-index))
+                     do (let* ((count (u16 match 6))
+                               (captures (pointer-at match 8))
+                               (capture (ptr+ captures (* (u32 capture-index 0) +capture-size+)))
+                               ;; @language is the query's first capture, @content its second.
+                               (name (match-capture captures count 0)))
+                          ;; At the block's text, the match holds its language's name too.
+                          (when (and name (= 1 (u32 capture +node-size+)))
+                            (let* ((range (capture-range capture))
+                                   (block-language
+                                     (multiple-value-bind (start end) (node-bytes name)
+                                       (code-block-language
+                                        (babel:octets-to-string octets :start start :end end
+                                                                       :encoding :utf-8
+                                                                       :errorp nil)))))
+                              (when (and block-language (< (fifth range) (sixth range)))
+                                (let ((entry (assoc block-language blocks)))
+                                  (unless entry
+                                    (setf entry (list block-language))
+                                    (push entry blocks))
+                                  (push range (cdr entry)))))))))))
+      (ts "ts_query_cursor_delete" :void (:pointer cursor)))
+    (loop for (block-language . ranges) in blocks
+          collect (cons block-language (reverse ranges)))))
+
+(defun parse-code-blocks (language octets root)
+  "The trees of the fenced code blocks in the tree whose root is at ROOT,
+one for each language named, as ((LANGUAGE TREE ROOT RANGES) ...), RANGES the
+blocks' bytes as (START . END)."
+  (when (language-code-blocks language)
+    (unless (language-code-block-query language)
+      (setf (language-code-block-query language)
+            (make-query (language-pointer language)
+                        "(fenced_code_block (info_string (language) @language) (code_fence_content) @content)")))
+    (loop for (block-language . ranges) in (code-block-ranges language octets root)
+          collect (multiple-value-bind (tree block-root)
+                      (parse-ranges block-language octets ranges)
+                    (list block-language tree block-root
+                          (loop for range in ranges
+                                collect (cons (fifth range) (sixth range))))))))
 
 ;;; The span of text an edit changed: where the old and new text first
 ;;; differ, and where each ends before what they share at the end.  A
@@ -568,7 +678,8 @@ last parse when it was parsed with LANGUAGE too."
                                    :tree tree :root root
                                    :octets octets :line-starts starts
                                    :lines lines
-                                   :inline-tree inline-tree :inline-root inline-root)))))))))
+                                   :inline-tree inline-tree :inline-root inline-root
+                                   :injections (parse-code-blocks language octets root))))))))))
 
 
 ;;;; Colouring a line
@@ -717,7 +828,8 @@ the same text, the one whose pattern wins last."
 
 (defun line-fonts (language parse line)
   "A vector of the font each character of LINE is drawn in, NIL for none:
-the language's highlighting, then its inline language's within that."
+the language's highlighting, then its inline language's within that, and in
+a code block the block's language's instead."
   (let* ((string (heml-interface:line-string line))
          (fonts (make-array (length string) :initial-element nil))
          (line-start (gethash line (parse-line-starts parse)))
@@ -731,7 +843,20 @@ the language's highlighting, then its inline language's within that."
       (lay-down (query-spans language parse (parse-root parse) string line-start line-end))
       (when (parse-inline-root parse)
         (lay-down (query-spans (language-inline language) parse (parse-inline-root parse)
-                               string line-start line-end))))
+                               string line-start line-end)))
+      ;; A code block's line is its own language's: what the block grammar
+      ;; made of it goes, and that language's colours are laid down.
+      (loop for (block-language nil block-root ranges) in (parse-injections parse)
+            when (some (lambda (range) (and (< (car range) line-end) (> (cdr range) line-start)))
+                       ranges)
+              do (loop for (start . end) in ranges
+                       do (let ((from (max start line-start)) (to (min end line-end)))
+                            (when (< from to)
+                              (fill fonts nil
+                                    :start (line-char-index string (- from line-start))
+                                    :end (line-char-index string (- to line-start))))))
+                 (lay-down (query-spans block-language parse block-root
+                                        string line-start line-end))))
     ;; Links, over whatever colours them.
     (loop for (start end target) in (hi:line-links string)
           do (loop for i from start below (min end (length fonts))

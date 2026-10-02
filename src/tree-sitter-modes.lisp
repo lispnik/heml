@@ -38,7 +38,8 @@ line: what \"Indent for Comment\" and its fellows insert and look for."
   (setf (buffer-major-mode buffer) "Markdown"))
 
 (heml.tree-sitter:define-tree-sitter-language "markdown" :mode "Markdown"
-                                              :inline "markdown_inline")
+                                              :inline "markdown_inline"
+                                              :code-blocks t)
 
 ;;; A Markdown line keeps the one before's indentation, as Neovim's query
 ;;; says, and with spaces.
