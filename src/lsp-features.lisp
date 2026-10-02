@@ -13,7 +13,7 @@
 ;;;; Who calls this, and what this calls.
 
 (defun lsp-calls (incoming)
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "callHierarchyProvider"))
          (item (first (jlist (lsp-request server "textDocument/prepareCallHierarchy"
                                           (lsp-symbol-params (current-buffer)
                                                              (current-point))))))
@@ -222,13 +222,19 @@
   "When true, what a language server infers is shown where it would be
    written: the type of a variable declared without one after its name, and
    the name of a parameter before the argument given for it."
-  :value nil)
+  :value t)
 
 (defhvar "LSP Code Lenses"
   "When true, what a language server offers to do with a line -- run the
    test defined there, show what refers to it -- is shown after its end;
    \"LSP Code Lens\" does one."
   :value nil)
+
+(defparameter *lsp-extras-line-limit* 50000
+  "A buffer with more lines than this is not asked about: its colours are
+   the grammar's alone, and it has no hints or lenses.  What a server says
+   of every name in a file is a great deal, for a file of a few hundred
+   thousand lines.")
 
 (defvar *buffer-tokens* (make-hash-table :test 'eq :weakness :key)
   "Buffer to a table of its lines' colours: line to ((START END FONT) ...).")
@@ -383,7 +389,15 @@
         (capabilities (lsp-server-capabilities server)))
     (when (and document (not (eql (document-extras document) signature)))
       (setf (document-extras document) signature)
-      (flet ((current-p () (eql (buffer-signature buffer) signature)))
+      (flet ((current-p () (eql (buffer-signature buffer) signature))
+             (again-if (error)
+               ;; A server that was busy, or that the text overtook, says
+               ;; so (ServerCancelled, ContentModified): it is asked again
+               ;; the next time round.
+               (when (member (jref error "code") '(-32802 -32801))
+                 (setf (document-extras document) nil))))
+        (when (> (count-lines (buffer-region buffer)) *lsp-extras-line-limit*)
+          (return-from lsp-refresh-extras nil))
         (cond ((and (value lsp-semantic-highlighting)
                     (let ((provider (jref capabilities "semanticTokensProvider")))
                       (and (hash-table-p provider) (jref provider "full"))))
@@ -391,7 +405,7 @@
                 server "textDocument/semanticTokens/full"
                 (json "textDocument" (lsp-document buffer))
                 (lambda (result error)
-                  (declare (ignore error))
+                  (again-if error)
                   (when (and (current-p) (vectorp (jref result "data")))
                     (note-semantic-tokens server buffer (jref result "data"))))))
               ((gethash buffer *buffer-tokens*)
@@ -403,8 +417,8 @@
                 (json "textDocument" (lsp-document buffer)
                       "range" (whole-buffer-range buffer))
                 (lambda (result error)
-                  (declare (ignore error))
-                  (when (current-p)
+                  (again-if error)
+                  (when (and (current-p) (not error))
                     (note-inlay-hints buffer (jlist result))))))
               ((gethash buffer *buffer-hints*)
                (drop-inlay-hints buffer)
@@ -414,8 +428,8 @@
                 server "textDocument/codeLens"
                 (json "textDocument" (lsp-document buffer))
                 (lambda (result error)
-                  (declare (ignore error))
-                  (when (current-p)
+                  (again-if error)
+                  (when (and (current-p) (not error))
                     (note-code-lenses server buffer (jlist result))))))
               (t (remhash buffer *buffer-lenses*)))))))
 
@@ -438,6 +452,11 @@
     (setf (variable-value name :global) on)
     (lsp-ask-again)
     (message "~A are ~:[not shown~;shown~]." what on)))
+
+(defun set-lsp-inlay-hints (on)
+  "Show a language server's hints, or do not: for setting from outside the
+   editor, where a Heml variable is not to hand."
+  (setf (variable-value 'lsp-inlay-hints :global) on))
 
 (defcommand "LSP Inlay Hints" (p)
   "Show what the language server infers -- the types of variables declared
@@ -512,9 +531,8 @@
 (defun lsp-fold-ranges (buffer)
   "What BUFFER's language server says can be folded, as ((FIRST . LAST)
    ...), lines from 0; NIL when there is no server that says."
-  (let ((server (ignore-errors (buffer-language-server buffer))))
-    (when (and server (eq (lsp-server-state server) :ready)
-               (jref (lsp-server-capabilities server) "foldingRangeProvider"))
+  (let ((server (ignore-errors (buffer-server-with buffer "foldingRangeProvider"))))
+    (when server
       (let ((*encoding* (lsp-server-encoding server)))
         (lsp-sync server buffer)
         (loop for range in (jlist (lsp-request server "textDocument/foldingRange"

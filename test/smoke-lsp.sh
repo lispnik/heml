@@ -3,10 +3,10 @@
 #
 # test/smoke-tty.sh and test/smoke.lisp check Heml's client against a
 # stand-in, test/fake-lsp.py.  This runs the real ones: for each language a
-# small project is written into build/smoke-lsp/, with a function, a call to
-# it and one mistake, and the TTY editor, in tmux, is asked what its server
-# says: the mistake, what the function is, where it is defined, and what
-# completes its name.
+# small project, from test/fixtures/lsp/, with a function, a call to it, a
+# call to one in another file and one mistake, and the TTY editor, in tmux,
+# is asked what its server says: the mistake, what the function is, where
+# it and the other file's are defined, and what completes its name.
 #
 # A server that is not installed is skipped, and said to be; with
 # SMOKE_LSP_STRICT=1 that is a failure, which is how CI runs it.
@@ -34,90 +34,15 @@ mkdir -p "$dir"
 log=$dir/lsp.log
 
 
-# The projects.  A source file is its function, forty lines of comment, and
-# then the call and the mistake on the line after it: so the definition is
-# off the screen while the call is on it, and what the server says of the
-# function is not something the screen already showed.
+# The projects are test/fixtures/lsp/, a directory for each language, copied
+# here so that what the checks type and what the servers leave behind is in
+# build/.  Each has a file .heml-project, which makes it a project, and two
+# or three source files: one, main, has a function, forty lines of comment,
+# and then a call to a function of another file, a call to its own, and a
+# mistake, on three lines.  The comment puts the function out of sight of
+# its call, so that what the server says of it is not already on the screen.
 
-# project NAME: a directory that is a project's root.
-project() {
-    mkdir -p "$dir/$1/.git"
-}
-
-# filler COMMENT: forty lines of comment.
-filler() {
-    i=1
-    while [ "$i" -le 40 ]; do
-        echo "$1 filler $i"
-        i=$((i + 1))
-    done
-}
-
-project c
-{
-    printf 'static int add_one(int x) { return x + 1; }\n'
-    filler '//'
-    printf 'int main(void) {\n    int y = add_one(1);\n    return y +;\n}\n'
-} > "$dir/c/main.c"
-
-project python
-{
-    printf 'def add_one(x):\n    return x + 1\n'
-    filler '#'
-    printf 'y = add_one(1)\nz = y +\n'
-} > "$dir/python/main.py"
-
-printf 'import os\n\nprint("hello")\n' > "$dir/python/lint.py"
-
-project shell
-{
-    printf '#!/bin/sh\nadd_one() {\n    echo $(($1 + 1))\n}\n'
-    filler '#'
-    printf 'add_one 1\nif then\n'
-} > "$dir/shell/main.sh"
-
-project rust
-mkdir -p "$dir/rust/src"
-printf '[package]\nname = "smoke"\nversion = "0.1.0"\nedition = "2021"\n' > "$dir/rust/Cargo.toml"
-{
-    printf 'fn add_one(x: i32) -> i32 {\n    x + 1\n}\n'
-    filler '//'
-    printf 'fn main() {\n    let y = add_one(1);\n    println!("{}", y +);\n}\n'
-} > "$dir/rust/src/main.rs"
-
-project go
-printf 'module smoke\n\ngo 1.21\n' > "$dir/go/go.mod"
-{
-    printf 'package main\n\nfunc addOne(x int) int {\n\treturn x + 1\n}\n'
-    filler '//'
-    printf 'func main() {\n\ty := addOne(1)\n\tprintln(y +)\n}\n'
-} > "$dir/go/main.go"
-
-project typescript
-printf '{ "compilerOptions": { "strict": true } }\n' > "$dir/typescript/tsconfig.json"
-{
-    printf 'function addOne(x: number): number {\n    return x + 1;\n}\n'
-    filler '//'
-    printf 'const y = addOne(1);\nconst z: string = y;\n'
-} > "$dir/typescript/main.ts"
-
-# JavaScript, in TypeScript's project: the two have one server.
-{
-    printf 'function addTwo(x) {\n    return x + 2;\n}\n'
-    filler '//'
-    printf 'const v = addTwo(1);\nconst w = v +;\n'
-} > "$dir/typescript/main.js"
-
-project json
-printf '{\n  "a": 1\n  "b": 2\n}\n' > "$dir/json/data.json"
-
-# YAML, with a schema that the project's settings give its server.
-project yaml
-printf 'a: 1\nb: [1, 2\nc: 3\n' > "$dir/yaml/data.yaml"
-printf '{ "properties": { "a": { "type": "integer", "description": "The letter a, as its schema describes it." } } }\n' \
-       > "$dir/yaml/schema.json"
-printf '(:settings (("yaml" ("schemas" ("file://%s/yaml/schema.json" . "data.yaml")))))\n' "$dir" \
-       > "$dir/yaml/.heml-project"
+cp -R test/fixtures/lsp/. "$dir"
 
 
 # The editor, wide enough for a modeline to hold a file's name, its project
@@ -190,9 +115,13 @@ mistake() {
     type_text 'LSP Diagnostics'
     send Enter
     expect "$name:$line: error" "and LSP Diagnostics lists it, at its line" 30
-    send Enter
-    sleep 0.5
+    # Back to the file, and to the mistake's line: the list may have more
+    # in it than the mistake.
+    send C-x o
+    sleep 0.3
     send C-x 1
+    send 'M-<'
+    press C-n $((line - 1))
     sleep 0.5
 }
 
@@ -236,19 +165,39 @@ function_checks() {
     sleep 0.3
 }
 
+# other_file FILE NAME OTHER DEFINITION: with point on the mistake's line,
+# and NAME, which another file defines, called two lines before it, M-. on
+# that call visits the file OTHER, at the line that starts with DEFINITION.
+# Point is left on the mistake's line again.
+other_file() {
+    file=$1 name=$2
+    column=$(grep -F -- "$name" "$file" | tail -1 | awk -v name="$name" '{ print index($0, name) }')
+    send C-p C-p C-a
+    press C-f "$column"
+    sleep 0.3
+    send M-.
+    expect_re "([^)]*)  .*$3" "M-. on a call to another file's function visits that file" 60
+    expect_re "^$4" "at its definition" 10
+    visit "$file"
+    sleep 0.5
+    send C-n C-n
+}
+
 if wanted c clangd; then
     mistake "$dir/c/main.c" 'return y +'
+    other_file "$dir/c/main.c" scale 'util\.[ch]' 'int scale(int x)'
     # What the server says can be folded: main, from its first line.
-    send C-p C-p
+    send C-p C-p C-p
     send C-c C-f
     expect_re 'int main(void) {  \.\.\. [0-9]* line' "C-c C-f folds what its server says can be folded"
     send C-c C-f
     expect 'return y +' "and opens the fold again"
-    send C-n C-n
+    send C-n C-n C-n
     function_checks "$dir/c/main.c" add_one 'function add_one' 'static int add_one' 1
     # On the function's name, where it is defined: who calls it, and
     # another name for it.
     send 'M-<'
+    send C-n C-n
     press C-f 11
     send C-c C-u
     expect 'function main' "C-c C-u lists what calls a function" 30
@@ -256,6 +205,7 @@ if wanted c clangd; then
     visit "$dir/c/main.c"
     sleep 0.5
     send 'M-<'
+    send C-n C-n
     press C-f 11
     send M-x
     type_text 'LSP Rename'
@@ -269,6 +219,7 @@ fi
 
 if wanted python pyright-langserver basedpyright-langserver pylsp jedi-language-server; then
     mistake "$dir/python/main.py" 'z = y +'
+    other_file "$dir/python/main.py" scale 'util\.py' 'def scale'
     function_checks "$dir/python/main.py" add_one '(function)' 'def add_one' 0
 fi
 
@@ -276,11 +227,11 @@ fi
 # server finds.
 if wanted ruff ruff; then
     visit "$dir/python/lint.py"
-    expect_re '([0-9]* \(error\|warning\).*lint.py' "a second server's findings are counted too" 60
+    expect_re '(2 warnings).*lint.py' "a second server's findings are counted with the first's" 60
     send M-x
     type_text 'LSP Diagnostics'
     send Enter
-    expect 'imported but unused' "and listed with the first's" 30
+    expect 'imported but unused' "and listed with them" 30
     send C-x 1
     sleep 0.3
 fi
@@ -301,27 +252,23 @@ fi
 if wanted rust rust-analyzer; then
     mistake "$dir/rust/src/main.rs" 'y +'
     # The type it infers for y, after y.
-    send M-x
-    type_text 'LSP Inlay Hints'
-    send Enter
-    expect 'let y: i32 = add_one(1);' "LSP Inlay Hints shows the types its server infers, where they would be written" 60
-    send M-x
-    type_text 'LSP Inlay Hints'
-    send Enter
-    sleep 0.5
+    expect 'let y: i32 = add_one(1);' "the types its server infers are shown where they would be written" 60
+    other_file "$dir/rust/src/main.rs" scale 'util\.rs' 'pub fn scale'
     function_checks "$dir/rust/src/main.rs" add_one 'fn add_one(x: i32) -> i32' 'fn add_one' 1
 fi
 
 if wanted go gopls; then
     mistake "$dir/go/main.go" 'println(y +)'
-    function_checks "$dir/go/main.go" addOne 'func addOne(x int) int' 'func addOne' 1
+    other_file "$dir/go/main.go" scale 'util\.go' 'func scale'
+    function_checks "$dir/go/main.go" addOne 'func addOne(x int) int' 'func addOne' 2
 fi
 
 # typescript-language-server wants a TypeScript older than 7, whose compiler
 # is a server itself: Heml tries the one and then the other.
 if wanted typescript typescript-language-server tsc; then
     mistake "$dir/typescript/main.ts" 'const z'
-    function_checks "$dir/typescript/main.ts" addOne 'function addOne(x: number): number' 'function addOne' 0
+    other_file "$dir/typescript/main.ts" scale 'util\.ts' 'export function scale'
+    function_checks "$dir/typescript/main.ts" addOne 'function addOne(x: number): number' 'function addOne' 1
 fi
 
 if wanted javascript typescript-language-server tsc; then

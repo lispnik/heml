@@ -29,6 +29,7 @@ tmux new-session -d -s "$session" -x 100 -y 30 \
      "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
         --eval '(setf (symbol-value (uiop:find-symbol* :*additional-language-servers* :heml)) nil)' \
+        --eval '(uiop:symbol-call :heml :set-lsp-inlay-hints nil)' \
         --eval '(let ((servers (uiop:find-symbol* :*language-servers* :heml))) (setf (symbol-value servers) (mapcar (lambda (entry) (list (first entry) nil (third entry) (fourth entry))) (symbol-value servers))))' \
         --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--refuse\") (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
         --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \

@@ -31,7 +31,8 @@ actions, one whose edit it gives only when asked and one that makes a
 file; a declaration, a type's definition and two implementations; a caller
 and something called; the uses of a name; one token to colour; a hint; a
 lens; a fold; formatting of a region, and after a semicolon is typed; and
-what can be renamed.  When a file is opened it says "fake says hello", and
+what can be renamed; and an action that asks the user a question, whose
+answer its hover says.  When a file is opened it says "fake says hello", and
 that it is indexing, until it is first asked for a hover; it asks to hear
 of files named *.watched, and its hover says which it has heard of.
 
@@ -43,7 +44,9 @@ Its arguments make it another server:
   --pull    says nothing is wrong until it is asked (textDocument/diagnostic),
             and then that the second line is: "pulled error: N", N being
             the characters in all the files it holds, so that a change to
-            one file changes what is wrong with another."""
+            one file changes what is wrong with another.  As a second
+            server for a buffer it is told apart by a completion of its
+            own, fake_second, and its hover, "second hover"."""
 
 import json
 import sys
@@ -76,6 +79,7 @@ documents = {}
 options = sys.argv[1:]
 settings = {}
 watched = []
+answered = []
 
 
 def offset(text, line, character):
@@ -139,7 +143,7 @@ def answer(method, params):
                                  "documentFormattingProvider": True,
                                  "workspaceSymbolProvider": True,
                                  "documentSymbolProvider": True,
-                                 "executeCommandProvider": {"commands": ["fake.command", "fake.lens"]}}}
+                                 "executeCommandProvider": {"commands": ["fake.command", "fake.lens", "fake.ask"]}}}
     if method == "textDocument/codeAction":
         return [{"title": "Fix the fake error", "kind": "quickfix",
                  "edit": {"changes": {uri: [{"range": place(uri, 1, 2, 12)["range"],
@@ -148,6 +152,9 @@ def answer(method, params):
                  "command": {"title": "Run a command", "command": "fake.command",
                              "arguments": [uri]}},
                 {"title": "Work it out later", "kind": "refactor", "data": uri},
+                {"title": "Ask a question",
+                 "command": {"title": "Ask a question", "command": "fake.ask",
+                             "arguments": [uri]}},
                 {"title": "Make a file", "kind": "refactor",
                  "edit": {"documentChanges": [
                      {"kind": "create", "uri": uri + ".made"},
@@ -211,6 +218,12 @@ def answer(method, params):
                                             "newText": "{ imported }\n"}]
         return item
     if method == "workspace/executeCommand":
+        if params["command"] == "fake.ask":
+            # Something for the user to answer, whose answer the hover says.
+            send({"jsonrpc": "2.0", "id": "ask-1", "method": "window/showMessageRequest",
+                  "params": {"type": 3, "message": "Shall the fake go on?",
+                             "actions": [{"title": "Yes"}, {"title": "No"}]}})
+            return None
         # The edit is the editor's to make: it is asked for.
         target = params["arguments"][0]
         text = "{ lens }\n" if params["command"] == "fake.lens" else "{ done }\n"
@@ -242,7 +255,9 @@ def answer(method, params):
                           {"label": "fake_variable", "kind": 6},
                           {"label": "fake_snippet", "kind": 15, "insertTextFormat": 2,
                            "detail": "a snippet",
-                           "insertText": "fake_snippet(${1:first}, ${2:second})$0"}]}
+                           "insertText":
+                           "fake_snippet(${1:first}, ${2:second}) { $1 } ${TM_FILENAME_BASE}$0"}]
+                + ([{"label": "fake_second", "kind": 3}] if "--pull" in options else [])}
     if method == "textDocument/definition":
         return place(uri, 2, 0, 5)
     if method == "textDocument/references":
@@ -257,11 +272,14 @@ def answer(method, params):
         greeting = settings.get("greeting")
         send({"jsonrpc": "2.0", "method": "$/progress",
               "params": {"token": "fake-progress", "value": {"kind": "end"}}})
+        if "--pull" in options:
+            return {"contents": "second hover"}
         return {"contents": {"kind": "plaintext",
-                             "value": "fake hover text\nfirst: %s\nlast: %s\nlength: %d%s%s"
+                             "value": "fake hover text\nfirst: %s\nlast: %s\nlength: %d%s%s%s"
                              % (lines[0], lines[-1], len(documents.get(uri, "")),
                                 "\nconfig: %s" % greeting if greeting else "",
-                                "".join("\nwatched: %s" % w for w in watched))}}
+                                "".join("\nwatched: %s" % w for w in watched),
+                                "\nanswered: %s" % answered[-1] if answered else "")}}
     if method == "textDocument/rename":
         return {"changes": {uri: [{"range": place(uri, 0, 0, 3)["range"],
                                    "newText": params["newName"]}]}}
@@ -279,6 +297,8 @@ while True:
         # The editor's answer to something asked of it.
         if message["id"] == "config-1" and isinstance(message.get("result"), list):
             settings["greeting"] = message["result"][0]
+        if message["id"] == "ask-1":
+            answered.append((message.get("result") or {}).get("title", "nothing"))
         continue
     if method == "initialize" and "--refuse" in options:
         send({"jsonrpc": "2.0", "id": message["id"],

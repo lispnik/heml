@@ -342,11 +342,12 @@
         (*encoding* (lsp-server-encoding server)))
     (cond ((and method id)
            ;; The server asks something.
-           (lsp-send server
-                     (json "jsonrpc" "2.0" "id" id
-                           "result" (or (ignore-errors
-                                         (lsp-answer server method (jref message "params")))
-                                        'null))))
+           (let ((answer (or (ignore-errors (lsp-answer server id method
+                                                        (jref message "params")))
+                             'null)))
+             ;; What the user is to answer is answered when they have.
+             (unless (eq answer :later)
+               (lsp-send server (json "jsonrpc" "2.0" "id" id "result" answer)))))
           (method
            (lsp-told server method (jref message "params")))
           (id
@@ -355,10 +356,10 @@
                (remhash id (lsp-server-pending server))
                (funcall function (gethash "result" message) (jref message "error"))))))))
 
-(defun lsp-answer (server method params)
-  "The answer to what SERVER asks: an edit it wants made is made, its
-   settings are given, what it wants to hear of is noted, and anything else
-   is answered with null."
+(defun lsp-answer (server id method params)
+  "The answer to what SERVER asks, in the request ID: an edit it wants made
+   is made, its settings are given, what it wants to hear of is noted, and
+   anything else is answered with null.  :LATER when the user is to answer."
   (cond ((string= method "workspace/applyEdit")
          (json "applied" (and (ignore-errors (apply-workspace-edit (jref params "edit")) t) t)))
         ;; What it would answer has changed: its documents are asked about
@@ -396,14 +397,17 @@
                  (remove (jref registration "id") (lsp-server-watchers server)
                          :key #'car :test #'equal)))
          'null)
-        ;; Asked to choose among things it offers, Heml chooses none, and
-        ;; shows what was said.
+        ;; Something for the user to choose among: asked of them by the
+        ;; command loop, where a popup can be shown.
         ((string= method "window/showMessageRequest")
-         (lsp-say server (jref params "type")
-                  (format nil "~A~@[  (~{~A~^, ~})~]" (or (jref params "message") "")
-                          (mapcar (lambda (action) (jref action "title"))
-                                  (jlist (jref params "actions")))))
-         'null)
+         (cond ((jlist (jref params "actions"))
+                (setf *lsp-questions*
+                      (append *lsp-questions* (list (list server id params))))
+                (queue-command 'lsp-ask-question)
+                :later)
+               (t
+                (lsp-say server (jref params "type") (or (jref params "message") ""))
+                'null)))
         ((string= method "window/showDocument")
          (json "success" nil))
         (t 'null)))
@@ -421,6 +425,30 @@
 
 
 ;;;; What a server says to the user, and what it says it is doing.
+
+(defvar *lsp-questions* '()
+  "((SERVER ID PARAMS) ...): what servers have asked the user to choose
+   among (window/showMessageRequest), waiting for the command loop.")
+
+(defun lsp-ask-question ()
+  "Ask the user the next thing a server asked: what it says, in the echo
+   area, and its choices in a popup.  The server is told the choice, or
+   that there was none."
+  (let ((question (pop *lsp-questions*)))
+    (when question
+      (destructuring-bind (server id params) question
+        (let* ((actions (jlist (jref params "actions")))
+               (text (substitute #\Space #\Newline (or (jref params "message") "")))
+               (choice (unless (eq (lsp-server-state server) :dead)
+                         (message "~A: ~A" (lsp-server-group server) text)
+                         (ignore-errors
+                          (popup-select (mapcar (lambda (action)
+                                                  (or (jref action "title") "?"))
+                                                actions))))))
+          (lsp-say server 4 (format nil "~A  (~:[no answer~;~:*~A~])" text
+                                    (and choice (jref (nth choice actions) "title"))))
+          (lsp-send server (json "jsonrpc" "2.0" "id" id
+                                 "result" (if choice (nth choice actions) 'null))))))))
 
 ;;; A server's messages arrive while events are handled, when nothing may be
 ;;; drawn: they wait in *LSP-SAID* for LSP-IDLE, which puts every one in the
@@ -482,7 +510,9 @@
            (setf (third entry)
                  (format nil "~A~@[ ~A~]~@[ ~D%~]" (second entry)
                          (let ((message (jref value "message")))
-                           (and (stringp message) (plusp (length message)) message))
+                           (and (stringp message)
+                                (plusp (length (string-trim " " message)))
+                                (string-trim " " message)))
                          (let ((percentage (jref value "percentage")))
                            (and (realp percentage) (round percentage)))))))
     (loop for buffer being the hash-keys of (lsp-server-documents server)
@@ -1360,7 +1390,9 @@
 (defun lsp-go-to (method what)
   "Go to what the server answers METHOD with for what is at point; several
    places are listed.  WHAT says what they are, as \"definition\"."
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server
+                  ;; "textDocument/typeDefinition" is "typeDefinitionProvider".
+                  (format nil "~AProvider" (subseq method (1+ (position #\/ method))))))
          (locations (lsp-locations
                      (lsp-request server method
                                   (lsp-symbol-params (current-buffer) (current-point))))))
@@ -1405,7 +1437,7 @@
    finds them."
   "List the references to what is at point."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "referencesProvider"))
          (params (lsp-symbol-params (current-buffer) (current-point))))
     (setf (gethash "context" params) (json "includeDeclaration" t))
     (let ((locations (lsp-locations (lsp-request server "textDocument/references" params
@@ -1426,12 +1458,26 @@
    it is."
   "Show what the language server says of what is at point."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "hoverProvider"))
+         (buffer (current-buffer))
          (wrong (diagnostic-at-mark (current-point)))
-         (hover (hover-text
-                 (jref (lsp-request server "textDocument/hover"
-                                    (lsp-symbol-params (current-buffer) (current-point)))
-                       "contents")))
+         ;; What each of the buffer's servers says of it.
+         (hover (format nil "~{~A~^~%~%~}"
+                        (loop for server in (cons server (remove server (buffer-language-servers
+                                                                         buffer)))
+                              for text = (and (eq (lsp-server-state server) :ready)
+                                              (jref (lsp-server-capabilities server) "hoverProvider")
+                                              (let ((*encoding* (lsp-server-encoding server)))
+                                                (lsp-sync server buffer)
+                                                (string-trim
+                                                 '(#\Space #\Newline)
+                                                 (hover-text
+                                                  (jref (lsp-request
+                                                         server "textDocument/hover"
+                                                         (lsp-symbol-params buffer (current-point)))
+                                                        "contents")))))
+                              when (and text (plusp (length text)))
+                                collect text)))
          (text (string-trim '(#\Space #\Newline)
                             (format nil "~@[~A~%~%~]~A" wrong hover))))
     (if (zerop (length text))
@@ -1590,7 +1636,7 @@
    every file; the buffers changed are left to save."
   "Rename what is at point, everywhere."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "renameProvider"))
          (old
            ;; A server that says what can be renamed is asked first: what is
            ;; here may be nothing with a name, or a name that is not this
@@ -1638,7 +1684,7 @@
    the language server finds them, with their kinds."
   "List the project's symbols matching some text."
   (declare (ignore p))
-  (let* ((server (lsp-current-server))
+  (let* ((server (lsp-current-server "workspaceSymbolProvider"))
          (query (prompt-for-string :prompt "Symbols matching: "
                                    :default (let ((word (word-at-point)))
                                               (and (plusp (length word)) word))))
@@ -1737,9 +1783,9 @@
   "BUFFER's symbols as its language server names them, as ((LINE DEPTH
    TEXT) ...), each with its kind; NIL when there is no server ready that
    gives them."
-  (let ((server (buffer-language-server buffer)))
-    (when (and server (eq (lsp-server-state server) :ready)
-               (jref (lsp-server-capabilities server) "documentSymbolProvider"))
+  (let ((server (buffer-server-with buffer "documentSymbolProvider")))
+    (when server
+      (setf *encoding* (lsp-server-encoding server))
       (lsp-sync server buffer)
       (let ((symbols (jlist (lsp-request server "textDocument/documentSymbol"
                                          (json "textDocument" (lsp-document buffer))
@@ -1777,11 +1823,11 @@
   "Ask the server what the call POINT is in takes, and show it over the
    call when the answer comes, the argument being typed marked."
   (let* ((buffer (line-buffer (mark-line point)))
-         (server (buffer-language-server buffer))
+         (server (buffer-server-with buffer "signatureHelpProvider"))
          (start (call-start point)))
-    (when (and server start (eq (lsp-server-state server) :ready)
-               (jref (lsp-server-capabilities server) "signatureHelpProvider")
+    (when (and server start
                (not (eql (previous-character point) #\Space)))
+      (setf *encoding* (lsp-server-encoding server))
       (lsp-sync server buffer)
       (let ((anchor (copy-mark start :right-inserting))
             (tick (incf *signature-tick*)))
@@ -1846,20 +1892,26 @@
    its kind and what the server says it is, and where the word starts; the
    buffers' words when the server has none to give."
   (let* ((buffer (line-buffer (mark-line point)))
-         (server (ignore-errors (buffer-language-server buffer)))
-         (items (when (and server (eq (lsp-server-state server) :ready))
-                  (let ((*encoding* (lsp-server-encoding server)))
-                    (lsp-sync server buffer)
-                    (let ((result (lsp-request server "textDocument/completion"
-                                               (lsp-position-params buffer point)
-                                               :timeout 2)))
-                      (jlist (if (hash-table-p result) (jref result "items") result))))))
+         ;; Each of the buffer's servers that completes is asked: (ITEM .
+         ;; SERVER) for each thing any offers, the mode's own server's first.
+         (items (loop for server in (ignore-errors (buffer-language-servers buffer))
+                      when (and (eq (lsp-server-state server) :ready)
+                                (jref (lsp-server-capabilities server) "completionProvider"))
+                        append (let ((*encoding* (lsp-server-encoding server)))
+                                 (lsp-sync server buffer)
+                                 (let ((result (lsp-request server "textDocument/completion"
+                                                            (lsp-position-params buffer point)
+                                                            :timeout 2)))
+                                   (mapcar (lambda (item) (cons item server))
+                                           (jlist (if (hash-table-p result)
+                                                      (jref result "items")
+                                                      result)))))))
          (start (token-start point #'word-char-p))
          (typed (region-to-string (region start point)))
          (found '())
          (candidates
            (remove-duplicates
-            (loop for item in items
+            (loop for (item . server) in items
                   for text = (completion-item-text item)
                   for kind = (jref item "kind")
                   for detail = (jref item "detail")

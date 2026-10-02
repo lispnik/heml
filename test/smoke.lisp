@@ -219,7 +219,17 @@
 ;;; RUN is one function, and as much as the compiler can take: these are
 ;;; parts of it, called where they come.
 
+(defvar *queued-ran* nil)
+
+(hi::defcommand "Smoke Queue" (p)
+  "Queue something for the command loop to do." ""
+  (declare (ignore p))
+  (heml::queue-command (lambda () (setf *queued-ran* t))))
+
 (defun language-server-feature-checks ()
+  (extended-command "Smoke Queue")
+  (check "what is queued for the command loop is done by it"
+         (wait-until (lambda () *queued-ran*) 5))
   ;; The rest of what a server gives, in a file of its own.
   (with-open-file (out (merge-pathnames "more.pas" *out*) :direction :output :if-exists :supersede)
     (write-line "program more;" out)
@@ -377,17 +387,21 @@
            (wait-until (lambda () (search "fake_snippet(first, second)" (buffer-text))) 10))
     (check "and what else the server says it needs is put in too"
            (starts-p "{ imported }"))
+    (check "a variable in a snippet is what it stands for: here, the file's name"
+           (search "{ first } more" (buffer-text)))
     (post-text "x")
     (post (list :named "Tab" '()))
     (post-text "y")
     (settle)
     (check "typing at a place replaces what it held, and Tab goes to the next"
            (search "fake_snippet(x, y)" (buffer-text)))
+    (check "and what is typed at a place is typed where the snippet has it again"
+           (search "fake_snippet(x, y) { x } more" (buffer-text)))
     (post (list :named "Tab" '()))
     (post-text ";")
     (settle)
     (check "and the last Tab leaves point after it"
-           (search "fake_snippet(x, y);" (buffer-text)))
+           (search "fake_snippet(x, y) { x } more;" (buffer-text)))
     ;; Actions whose edits are asked for, and that make files.
     (post-key #\< "Meta")
     (post-key #\c "Control") (post-key #\a "Control")
@@ -395,9 +409,22 @@
     (post-key #\3)
     (check "an action whose edit the server works out when asked is asked about"
            (wait-until (lambda () (starts-p "{ resolved }")) 10))
+    ;; A question from the server, for the user to answer.
     (post-key #\c "Control") (post-key #\a "Control")
-    (wait-until (lambda () (row-p " 4  Make a file")) 10)
+    (wait-until (lambda () (row-p " 4  Ask a question")) 10)
     (post-key #\4)
+    (check "what a server asks the user is asked, its choices in a popup"
+           (wait-until (lambda () (and (row-p " 1  Yes") (row-p " 2  No"))) 10))
+    (post-key #\2)
+    (settle)
+    (post-key #\c "Control") (post-key #\d "Control")
+    (check "and the server is told the answer"
+           (wait-until (lambda () (row-p " answered: No")) 10))
+    (post (list :named "Escape" '()))
+    (settle)
+    (post-key #\c "Control") (post-key #\a "Control")
+    (wait-until (lambda () (row-p " 5  Make a file")) 10)
+    (post-key #\5)
     (check "and an action that makes a file makes it"
            (wait-until (lambda () (probe-file (merge-pathnames "more.pas.made" *out*))) 10))
     (post-key #\x "Control") (post-key #\1)
@@ -507,7 +534,26 @@
                              (and (search "error: fake error" (buffer-text))
                                   (search "error: pulled error" (buffer-text))))
                            10))
-        (post-key #\x "Control") (post-key #\1))
+        (post-key #\x "Control") (post-key #\1)
+        (post (list :open (namestring (merge-pathnames "two.pas" *out*))))
+        (settle)
+        (post-key #\c "Control") (post-key #\d "Control")
+        (check "C-c C-d says what each of them says"
+               (wait-until (lambda ()
+                             (let ((rows (map 'list #'heml.cocoa::row-text
+                                              (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                               (and (find " fake hover text" rows :test #'search)
+                                    (find " second hover" rows :test #'search))))
+                           10))
+        (post (list :named "Escape" '()))
+        (settle)
+        (post-key #\> "Meta")
+        (post-text "fake_se")
+        (post-key #\i "Control" "Meta")
+        (check "and the completions are those of both"
+               (wait-until (lambda () (search "fake_second" (buffer-text buffer))) 10))
+        (settle)
+        (setf (hi::buffer-modified buffer) nil))
       (setf heml::*additional-language-servers* '())
       (heml::define-language-server "JSON" (list (list "python3" fake "--crash")))
       (let ((buffer (file "crash.json" (format nil "{}~%"))))
@@ -534,6 +580,8 @@
         (loop for (mode nil language group) in heml::*language-servers*
               collect (list mode '() language group)))
   (setf heml::*additional-language-servers* '())
+  ;; Hints change what a line shows: off, until the checks of them.
+  (setf (hi::variable-value 'heml::lsp-inlay-hints :global) nil)
   (sleep 2)
   (note "typing")
   (post-text "(defun hello (name)
