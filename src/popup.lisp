@@ -88,11 +88,15 @@
                                           (t (- y rows)))
                                     (popup-rows items selected first width name-width))))))))))
 
-(defun popup-choose (candidates start &key window (accept (list #k"return" #k"tab" #k"control-i")))
+(defun popup-choose (candidates start &key window describe
+                                          (accept (list #k"return" #k"tab" #k"control-i")))
   "Let the user choose among CANDIDATES, completions of the text from the
    mark START to point, which typing narrows.  Returns the text of the one
    chosen, or NIL when the popup is put away without one.  The popup is
-   under START, or at the foot of WINDOW; the keys ACCEPT put the choice in."
+   under START, or at the foot of WINDOW; the keys ACCEPT put the choice in.
+   DESCRIBE, when given, is a function of a candidate's text that returns
+   what there is to say of it, which C-h or M-h shows until the next key
+   (a terminal's C-h may be its Backspace)."
   (let ((point (current-point))
         (selected 0))
     (unwind-protect
@@ -120,6 +124,13 @@
                       (setf selected (mod (1- selected) (length items))))
                      ((member key accept)
                       (return (candidate-text (nth selected items))))
+                     ((and describe (member key (list #k"control-h" #k"meta-h")))
+                      (let ((text (ignore-errors
+                                   (funcall describe (candidate-text (nth selected items))))))
+                        (if (and text (plusp (length text)))
+                            (show-text-popup text start)
+                            (message "Nothing is said of ~A."
+                                     (candidate-text (nth selected items))))))
                      ((member key (list #k"control-g" #k"escape"))
                       (return nil))
                      ((member key (list #k"backspace" #k"delete"))
@@ -408,6 +419,19 @@
    before it and a mark where what they complete starts."
   :mode "Process" :value 'file-name-completions)
 
+(defhvar "Completion Accept Function"
+  "A function that puts a completion in, or NIL for putting its text in
+   place of what was typed.  It is called with the text chosen, the mark
+   where what it completes starts, and point: a language server's
+   completion may be more than its text -- a call with its arguments to
+   fill in, and a line elsewhere that it needs."
+  :value nil)
+
+(defhvar "Completion Describe Function"
+  "A function of a completion's text that returns what there is to say of
+   it, for C-h or M-h in the popup of completions to show, or NIL."
+  :value nil)
+
 (defun complete-at-point (&optional p automatic)
   "Complete what is before point from a popup of its completions.  When
    AUTOMATIC, the popup has come up unasked: only Tab puts a choice in,
@@ -421,15 +445,20 @@
              (cond ((null candidates)
                     (unless automatic (message "No completions of ~S." typed)))
                    (t
-                    (let ((choice (cond ((or automatic (rest candidates))
-                                         (if automatic
-                                             (popup-choose candidates start
-                                                           :accept (list #k"tab" #k"control-i"))
-                                             (popup-choose candidates start)))
-                                        (t (candidate-text (first candidates))))))
+                    (let* ((describe (value completion-describe-function))
+                           (accept (value completion-accept-function))
+                           (choice (cond ((or automatic (rest candidates))
+                                          (if automatic
+                                              (popup-choose candidates start
+                                                            :describe describe
+                                                            :accept (list #k"tab" #k"control-i"))
+                                              (popup-choose candidates start :describe describe)))
+                                         (t (candidate-text (first candidates))))))
                       (when choice
-                        (delete-region (region start point))
-                        (insert-string point choice))))))
+                        (cond (accept (funcall accept choice start point))
+                              (t
+                               (delete-region (region start point))
+                               (insert-string point choice))))))))
         (delete-mark start)))))
 
 (defcommand "Complete at Point" (p)
@@ -439,6 +468,180 @@
    One completion alone is put in at once."
   "Complete what is before point, from a popup."
   (complete-at-point p))
+
+
+;;;; Snippets.
+
+;;; A snippet is text with places in it to fill in, as a language server
+;;; writes a completion that is a call: add(${1:a}, ${2:b})$0.  $1, ${1} and
+;;; ${1:text} are places, visited in order, the last holding text to type
+;;; over; $0 is where point is left at the end; ${1|a,b|} is a choice, of
+;;; which the first is taken; and a $NAME is nothing.
+;;;
+;;; Put in, a snippet's places are marked and point goes to the first.  Tab
+;;; goes to the next; what is typed at a place replaces the text it held;
+;;; and it is over at $0, or when point leaves the snippet.
+
+(defun parse-snippet (text)
+  "TEXT, a snippet, as its plain text and its places: ((NUMBER START END)
+   ...), the first of each number, in the order they are visited."
+  (let ((out (make-string-output-stream))
+        (places '())
+        (position 0)
+        (i 0)
+        (length (length text)))
+    (labels ((emit (char) (write-char char out) (incf position))
+             (digits ()
+               (let ((start i))
+                 (loop while (and (< i length) (digit-char-p (char text i))) do (incf i))
+                 (and (> i start) (parse-integer text :start start :end i))))
+             (name ()
+               (loop while (and (< i length)
+                                (or (alphanumericp (char text i)) (char= (char text i) #\_)))
+                     do (incf i)))
+             (place (number start)
+               (unless (assoc number places)
+                 (push (list number start position) places)))
+             (body (in-braces)
+               ;; Text up to the end, or to the } that closes a place.
+               (loop while (< i length)
+                     do (let ((char (char text i)))
+                          (cond ((and (char= char #\\) (< (1+ i) length))
+                                 (emit (char text (1+ i)))
+                                 (incf i 2))
+                                ((and in-braces (char= char #\}))
+                                 (incf i)
+                                 (return))
+                                ((and (char= char #\$) (< (1+ i) length))
+                                 (incf i)
+                                 (dollar))
+                                (t (emit char) (incf i))))))
+             (dollar ()
+               (let ((start position))
+                 (cond ((char= (char text i) #\{)
+                        (incf i)
+                        (let ((number (digits)))
+                          (unless number (name))
+                          (cond ((>= i length))
+                                ((char= (char text i) #\:)
+                                 (incf i)
+                                 (body t))
+                                ((char= (char text i) #\|)
+                                 ;; A choice: the first of them.
+                                 (incf i)
+                                 (let ((end (or (search "|}" text :start2 i) length)))
+                                   (loop for char across (subseq text i (or (position #\, text :start i :end end)
+                                                                             end))
+                                         do (emit char))
+                                   (setf i (min length (+ end 2)))))
+                                (t
+                                 ;; ${1} and ${NAME/...}: to the closing brace.
+                                 (setf i (min length (1+ (or (position #\} text :start i) length))))))
+                          (when number (place number start))))
+                       (t
+                        (let ((number (digits)))
+                          (if number
+                              (place number start)
+                              (name))))))))
+      (body nil))
+    (values (get-output-stream-string out)
+            (sort (nreverse places)
+                  (lambda (a b)
+                    ;; $0 is the last.
+                    (cond ((zerop (first a)) nil)
+                          ((zerop (first b)) t)
+                          (t (< (first a) (first b)))))))))
+
+(defvar *snippet* nil
+  "The snippet being filled in: (BUFFER PLACES), each place (START-MARK
+   END-MARK FRESH-P FINAL-P), the first the one point is at.")
+
+(defparameter *snippet-font* '(:underline t))
+
+(defun end-snippet ()
+  (when *snippet*
+    (loop for (start end) in (second *snippet*)
+          do (delete-mark start) (delete-mark end))
+    (setf *snippet* nil)
+    (incf hi:*decoration-tick*)))
+
+(defun go-to-snippet-place ()
+  "Put point at the snippet's first place left; the last, $0, ends it."
+  (destructuring-bind (start end fresh final) (first (second *snippet*))
+    (declare (ignore end fresh))
+    (move-mark (current-point) start)
+    (when final
+      (end-snippet))))
+
+(defun insert-snippet (point text)
+  "Insert TEXT, a snippet, at POINT, and leave point at its first place."
+  (multiple-value-bind (plain places) (parse-snippet text)
+    (end-snippet)
+    (cond ((null places)
+           (insert-string point plain))
+          (t
+           (with-mark ((origin point :right-inserting))
+             (insert-string point plain)
+             (setf *snippet*
+                   (list (current-buffer)
+                         (loop for (number start end) in places
+                               collect (let ((from (copy-mark origin :right-inserting))
+                                             (to (copy-mark origin :left-inserting)))
+                                         (character-offset from start)
+                                         (character-offset to end)
+                                         (list from to (> end start) (zerop number)))))))
+           (incf hi:*decoration-tick*)
+           (go-to-snippet-place)))))
+
+(defun snippet-next-place ()
+  "In a snippet: go to its next place, and return true."
+  (when (and *snippet* (eq (first *snippet*) (current-buffer)))
+    (destructuring-bind (start end &rest rest) (pop (second *snippet*))
+      (declare (ignore rest))
+      (delete-mark start)
+      (delete-mark end))
+    (incf hi:*decoration-tick*)
+    (if (second *snippet*)
+        (go-to-snippet-place)
+        (end-snippet))
+    t))
+
+(defun snippet-typed ()
+  "After a character is typed: at the start of a place whose text has not
+   been touched, it replaces that text."
+  (when (and *snippet* (eq (first *snippet*) (current-buffer)))
+    (let ((place (first (second *snippet*)))
+          (point (current-point)))
+      (when (third place)
+        (setf (third place) nil)
+        (with-mark ((after (first place)))
+          (character-offset after 1)
+          (when (and (mark= after point) (mark< point (second place)))
+            (delete-region (region point (second place)))))))))
+
+(defun snippet-watch ()
+  "After a command: a snippet is over when point has left it."
+  (when *snippet*
+    (let ((places (remove-if #'fourth (second *snippet*))) ; not $0, which is its end
+          (point (current-point)))
+      (unless (and (eq (first *snippet*) (current-buffer))
+                   places
+                   (mark<= (reduce (lambda (a b) (if (mark< a b) a b)) places :key #'first)
+                           point)
+                   (mark<= point
+                           (reduce (lambda (a b) (if (mark> a b) a b)) places :key #'second)))
+        (end-snippet)))))
+
+(defun snippet-decorations (line)
+  (when (and *snippet* (eq (line-buffer line) (first *snippet*)))
+    (loop for (start end) in (second *snippet*)
+          when (and (eq (mark-line start) line) (eq (mark-line end) line)
+                    (< (mark-charpos start) (mark-charpos end)))
+            collect (list (mark-charpos start) (mark-charpos end) *snippet-font*))))
+
+(add-hook self-insert-hook 'snippet-typed)
+(add-hook after-command-hook 'snippet-watch)
+(pushnew 'snippet-decorations hi:*line-decoration-functions*)
 
 
 ;;;; Completions as one types.

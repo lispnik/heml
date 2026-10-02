@@ -652,13 +652,16 @@
 
 (defcommand "Indent Or Complete" (p)
   """"
-  (if (let ((mark (current-point)))
-        (or (zerop (mark-charpos mark))
-            ;; why doesn't this work?
-            ;; (test-char (next-character mark) :lisp-syntax :whitespace)
-            (find (previous-character mark) '(#\space #\tab #\newline))))
-      (indent-command p)
-      (complete-for-mode-command p)))
+  (cond
+    ;; In a snippet being filled in (popup.lisp), Tab goes to its next place.
+    ((snippet-next-place))
+    ((let ((mark (current-point)))
+       (or (zerop (mark-charpos mark))
+           ;; why doesn't this work?
+           ;; (test-char (next-character mark) :lisp-syntax :whitespace)
+           (find (previous-character mark) '(#\space #\tab #\newline))))
+     (indent-command p))
+    (t (complete-for-mode-command p))))
 
 ;;; Mode
 
