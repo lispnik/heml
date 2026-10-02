@@ -42,6 +42,33 @@
 
 
 
+;;;; Things for the command loop to do.
+
+;;; What happens while events are handled -- a message from a language
+;;; server, a process's end -- may want to ask the user something, or to
+;;; draw, and can do neither there.  It queues a function, and a key that
+;;; the command loop reads as it reads a typed one: the function is then
+;;; called as a command is, where prompts and popups work.
+
+(defvar *queued-commands* '()
+  "Functions of no arguments waiting for the command loop, oldest first.")
+
+(defun queue-command (function)
+  "Have FUNCTION called by the command loop when it next reads input."
+  (setf *queued-commands* (append *queued-commands* (list function)))
+  (hi::q-event hi::*real-editor-input* (heml-ext:make-key-event "Queuedcommand" 0)))
+
+(defcommand "Queued Command" (p)
+  "Do what something that could not do it at the time has left to be done.
+   Bound to the key QUEUE-COMMAND queues."
+  "Call the next function QUEUE-COMMAND queued."
+  (declare (ignore p))
+  (let ((function (pop *queued-commands*)))
+    (when function
+      (funcall function))))
+
+
+
 ;;;; Simple character manipulation:
 
 (defhvar "Self Insert Hook"

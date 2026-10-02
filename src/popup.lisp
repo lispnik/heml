@@ -476,15 +476,48 @@
 ;;; writes a completion that is a call: add(${1:a}, ${2:b})$0.  $1, ${1} and
 ;;; ${1:text} are places, visited in order, the last holding text to type
 ;;; over; $0 is where point is left at the end; ${1|a,b|} is a choice, of
-;;; which the first is taken; and a $NAME is nothing.
+;;; which the first is taken; and $NAME or ${NAME:text} is what the variable
+;;; NAME says -- the file's name, the year -- or else the text.  A number
+;;; that comes more than once is one place and its mirrors: what is typed
+;;; at the place is typed at each of them.
 ;;;
 ;;; Put in, a snippet's places are marked and point goes to the first.  Tab
 ;;; goes to the next; what is typed at a place replaces the text it held;
 ;;; and it is over at $0, or when point leaves the snippet.
 
+(defun snippet-variable (name)
+  "What the snippet variable NAME stands for here, or NIL when it is not
+   one Heml knows."
+  (let* ((buffer (current-buffer))
+         (pathname (buffer-pathname buffer))
+         (point (current-point)))
+    (flet ((date (index width)
+             (format nil "~V,'0D" width
+                     (nth index (multiple-value-list (get-decoded-time))))))
+      (cond ((string= name "TM_FILENAME") (if pathname (file-namestring pathname) ""))
+            ((string= name "TM_FILENAME_BASE") (or (and pathname (pathname-name pathname)) ""))
+            ((string= name "TM_DIRECTORY") (if pathname (directory-namestring pathname) ""))
+            ((string= name "TM_FILEPATH") (if pathname (namestring pathname) ""))
+            ((string= name "TM_CURRENT_LINE") (line-string (mark-line point)))
+            ((string= name "TM_CURRENT_WORD") (word-at-point))
+            ((string= name "TM_SELECTED_TEXT") "")
+            ((string= name "TM_LINE_INDEX")
+             (format nil "~D" (1- (count-lines (region (buffer-start-mark buffer) point)))))
+            ((string= name "TM_LINE_NUMBER")
+             (format nil "~D" (count-lines (region (buffer-start-mark buffer) point))))
+            ((string= name "CURRENT_YEAR") (date 5 4))
+            ((string= name "CURRENT_YEAR_SHORT") (subseq (date 5 4) 2))
+            ((string= name "CURRENT_MONTH") (date 4 2))
+            ((string= name "CURRENT_DATE") (date 3 2))
+            ((string= name "CURRENT_HOUR") (date 2 2))
+            ((string= name "CURRENT_MINUTE") (date 1 2))
+            ((string= name "CURRENT_SECOND") (date 0 2))
+            (t nil)))))
+
 (defun parse-snippet (text)
   "TEXT, a snippet, as its plain text and its places: ((NUMBER START END)
-   ...), the first of each number, in the order they are visited."
+   ...), every one of each number, those of a number together and in the
+   order they come, the numbers in the order they are visited."
   (let ((out (make-string-output-stream))
         (places '())
         (position 0)
@@ -496,12 +529,13 @@
                  (loop while (and (< i length) (digit-char-p (char text i))) do (incf i))
                  (and (> i start) (parse-integer text :start start :end i))))
              (name ()
-               (loop while (and (< i length)
-                                (or (alphanumericp (char text i)) (char= (char text i) #\_)))
-                     do (incf i)))
+               (let ((start i))
+                 (loop while (and (< i length)
+                                  (or (alphanumericp (char text i)) (char= (char text i) #\_)))
+                       do (incf i))
+                 (subseq text start i)))
              (place (number start)
-               (unless (assoc number places)
-                 (push (list number start position) places)))
+               (push (list number start position) places))
              (body (in-braces)
                ;; Text up to the end, or to the } that closes a place.
                (loop while (< i length)
@@ -520,12 +554,25 @@
                (let ((start position))
                  (cond ((char= (char text i) #\{)
                         (incf i)
-                        (let ((number (digits)))
-                          (unless number (name))
+                        (let* ((number (digits))
+                               (value (and (not number)
+                                           (ignore-errors (snippet-variable (name))))))
+                          ;; A variable is what it stands for; what the
+                          ;; snippet gives for when it stands for nothing
+                          ;; is then read and thrown away.
+                          (when value
+                            (loop for char across value do (emit char)))
                           (cond ((>= i length))
                                 ((char= (char text i) #\:)
                                  (incf i)
-                                 (body t))
+                                 (if value
+                                     (let ((kept (get-output-stream-string out))
+                                           (at position))
+                                       (body t)
+                                       (get-output-stream-string out)
+                                       (write-string kept out)
+                                       (setf position at))
+                                     (body t)))
                                 ((char= (char text i) #\|)
                                  ;; A choice: the first of them.
                                  (incf i)
@@ -542,33 +589,44 @@
                         (let ((number (digits)))
                           (if number
                               (place number start)
-                              (name))))))))
+                              (let ((value (ignore-errors (snippet-variable (name)))))
+                                (when value
+                                  (loop for char across value do (emit char)))))))))))
       (body nil))
     (values (get-output-stream-string out)
-            (sort (nreverse places)
-                  (lambda (a b)
-                    ;; $0 is the last.
-                    (cond ((zerop (first a)) nil)
-                          ((zerop (first b)) t)
-                          (t (< (first a) (first b)))))))))
+            (stable-sort (nreverse places)
+                         (lambda (a b)
+                           ;; $0 is the last.
+                           (cond ((= (first a) (first b)) nil)
+                                 ((zerop (first a)) nil)
+                                 ((zerop (first b)) t)
+                                 (t (< (first a) (first b)))))))))
 
 (defvar *snippet* nil
   "The snippet being filled in: (BUFFER PLACES), each place (START-MARK
-   END-MARK FRESH-P FINAL-P), the first the one point is at.")
+   END-MARK FRESH-P FINAL-P MIRRORS TEXT), the first the one point is at.
+   MIRRORS is ((START-MARK . END-MARK) ...), the other places of its
+   number, and TEXT what they were last made to hold.")
 
 (defparameter *snippet-font* '(:underline t))
 
+(defun delete-snippet-place (place)
+  (delete-mark (first place))
+  (delete-mark (second place))
+  (loop for (start . end) in (fifth place)
+        do (delete-mark start) (delete-mark end)))
+
 (defun end-snippet ()
   (when *snippet*
-    (loop for (start end) in (second *snippet*)
-          do (delete-mark start) (delete-mark end))
+    (dolist (place (second *snippet*))
+      (delete-snippet-place place))
     (setf *snippet* nil)
     (incf hi:*decoration-tick*)))
 
 (defun go-to-snippet-place ()
   "Put point at the snippet's first place left; the last, $0, ends it."
-  (destructuring-bind (start end fresh final) (first (second *snippet*))
-    (declare (ignore end fresh))
+  (destructuring-bind (start end fresh final &rest rest) (first (second *snippet*))
+    (declare (ignore end fresh rest))
     (move-mark (current-point) start)
     (when final
       (end-snippet))))
@@ -582,29 +640,56 @@
           (t
            (with-mark ((origin point :right-inserting))
              (insert-string point plain)
-             (setf *snippet*
-                   (list (current-buffer)
-                         (loop for (number start end) in places
-                               collect (let ((from (copy-mark origin :right-inserting))
-                                             (to (copy-mark origin :left-inserting)))
-                                         (character-offset from start)
-                                         (character-offset to end)
-                                         (list from to (> end start) (zerop number)))))))
+             (flet ((marks (start end)
+                      (let ((from (copy-mark origin :right-inserting))
+                            (to (copy-mark origin :left-inserting)))
+                        (character-offset from start)
+                        (character-offset to end)
+                        (cons from to))))
+               (setf *snippet*
+                     (list (current-buffer)
+                           ;; The first of each number is the place, and the
+                           ;; rest of them its mirrors.
+                           (loop with seen = '()
+                                 for (number start end) in places
+                                 unless (member number seen)
+                                   collect (let ((own (marks start end)))
+                                             (push number seen)
+                                             (list (car own) (cdr own) (> end start)
+                                                   (zerop number)
+                                                   (loop for (other from to) in places
+                                                         when (and (= other number)
+                                                                   (/= from start))
+                                                           collect (marks from to))
+                                                   nil)))))))
+           ;; A mirror holds what its place holds, from the start.
+           (dolist (place (second *snippet*))
+             (mirror-snippet-place place))
            (incf hi:*decoration-tick*)
            (go-to-snippet-place)))))
 
 (defun snippet-next-place ()
   "In a snippet: go to its next place, and return true."
   (when (and *snippet* (eq (first *snippet*) (current-buffer)))
-    (destructuring-bind (start end &rest rest) (pop (second *snippet*))
-      (declare (ignore rest))
-      (delete-mark start)
-      (delete-mark end))
+    (let ((place (pop (second *snippet*))))
+      (mirror-snippet-place place)
+      (delete-snippet-place place))
     (incf hi:*decoration-tick*)
     (if (second *snippet*)
         (go-to-snippet-place)
         (end-snippet))
     t))
+
+(defun mirror-snippet-place (place)
+  "Make each of PLACE's mirrors hold what PLACE holds, if that has changed."
+  (when (fifth place)
+    (let ((text (region-to-string (region (first place) (second place)))))
+      (unless (equal text (sixth place))
+        (setf (sixth place) text)
+        (loop for (start . end) in (fifth place)
+              do (unless (string= text (region-to-string (region start end)))
+                   (delete-region (region start end))
+                   (insert-string start text)))))))
 
 (defun snippet-typed ()
   "After a character is typed: at the start of a place whose text has not
@@ -620,7 +705,10 @@
             (delete-region (region point (second place)))))))))
 
 (defun snippet-watch ()
-  "After a command: a snippet is over when point has left it."
+  "After a command: what was typed at a place is typed at its mirrors, and
+   a snippet is over when point has left it."
+  (when (and *snippet* (eq (first *snippet*) (current-buffer)) (second *snippet*))
+    (mirror-snippet-place (first (second *snippet*))))
   (when *snippet*
     (let ((places (remove-if #'fourth (second *snippet*))) ; not $0, which is its end
           (point (current-point)))

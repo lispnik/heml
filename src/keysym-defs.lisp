@@ -211,6 +211,11 @@
 ;;;
 (heml-ext:define-keysym 25610 "Menucommand")
 
+;;; What QUEUE-COMMAND queues to have a function called by the command loop
+;;; (command.lisp).
+;;;
+(heml-ext:define-keysym 25613 "Queuedcommand")
+
 ;;; Sun keyboard.
 ;;;
 (heml-ext:define-keysym 65387 "break")                       ;alternate (Sun).
