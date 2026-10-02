@@ -717,3 +717,16 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
               (insert-string start text))))))))
 
 (bind-key "Markdown Fill Paragraph" #k"meta-q" :mode "Markdown")
+
+
+;;;; A command for each of these modes, to put a buffer in it by hand: one
+;;;; with no file yet, or a file whose name does not say what it is.
+
+(dolist (mode '("C" "Markdown" "Python" "Shell Script" "Rust" "Go" "JavaScript" "TS" "TSX"
+                "JSON" "YAML"))
+  (let ((mode mode))
+    (make-command (format nil "~A Mode" mode)
+                  (format nil "Put the current buffer into ~A mode." mode)
+                  (lambda (p)
+                    (declare (ignore p))
+                    (setf (buffer-major-mode (current-buffer)) mode)))))

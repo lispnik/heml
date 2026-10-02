@@ -625,6 +625,23 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# A mode chosen by hand: a file whose name does not say what it is.
+printf 'echo "$HOME" # a comment\n' > build/smoke-tty-noname
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-noname"
+send Enter
+expect 'echo "$HOME"' "a file with no type is visited"
+send M-x
+type_text 'Shell Script Mode'
+send Enter
+expect '(Shell Script' "M-x Shell Script Mode puts the buffer in that mode"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # Bufed.
 send C-x C-b
 expect 'Buffers  (' "C-x C-b lists the buffers, under a header"
