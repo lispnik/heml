@@ -1203,29 +1203,47 @@
   "Make BUFFER's diagnostics again from what each of the servers running
    says of its file: a buffer may have several, and what is wrong is what
    any of them finds."
-  (let ((file (let ((pathname (buffer-pathname buffer))) (and pathname (namestring pathname)))))
+  (let ((file (let ((pathname (buffer-pathname buffer))) (and pathname (namestring pathname))))
+        (lines nil))
     (clear-buffer-diagnostics buffer)
-    (when file
-      (let ((all (loop for server in *lsp-servers*
-                       append (let ((*encoding* (lsp-server-encoding server)))
-                                (loop for diagnostic in (append (gethash file (lsp-server-pushed server))
-                                                                (gethash file (lsp-server-pulled server)))
-                                      collect
-                                      (let ((start (copy-mark (buffer-start-mark buffer)
-                                                              :right-inserting))
-                                            (end (copy-mark (buffer-start-mark buffer)
-                                                            :left-inserting)))
-                                        (lsp-move-mark start (jref diagnostic "range" "start" "line")
-                                                       (jref diagnostic "range" "start" "character"))
-                                        (lsp-move-mark end (jref diagnostic "range" "end" "line")
-                                                       (jref diagnostic "range" "end" "character"))
-                                        (list start end
-                                              (or (jref diagnostic "severity") 1)
-                                              (or (jref diagnostic "message") "")
-                                              diagnostic
-                                              server)))))))
-        (when all
-          (setf (gethash buffer *buffer-diagnostics*) all))))))
+    (flet ((place (number character kind)
+             ;; A mark at the protocol's position.  A line is found by its
+             ;; number in a vector of the buffer's lines, made once: a long
+             ;; file may have thousands of things wrong with it, and
+             ;; counting to each from the start would take as long as the
+             ;; square of its length.
+             (unless lines
+               (setf lines (coerce (loop for line = (mark-line (buffer-start-mark buffer))
+                                           then (line-next line)
+                                         while line collect line)
+                                   'vector)))
+             (let* ((past (and number (>= number (length lines))))
+                    (line (aref lines (max 0 (min (or number 0) (1- (length lines))))))
+                    (string (line-string line)))
+               (mark line
+                     (if past
+                         (length string)
+                         (min (length string) (unit-charpos string (or character 0))))
+                     kind))))
+      (when file
+        (let ((all (loop for server in *lsp-servers*
+                         append
+                         (let ((*encoding* (lsp-server-encoding server)))
+                           (loop for diagnostic in (append (gethash file (lsp-server-pushed server))
+                                                           (gethash file (lsp-server-pulled server)))
+                                 collect
+                                 (list (place (jref diagnostic "range" "start" "line")
+                                              (jref diagnostic "range" "start" "character")
+                                              :right-inserting)
+                                       (place (jref diagnostic "range" "end" "line")
+                                              (jref diagnostic "range" "end" "character")
+                                              :left-inserting)
+                                       (or (jref diagnostic "severity") 1)
+                                       (or (jref diagnostic "message") "")
+                                       diagnostic
+                                       server))))))
+          (when all
+            (setf (gethash buffer *buffer-diagnostics*) all)))))))
 
 ;;; The modeline says what the server finds: nothing when there is no
 ;;; server, how many errors and warnings when there are any.

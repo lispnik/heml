@@ -230,11 +230,12 @@
    \"LSP Code Lens\" does one."
   :value nil)
 
-(defparameter *lsp-extras-line-limit* 50000
-  "A buffer with more lines than this is not asked about: its colours are
-   the grammar's alone, and it has no hints or lenses.  What a server says
-   of every name in a file is a great deal, for a file of a few hundred
-   thousand lines.")
+(defhvar "LSP Extras Line Limit"
+  "A buffer with more lines than this is not asked about by its language
+   server's colours, hints and lenses: its colours are the grammar's alone.
+   What a server says of every name in a file is a great deal, for a file
+   of a few hundred thousand lines.  NIL is no limit."
+  :value 50000)
 
 (defvar *buffer-tokens* (make-hash-table :test 'eq :weakness :key)
   "Buffer to a table of its lines' colours: line to ((START END FONT) ...).")
@@ -317,18 +318,27 @@
    mark, so that a hint stays with its text as the line is typed in, until
    the server is asked again: a type stays after its name as the name
    grows, and a parameter's name before its argument."
-  (let ((table (make-hash-table :test 'eq)))
+  (let ((table (make-hash-table :test 'eq))
+        ;; A line by its number: a server may have a hint for every line of
+        ;; a long file, and finding each line from the buffer's start would
+        ;; take as long as the square of its length.
+        (lines (coerce (loop for line = (buffer-lines-from buffer) then (line-next line)
+                             while line collect line)
+                       'vector)))
     (drop-inlay-hints buffer)
     (dolist (hint hints)
       (let ((number (jref hint "position" "line"))
             (text (hint-text hint)))
-        (when (and (integerp number) (plusp (length text)))
-          (let ((mark (copy-mark (buffer-start-mark buffer)
-                                 (if (eql (jref hint "kind") 2)
-                                     :right-inserting
-                                     :left-inserting))))
-            (lsp-move-mark mark number (or (jref hint "position" "character") 0))
-            (push (cons mark text) (gethash (mark-line mark) table))))))
+        (when (and (integerp number) (< -1 number (length lines)) (plusp (length text)))
+          (let* ((line (aref lines number))
+                 (string (line-string line))
+                 (mark (mark line
+                             (min (length string)
+                                  (unit-charpos string (or (jref hint "position" "character") 0)))
+                             (if (eql (jref hint "kind") 2)
+                                 :right-inserting
+                                 :left-inserting))))
+            (push (cons mark text) (gethash line table))))))
     (setf (gethash buffer *buffer-hints*) table)))
 
 (defun lsp-line-inlines (line)
@@ -396,8 +406,9 @@
                ;; the next time round.
                (when (member (jref error "code") '(-32802 -32801))
                  (setf (document-extras document) nil))))
-        (when (> (count-lines (buffer-region buffer)) *lsp-extras-line-limit*)
-          (return-from lsp-refresh-extras nil))
+        (let ((limit (value lsp-extras-line-limit)))
+          (when (and limit (> (count-lines (buffer-region buffer)) limit))
+            (return-from lsp-refresh-extras nil)))
         (cond ((and (value lsp-semantic-highlighting)
                     (let ((provider (jref capabilities "semanticTokensProvider")))
                       (and (hash-table-p provider) (jref provider "full"))))
