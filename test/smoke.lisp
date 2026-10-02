@@ -339,8 +339,9 @@ café λ 日本語 end")
            (and (equal (truename (hi::buffer-pathname (hi::current-buffer)))
                        (truename file))
                 (search "Opened from Finder, λ." (buffer-text))))
+    ;; The first buffer a grammar colours waits for the grammar to load.
     (check "a Lisp file is coloured: its comment is red"
-           (eql 1 (run-font-at ";;; Opened" 0))))
+           (wait-until (lambda () (eql 1 (run-font-at ";;; Opened" 0))) 10)))
   (shot "opened")
 
   (note "tree-sitter")
@@ -402,8 +403,10 @@ café λ 日本語 end")
            (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer))))
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-bash.dylib")
       (check "tree-sitter colours a shell script's comment and string"
-             (and (eql 1 (run-font-at "# say hello" 0))
-                  (eql 4 (run-font-at "\"hello $1" 0))))))
+             (wait-until (lambda ()
+                           (and (eql 1 (run-font-at "# say hello" 0))
+                                (eql 4 (run-font-at "\"hello $1" 0))))
+                         10))))
   (let ((file (merge-pathnames "hello.pas" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)
       (write-line "program Hello;" out)
