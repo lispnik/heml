@@ -197,6 +197,20 @@
        (stdin-read stdin-write stdout-read stdout-write file args directory
                    slave-pty-name)
   (maybe-without-interrupts
+   ;; This is a forked copy of a threaded Lisp: nothing may unwind or reach
+   ;; the debugger here, or a second editor goes on running where the
+   ;; program was to be, writing into the first's buffer.  Whatever fails --
+   ;; a directory that will not do, a terminal setting -- ends the child.
+   (handler-case
+       (%exec-in-child stdin-read stdin-write stdout-read stdout-write file args directory
+                       slave-pty-name)
+     (serious-condition () nil))
+   (cffi:foreign-funcall "_exit" :int 127 :void)))
+
+(defun %exec-in-child
+       (stdin-read stdin-write stdout-read stdout-write file args directory
+                   slave-pty-name)
+  (progn
    (isys:close stdin-write)
    (isys:close stdout-read)
    (isys:dup2 stdin-read 0)
@@ -242,7 +256,7 @@
                #o177)
          (osicat-posix::tcsetattr 0 osicat-posix::tcsaflush tios))))
    (when directory
-     (isys:chdir directory))
+     (isys:chdir (if (pathnamep directory) (namestring directory) directory)))
    (let ((n (length args)))
      (cffi:with-foreign-object (argv :pointer (1+ n))
        (iter:iter (iter:for i from 0)
@@ -250,10 +264,7 @@
                   (setf (cffi:mem-aref argv :pointer i)
                         (cffi:foreign-string-alloc arg)))
        (setf (cffi:mem-aref argv :pointer n) (cffi:null-pointer))
-       ;; A failed exec signals, and this is a forked copy of a threaded
-       ;; Lisp: nothing may unwind or reach the debugger here.
-       (ignore-errors (isys:execvp file argv))))
-   (cffi:foreign-funcall "_exit" :int 127 :void)))
+       (isys:execvp file argv)))))
 
 (defun %fork-and-exec (file args &optional directory slave-pty-name)
   (multiple-value-bind (stdin-read stdin-write)
