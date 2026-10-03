@@ -292,7 +292,8 @@
    changed or deleted since the last look.  The first look tells it nothing."
   (when (and (lsp-server-watchers server) (eq (lsp-server-state server) :ready))
     (let* ((root (namestring (lsp-server-root server)))
-           (files (ignore-errors (project-files root)))
+           ;; As they are now: a walk of the tree is otherwise kept a while.
+           (files (ignore-errors (project-files root :fresh t)))
            (old (lsp-server-watched server))
            (new (make-hash-table :test 'equal))
            (changes '()))

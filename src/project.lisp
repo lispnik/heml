@@ -204,16 +204,17 @@
       (walk (pathname root)))
     (nreverse files)))
 
-(defun project-files (root)
+(defun project-files (root &key fresh)
   "The files in ROOT's project, relative to ROOT, less those its settings
-   :IGNORE."
-  (let ((files (all-project-files root))
+   :IGNORE.  FRESH, for a walk of the tree, is a walk now, not one of the
+   last half minute."
+  (let ((files (all-project-files root :fresh fresh))
         (ignore (getf (project-settings root) :ignore)))
     (if ignore
         (remove-if (lambda (file) (ignored-file-p file ignore)) files)
         files)))
 
-(defun all-project-files (root)
+(defun all-project-files (root &key fresh)
   "The files in ROOT's project, relative to ROOT: those git knows of, or
    ripgrep finds, or a walk of the tree does."
   (or (and (probe-file (concatenate 'string root ".git"))
@@ -221,7 +222,7 @@
       (and (find-program "rg")
            (run-for-lines "rg --files" root))
       (let ((walk (gethash root *project-file-walks*)))
-        (if (and walk (< (- (get-universal-time) (car walk)) 30))
+        (if (and walk (not fresh) (< (- (get-universal-time) (car walk)) 30))
             (cdr walk)
             (cdr (setf (gethash root *project-file-walks*)
                        (cons (get-universal-time) (walk-project-files root))))))))
