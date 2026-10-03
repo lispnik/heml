@@ -58,14 +58,40 @@
   (setf *queued-commands* (append *queued-commands* (list function)))
   (hi::q-event hi::*real-editor-input* (heml-ext:make-key-event "Queuedcommand" 0)))
 
+(defvar *queued-waiting* 0
+  "How many of the functions QUEUE-COMMAND queued have had their key read
+   while the echo area was asking something, and wait.")
+
+(defun run-queued-command ()
+  "Call the next function QUEUE-COMMAND queued -- unless something is being
+   asked in the echo area, which the function could take the editor away
+   from: it then waits, and is called when the command that asked is done
+   (RUN-WAITING-COMMANDS)."
+  (if (eq (current-window) *echo-area-window*)
+      (incf *queued-waiting*)
+      (let ((function (pop *queued-commands*)))
+        (when function
+          (funcall function)))))
+
+(defun run-waiting-commands ()
+  "After a command: call what QUEUE-COMMAND queued that waited.  Only that:
+   another's key is still to be read, and will call it."
+  (loop while (and (plusp *queued-waiting*) *queued-commands*
+                   (not (eq (current-window) *echo-area-window*)))
+        do (decf *queued-waiting*)
+           (run-queued-command))
+  (unless *queued-commands*
+    (setf *queued-waiting* 0)))
+
+(add-hook after-command-hook 'run-waiting-commands)
+
 (defcommand "Queued Command" (p)
   "Do what something that could not do it at the time has left to be done.
-   Bound to the key QUEUE-COMMAND queues."
+   Bound to the key QUEUE-COMMAND queues, which, when it comes part way
+   through a key sequence, the command loop takes care of itself."
   "Call the next function QUEUE-COMMAND queued."
   (declare (ignore p))
-  (let ((function (pop *queued-commands*)))
-    (when function
-      (funcall function))))
+  (run-queued-command))
 
 
 

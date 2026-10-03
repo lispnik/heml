@@ -444,7 +444,15 @@
               (dotimes (i (length cmd))
                 (heml-ext:print-pretty-key (aref cmd i) *echo-area-stream*)
                 (write-char #\space *echo-area-stream*)))))
-        (vector-push-extend (get-key-event *editor-input*) cmd)
+        (let ((key (get-key-event *editor-input*)))
+          ;; What QUEUE-COMMAND queued (command.lisp), when it comes part
+          ;; way through a key sequence -- C-c, and then it -- is done at
+          ;; once, and the sequence goes on.
+          (loop while (and (plusp (length cmd))
+                           (eq key (heml-ext:make-key-event "Queuedcommand" 0)))
+                do (funcall 'heml::run-queued-command)
+                   (setf key (get-key-event *editor-input*)))
+          (vector-push-extend key cmd))
         (multiple-value-bind (trans-result prefix-p)
                              (translate-key cmd trans)
           (multiple-value-bind (res t-bindings)
