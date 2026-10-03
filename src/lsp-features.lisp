@@ -235,7 +235,7 @@
    server's colours, hints and lenses: its colours are the grammar's alone.
    What a server says of every name in a file is a great deal, for a file
    of a few hundred thousand lines.  NIL is no limit."
-  :value 50000)
+  :value 200000)
 
 (defvar *buffer-tokens* (make-hash-table :test 'eq :weakness :key)
   "Buffer to a table of its lines' colours: line to ((START END FONT) ...).")
