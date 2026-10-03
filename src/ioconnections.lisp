@@ -211,6 +211,11 @@
        (stdin-read stdin-write stdout-read stdout-write file args directory
                    slave-pty-name)
   (progn
+   ;; A process without a terminal of its own is in a session of its own,
+   ;; with none: nothing it starts -- a program a debugger runs, say -- can
+   ;; take the editor's terminal from it, or ask anything on it.
+   (unless slave-pty-name
+     (isys:setsid))
    (isys:close stdin-write)
    (isys:close stdout-read)
    (isys:dup2 stdin-read 0)
