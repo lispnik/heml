@@ -386,8 +386,10 @@ coloured.")
   tree                 ; the TSTree
   root                 ; foreign memory holding the root node
   octets               ; the buffer as UTF-8, which the tree indexes
-  line-starts          ; line to the byte its text starts at
+  line-starts          ; line to its row
+  row-starts           ; row to the byte its text starts at, and the length at the end
   lines                ; row to line
+  strings              ; row to the line's characters as they were parsed
   (indents :unmade)    ; node id to its indentation captures, made when needed
   inline-tree          ; the inline language's tree, over the (inline) nodes
   inline-root          ; foreign memory holding its root node, or NIL
@@ -398,28 +400,129 @@ coloured.")
 
 (defvar *parser* nil)
 
+;;; The octets are made again each time a buffer has changed, but not from
+;;; the start: a line whose characters are the same string as when it was
+;;; last parsed -- they are a new string whenever they change (the open
+;;; line's a number that changes) -- is the same, and what the lines that
+;;; are the same at each end were is kept.  Only the lines between are
+;;; encoded again, and the edit that tree-sitter is told of is theirs.
+;;; Encoding every line and comparing the whole of the old octets with the
+;;; new, as was done, took a fifth of a second for a file of ten megabytes,
+;;; each time it changed.
+
+(defun line-chars-of (line)
+  (heml-internals::line-chars line))
+
+(defun line-octets (line)
+  (babel:string-to-octets (heml-interface:line-string line) :encoding :utf-8))
+
 (defun buffer-octets (buffer)
-  "BUFFER's text as UTF-8, and a table of where each of its lines starts."
-  (let ((starts (make-hash-table :test 'eq))
+  "BUFFER's text as UTF-8, a table of each line's row, each row's start in
+   the text and its length at the end, the rows' lines and their
+   characters."
+  (let ((rows (make-hash-table :test 'eq))
         (chunks '())
         (lines '())
         (offset 0))
     (do ((line (heml-interface:mark-line (heml-interface:buffer-start-mark buffer))
                (heml-interface:line-next line)))
         ((null line))
-      (let ((octets (babel:string-to-octets (heml-interface:line-string line)
-                                            :encoding :utf-8)))
-        (setf (gethash line starts) offset)
+      (let ((octets (line-octets line)))
         (push line lines)
         (push octets chunks)
         (incf offset (1+ (length octets)))))
-    (let ((all (make-array offset :element-type '(unsigned-byte 8)
-                                  :initial-element 10))
-          (position 0))
-      (dolist (octets (nreverse chunks))
-        (replace all octets :start1 position)
-        (incf position (1+ (length octets))))
-      (values all starts (coerce (nreverse lines) 'simple-vector)))))
+    (let* ((count (length lines))
+           (all (make-array offset :element-type '(unsigned-byte 8) :initial-element 10))
+           (starts (make-array (1+ count)))
+           (lines (coerce (nreverse lines) 'simple-vector))
+           (strings (make-array count))
+           (position 0))
+      (loop for octets in (nreverse chunks)
+            for row from 0
+            do (setf (svref starts row) position
+                     (gethash (svref lines row) rows) row
+                     (svref strings row) (line-chars-of (svref lines row)))
+               (replace all octets :start1 position)
+               (incf position (1+ (length octets))))
+      (setf (svref starts count) position)
+      (values all rows starts lines strings))))
+
+(defun changed-octets (old buffer)
+  "As BUFFER-OCTETS, from OLD, the parse of the buffer before it changed;
+   and, as a sixth value, the edit -- (START OLD-END NEW-END START-ROW
+   OLD-END-ROW NEW-END-ROW), in bytes and rows -- or NIL when no line
+   changed."
+  (let* ((old-lines (parse-lines old))
+         (old-strings (parse-strings old))
+         (old-starts (parse-row-starts old))
+         (old-octets (parse-octets old))
+         (rows (parse-line-starts old))
+         (n (length old-lines))
+         (last (heml-interface:mark-line (heml-interface:buffer-end-mark buffer)))
+         (p 0)
+         (line (heml-interface:mark-line (heml-interface:buffer-start-mark buffer)))
+         (before nil))
+    (flet ((same (line row)
+             (and (eq line (svref old-lines row))
+                  (eq (line-chars-of line) (svref old-strings row)))))
+      (loop while (and line (< p n) (same line p))
+            do (setf before line
+                     line (heml-interface:line-next line))
+               (incf p))
+      (let ((q 0) (back last))
+        (loop while (and back line (not (eq back before)) (< (+ p q) n)
+                         (same back (- n 1 q)))
+              do (incf q)
+                 (setf back (heml-interface:line-previous back)))
+        (let* ((middle (when (and line (not (eq back before)))
+                         (loop for x = line then (heml-interface:line-next x)
+                               collect x
+                               until (or (eq x back) (null (heml-interface:line-next x))))))
+               (k (length middle))
+               (j (- n p q)))
+          (if (and (zerop j) (zerop k))
+              (values old-octets rows old-starts old-lines old-strings nil)
+              (let* ((chunks (mapcar #'line-octets middle))
+                     (middle-length (reduce #'+ chunks :key (lambda (c) (1+ (length c)))))
+                     (start (svref old-starts p))
+                     (old-end (svref old-starts (- n q)))
+                     (new-end (+ start middle-length))
+                     (delta (- new-end old-end))
+                     (m (+ p k q))
+                     (octets (make-array (+ (length old-octets) delta)
+                                         :element-type '(unsigned-byte 8) :initial-element 10))
+                     (starts (make-array (1+ m)))
+                     (lines (make-array m))
+                     (strings (make-array m)))
+                (replace octets old-octets :end2 start)
+                (replace octets old-octets :start1 new-end :start2 old-end)
+                (replace starts old-starts :end2 p)
+                (replace lines old-lines :end2 p)
+                (replace strings old-strings :end2 p)
+                ;; The lines that are gone are no row's.
+                (loop for row from p below (- n q)
+                      do (remhash (svref old-lines row) rows))
+                (let ((position start))
+                  (loop for x in middle
+                        for chunk in chunks
+                        for row from p
+                        do (setf (svref starts row) position
+                                 (svref lines row) x
+                                 (svref strings row) (line-chars-of x)
+                                 (gethash x rows) row)
+                           (replace octets chunk :start1 position)
+                           (incf position (1+ (length chunk)))))
+                ;; The lines after are where they were, moved by what changed.
+                (loop for old-row from (- n q) below n
+                      for row from (+ p k)
+                      do (setf (svref starts row) (+ (svref old-starts old-row) delta)
+                               (svref lines row) (svref old-lines old-row)
+                               (svref strings row) (svref old-strings old-row))
+                         (unless (= row old-row)
+                           (setf (gethash (svref lines row) rows) row)))
+                (setf (svref starts m) (length octets))
+                (values octets rows starts lines strings
+                        (list start old-end new-end p (- n q) (+ p k))))))))))
 
 (defun free-inline (parse)
   (when (parse-inline-tree parse)
@@ -659,11 +762,24 @@ last parse when it was parsed with LANGUAGE too."
             (setf *parser* (ts "ts_parser_new" :pointer)))
           (ts "ts_parser_set_language" :bool
               (:pointer *parser*) (:pointer (language-pointer language)))
-          (multiple-value-bind (octets starts lines) (buffer-octets buffer)
+          (multiple-value-bind (octets starts row-starts lines strings edit)
+              (if (and parse (eq (parse-language parse) language) (parse-strings parse))
+                  (changed-octets parse buffer)
+                  (buffer-octets buffer))
             (let* ((old (and parse (eq (parse-language parse) language) parse))
                    (tree (progn
-                           (when old
-                             (edit-tree (parse-tree old) (parse-octets old) octets))
+                           (when (and old edit)
+                             (destructuring-bind (start old-end new-end
+                                                  start-row old-row new-row)
+                                 edit
+                               (with-foreign-memory (change 36)
+                                 (setf (u32 change 0) start (u32 change 4) old-end
+                                       (u32 change 8) new-end
+                                       (u32 change 12) start-row (u32 change 16) 0
+                                       (u32 change 20) old-row (u32 change 24) 0
+                                       (u32 change 28) new-row (u32 change 32) 0)
+                                 (ts "ts_tree_edit" :void (:pointer (parse-tree old))
+                                     (:pointer change)))))
                            (with-vector-pointer (text octets)
                              (ts "ts_parser_parse_string" :pointer
                                  (:pointer *parser*)
@@ -677,7 +793,8 @@ last parse when it was parsed with LANGUAGE too."
                       (%make-parse :signature signature :language language
                                    :tree tree :root root
                                    :octets octets :line-starts starts
-                                   :lines lines
+                                   :row-starts row-starts
+                                   :lines lines :strings strings
                                    :inline-tree inline-tree :inline-root inline-root
                                    :injections (parse-code-blocks language octets root))))))))))
 
@@ -832,7 +949,7 @@ the language's highlighting, then its inline language's within that, and in
 a code block the block's language's instead."
   (let* ((string (heml-interface:line-string line))
          (fonts (make-array (length string) :initial-element nil))
-         (line-start (gethash line (parse-line-starts parse)))
+         (line-start (svref (parse-row-starts parse) (gethash line (parse-line-starts parse))))
          (line-end (+ line-start (babel:string-size-in-octets string :encoding :utf-8))))
     (flet ((lay-down (spans)
              (dolist (span spans)
