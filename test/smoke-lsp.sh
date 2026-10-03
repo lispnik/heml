@@ -255,6 +255,21 @@ if wanted rust rust-analyzer; then
     expect 'let y: i32 = add_one(1);' "the types its server infers are shown where they would be written" 60
     other_file "$dir/rust/src/main.rs" scale 'util\.rs' 'pub fn scale'
     function_checks "$dir/rust/src/main.rs" add_one 'fn add_one(x: i32) -> i32' 'fn add_one' 1
+    # What it offers to do with main, run, is done as a compilation.
+    send M-x
+    type_text 'LSP Code Lenses'
+    send Enter
+    send 'M-<'
+    press C-n $(( $(grep -n 'fn main' "$dir/rust/src/main.rs" | cut -d: -f1) - 1 ))
+    expect_re 'fn main() {  \[.*Run' "LSP Code Lenses shows what its server offers to do with a line" 60
+    # Run is the only one offered for main, and so is done at once.
+    send C-c C-l
+    expect "cargo 'run' '--package' 'smoke'" "C-c C-l does it: Run runs cargo, as a compilation" 30
+    expect_re 'error.*main.rs\|main.rs.*error\|expected' "which finds the mistake" 120
+    send C-x 1
+    send M-x
+    type_text 'LSP Code Lenses'
+    send Enter
 fi
 
 if wanted go gopls; then

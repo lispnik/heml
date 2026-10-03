@@ -221,12 +221,63 @@
 
 (defvar *queued-ran* nil)
 
+(defvar *sync-result* nil)
+
+;;; Random edits to a buffer, and after each a check that the change a
+;;; server is told of, made to the text it had, is the buffer's text.  On
+;;; the editor's thread, which a buffer belongs to.
+(hi::defcommand "Smoke Sync Check" (p) "" ""
+  (declare (ignore p))
+  (let* ((buffer (hi::make-buffer "smoke sync check"))
+         (state (sb-ext:seed-random-state 7))
+         (pieces (vector "a" "bc" (string #\Newline) (format nil "x~%y") (string (code-char #x1F600)) ""))
+         (document (heml::make-document 1 0))
+         (heml::*encoding* :utf-16)
+         (failures 0) (changes 0))
+    (flet ((apply-change (old sl sc el ec text)
+             (flet ((index (line character)
+                      (let ((i 0) (units 0))
+                        (dotimes (k line) (setf i (1+ (position #\Newline old :start i))))
+                        (loop while (< units character)
+                              do (incf units (if (> (char-code (char old i)) #xFFFF) 2 1))
+                                 (incf i))
+                        i)))
+               (concatenate 'string (subseq old 0 (index sl sc)) text (subseq old (index el ec))))))
+      (hi::insert-string (hi::buffer-point buffer) (format nil "one~%two~%three"))
+      (multiple-value-bind (lines strings) (heml::buffer-snapshot buffer)
+        (setf (heml::document-lines document) lines (heml::document-strings document) strings))
+      (let ((old (hi::region-to-string (hi::buffer-region buffer))))
+        (dotimes (round 400)
+          (let* ((text (hi::region-to-string (hi::buffer-region buffer)))
+                 (where (random (1+ (length text)) state)))
+            (hi::with-mark ((m (hi::buffer-start-mark buffer) :left-inserting))
+              (hi::character-offset m where)
+              (if (and (plusp (length text)) (< (random 10 state) 4))
+                  (hi::with-mark ((e m))
+                    (hi::character-offset e (min (- (length text) where) (random 6 state)))
+                    (hi::delete-region (hi::region m e)))
+                  (hi::insert-string m (aref pieces (random (length pieces) state))))))
+          (let ((new (hi::region-to-string (hi::buffer-region buffer))))
+            (multiple-value-bind (sl sc el ec text) (heml::line-change document buffer)
+              (if text
+                  (progn (incf changes)
+                         (unless (string= new (apply-change old sl sc el ec text)) (incf failures)))
+                  (unless (string= old new) (incf failures))))
+            (setf old new)))))
+    (hi::delete-buffer buffer)
+    (setf *sync-result* (list changes failures))))
+
 (hi::defcommand "Smoke Queue" (p)
   "Queue something for the command loop to do." ""
   (declare (ignore p))
   (heml::queue-command (lambda () (setf *queued-ran* t))))
 
 (defun language-server-feature-checks ()
+  (extended-command "Smoke Sync Check")
+  (check "a server is told of a change as the lines that changed, and they make the buffer's text"
+         (wait-until (lambda () (and *sync-result* (plusp (first *sync-result*))
+                                     (zerop (second *sync-result*))))
+                     30))
   (extended-command "Smoke Queue")
   (check "what is queued for the command loop is done by it"
          (wait-until (lambda () *queued-ran*) 5))
