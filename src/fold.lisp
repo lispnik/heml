@@ -77,6 +77,22 @@
   (with-mark ((mark (buffer-start-mark buffer)))
     (and (line-offset mark number 0) (mark-line mark))))
 
+(defun closing-line-p (line)
+  "Whether LINE holds nothing but what closes something: a brace, a bracket,
+   a parenthesis, and a semicolon or comma after them."
+  (let ((text (string-trim '(#\Space #\Tab) (line-string line))))
+    (and (plusp (length text))
+         (find (char text 0) "}])")
+         (every (lambda (char) (find char "}]);, ")) text))))
+
+(defun fold-last (buffer first last)
+  "Where a fold of BUFFER's lines after FIRST as far as LAST ends: with the
+   line after LAST too when it holds only what closes the fold, as a C
+   function's closing brace does, so that the fold reads as one line."
+  (declare (ignore first))
+  (let ((after (buffer-line buffer (1+ last))))
+    (if (and after (closing-line-p after)) (1+ last) last)))
+
 (defun hide-lines (buffer first last)
   "Fold BUFFER's lines after FIRST as far as LAST, numbered from 0."
   (let ((line (buffer-line buffer first)))
@@ -99,9 +115,17 @@
         unless (hi:line-hidden-p previous) return previous))
 
 (defun fold-annotation (line)
+  "How many lines are folded under LINE, and what closes them, when that is
+   folded too."
   (when (fold-header-p line)
-    (let ((count (folded-lines line)))
-      (cons (format nil "... ~D line~:P" count) *fold-font*))))
+    (let* ((count (folded-lines line))
+           (last (let ((next line))
+                   (dotimes (i count next)
+                     (setf next (line-next next)))))
+           (closing (and last (closing-line-p last) (> count 1))))
+      (cons (format nil "... ~D line~:P~@[ ~A~]" (if closing (1- count) count)
+                    (and closing (string-trim '(#\Space #\Tab) (line-string last))))
+            *fold-font*))))
 
 (pushnew 'fold-annotation hi:*line-annotation-functions*)
 
@@ -160,7 +184,7 @@
                                                       ranges)
                                        #'> :key #'car)))))
              (unless range (editor-error "Nothing to fold here."))
-             (hide-lines buffer (car range) (cdr range))
+             (hide-lines buffer (car range) (fold-last buffer (car range) (cdr range)))
              (when (hi:line-hidden-p (mark-line point))
                (line-end point (buffer-line buffer (car range)))))))
     (setf *last-point-line* (mark-line point))))
@@ -176,8 +200,9 @@
          (count 0))
     (dolist (range (sort (copy-list (fold-ranges buffer)) #'< :key #'car))
       (when (> (car range) end)
-        (hide-lines buffer (car range) (cdr range))
-        (setf end (cdr range))
+        (let ((last (fold-last buffer (car range) (cdr range))))
+          (hide-lines buffer (car range) last)
+          (setf end last))
         (incf count)))
     (when (hi:line-hidden-p (mark-line point))
       (line-end point (fold-header (mark-line point))))
