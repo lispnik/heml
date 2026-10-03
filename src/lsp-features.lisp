@@ -168,12 +168,15 @@
    for the uses of what is there."
   (let* ((point (buffer-point buffer))
          (place (list buffer (buffer-signature buffer) (mark-line point) (mark-charpos point))))
-    (unless (equal place *lsp-highlight-place*)
+    ;; Of a buffer's servers, the first that finds uses is asked.
+    (unless (or (equal place *lsp-highlight-place*)
+                (let ((chosen (buffer-server-with buffer "documentHighlightProvider")))
+                  (and chosen (not (eq chosen server)))))
       (setf *lsp-highlight-place* place)
       (let ((next (next-character point))
             (previous (previous-character point)))
         (cond ((and (value lsp-highlight-symbol)
-                    (jref (lsp-server-capabilities server) "documentHighlightProvider")
+                    (eq server (buffer-server-with buffer "documentHighlightProvider"))
                     (or (and next (word-char-p next)) (and previous (word-char-p previous))))
                (lsp-request-async
                 server "textDocument/documentHighlight" (lsp-symbol-params buffer point)
@@ -397,7 +400,12 @@
   (let ((document (gethash buffer (lsp-server-documents server)))
         (signature (buffer-signature buffer))
         (capabilities (lsp-server-capabilities server)))
-    (when (and document (not (eql (document-extras document) signature)))
+    (when (and document (not (eql (document-extras document) signature))
+               ;; Of a buffer's servers, each kind is the first's that gives
+               ;; it: this one is asked only for what it is the first for.
+               (some (lambda (capability)
+                       (eq server (buffer-server-with buffer capability)))
+                     '("semanticTokensProvider" "inlayHintProvider" "codeLensProvider")))
       (setf (document-extras document) signature)
       (flet ((current-p () (eql (buffer-signature buffer) signature))
              (again-if (error)
@@ -409,7 +417,8 @@
         (let ((limit (value lsp-extras-line-limit)))
           (when (and limit (> (count-lines (buffer-region buffer)) limit))
             (return-from lsp-refresh-extras nil)))
-        (cond ((and (value lsp-semantic-highlighting)
+        (cond ((not (eq server (buffer-server-with buffer "semanticTokensProvider"))))
+              ((and (value lsp-semantic-highlighting)
                     (let ((provider (jref capabilities "semanticTokensProvider")))
                       (and (hash-table-p provider) (jref provider "full"))))
                (lsp-request-async
@@ -422,7 +431,8 @@
               ((gethash buffer *buffer-tokens*)
                (remhash buffer *buffer-tokens*)
                (incf hi:*decoration-tick*)))
-        (cond ((and (value lsp-inlay-hints) (jref capabilities "inlayHintProvider"))
+        (cond ((not (eq server (buffer-server-with buffer "inlayHintProvider"))))
+              ((and (value lsp-inlay-hints) (jref capabilities "inlayHintProvider"))
                (lsp-request-async
                 server "textDocument/inlayHint"
                 (json "textDocument" (lsp-document buffer)
@@ -434,7 +444,8 @@
               ((gethash buffer *buffer-hints*)
                (drop-inlay-hints buffer)
                (incf hi:*decoration-tick*)))
-        (cond ((and (value lsp-code-lenses) (jref capabilities "codeLensProvider"))
+        (cond ((not (eq server (buffer-server-with buffer "codeLensProvider"))))
+              ((and (value lsp-code-lenses) (jref capabilities "codeLensProvider"))
                (lsp-request-async
                 server "textDocument/codeLens"
                 (json "textDocument" (lsp-document buffer))
@@ -497,6 +508,29 @@
                               "arguments" (or (gethash "arguments" command) (vector)))
                         :timeout 15)
            (message "~A" (or (jref command "title") "Done.")))
+          ;; rust-analyzer's Run: a cargo command, run as a compilation.
+          ((member name '("rust-analyzer.runSingle" "rust-analyzer.run") :test #'string=)
+           (let* ((runnable (first arguments))
+                  (args (jref runnable "args"))
+                  (command (format nil "cargo~{ ~A~}~:[~; --~{ ~A~}~]"
+                                   (mapcar #'shell-quote (jlist (jref args "cargoArgs")))
+                                   (jlist (jref args "executableArgs"))
+                                   (mapcar #'shell-quote (jlist (jref args "executableArgs")))))
+                  (directory (or (jref args "cwd") (jref args "workspaceRoot")
+                                 (namestring (lsp-server-root server)))))
+             (unless (equal (jref runnable "kind") "cargo")
+               (editor-error "~A is not something Heml knows how to run."
+                             (or (jref runnable "label") name)))
+             (start-result-command "*compilation*" "Compilation" command
+                                   (namestring (uiop:ensure-directory-pathname directory))
+                                   "Compilation")))
+          ((string= name "rust-analyzer.gotoLocation")
+           (let ((location (first (lsp-locations (first arguments)))))
+             (unless location (editor-error "Nowhere to go."))
+             (push-buffer-mark (copy-mark (current-point)))
+             (lsp-visit location)))
+          ((string= name "rust-analyzer.debugSingle")
+           (editor-error "Heml has no debugger: Run does what it can."))
           ((search "showReferences" name :test #'char-equal)
            (let ((locations (lsp-locations (third arguments))))
              (unless locations (editor-error "None."))
