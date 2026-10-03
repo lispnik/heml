@@ -189,7 +189,7 @@ if wanted c clangd; then
     # What the server says can be folded: main, from its first line.
     send C-p C-p C-p
     send C-c C-f
-    expect_re 'int main(void) {  \.\.\. [0-9]* line' "C-c C-f folds what its server says can be folded"
+    expect_re 'int main(void) {  \.\.\. [0-9]* lines }' "C-c C-f folds what its server says can be folded, and the brace that closes it"
     send C-c C-f
     expect 'return y +' "and opens the fold again"
     send C-n C-n C-n

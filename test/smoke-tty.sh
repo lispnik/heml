@@ -658,6 +658,27 @@ sleep 0.3
 send Enter
 sleep 0.5
 
+# Folding by indentation, with no server: the closing brace goes into the
+# fold, and the fold reads as one line.
+printf 'int f(void) {\n    return 1;\n}\nint g;\n' > build/smoke-tty-fold.c
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-fold.c"
+send Enter
+expect 'return 1;' "a C file is visited"
+send C-c C-f
+expect 'int f(void) {  ... 1 line }' "C-c C-f folds a block with the brace that closes it"
+send C-n
+type_text 'x'
+expect 'xint g;' "and C-n goes past the fold, brace and all"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+send n
+sleep 0.5
+
 # A file known by its name: a shell's own file is a shell script.
 mkdir -p build/smoke-tty-dot
 printf 'export EDITOR=heml # a comment\n' > build/smoke-tty-dot/.zshrc
