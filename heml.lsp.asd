@@ -26,4 +26,5 @@
                (:file "lsp-sync")
                (:file "lsp-diagnostics")
                (:file "lsp-commands")
-               (:file "lsp-features")))
+               (:file "lsp-features")
+               (:file "dap")))

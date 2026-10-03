@@ -537,6 +537,88 @@
       (setf heml::*lsp-watch-ticks* 10)
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun debugger-checks ()
+  (note "debugging")
+  (let ((file (merge-pathnames "prog.py" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out "def caller():~%    x = 1~%    point = 2~%    print(x)~%    return x~%"))
+    (post (list :open (namestring file)))
+    (settle)
+    (flet ((row-p (text)
+             (find text (map 'list #'heml.cocoa::row-text
+                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                   :test #'search))
+           (point-line () (line-text (hi::mark-line (hi::current-point))))
+           (buffer-named (name) (hi::getstring name hi::*buffer-names*)))
+      (post-key #\< "Meta")
+      (post-key #\n "Control") (post-key #\n "Control")
+      (post (list :named "F9" '()))
+      (check "F9 puts a breakpoint on a line, a dot before it"
+             (wait-until (lambda () (row-p "● " )) 10))
+      (check "and only that line"
+             (and (row-p "●     point = 2") (not (row-p "●     x = 1"))))
+      (post (list :named "F5" '()))
+      (check "F5 debugs the file, which stops at the breakpoint, an arrow before its line"
+             (wait-until (lambda () (row-p "● ▶     point = 2")) 20))
+      (check "with point on that line"
+             (equal "    point = 2" (point-line)))
+      (post-key #\c "Control") (post-key #\d) (post-key #\w)
+      (check "C-c d w shows the stopped program's frames and variables"
+             (wait-until (lambda ()
+                           (let ((buffer (buffer-named "Debugger")))
+                             (and buffer
+                                  (search ">#0 fake_main  prog.py:3" (buffer-text buffer))
+                                  (search "#1 fake_caller  prog.py:1" (buffer-text buffer))
+                                  (search "x = 1  (int)" (buffer-text buffer))
+                                  (search "point = {...}  (struct point)  ..." (buffer-text buffer)))))
+                         10))
+      ;; Return on a variable with parts shows them; on a frame, selects it.
+      (post-key #\< "Meta")
+      (loop repeat 8 do (post-key #\n "Control"))
+      (post (list :named "Return" '()))
+      (check "Return on a variable with parts shows them, under it"
+             (wait-until (lambda ()
+                           (search "    a = 2  (int)" (buffer-text (buffer-named "Debugger"))))
+                         10))
+      (post-key #\< "Meta")
+      (loop repeat 4 do (post-key #\n "Control"))
+      (post (list :named "Return" '()))
+      (check "and Return on a frame selects it: its variables"
+             (wait-until (lambda ()
+                           (search "caller_var = 7" (buffer-text (buffer-named "Debugger"))))
+                         10))
+      (check "and its place"
+             (wait-until (lambda () (row-p "▶ def caller():")) 10))
+      (post-key #\x "Control") (post-key #\1)
+      (post (list :open (namestring file)))
+      (settle)
+      (post (list :named "F10" '()))
+      (check "F10 goes on to the next line"
+             (wait-until (lambda () (row-p "▶     print(x)")) 10))
+      (post-key #\c "Control") (post-key #\d) (post-key #\e)
+      (post-key #\a "Control") (post-key #\k "Control")
+      (post-text "x
+")
+      (check "C-c d e evaluates an expression in the stopped program"
+             (wait-until (lambda () (row-p "x = 42")) 10))
+      (post (list :named "F5" '()))
+      (check "and F5 lets it go on to the end, its output in Debug Output"
+             (wait-until (lambda ()
+                           (let ((buffer (buffer-named "Debug Output")))
+                             (and buffer
+                                  (search "hello from the fake program" (buffer-text buffer))
+                                  (search "Debugging is over." (buffer-text buffer)))))
+                         20))
+      (check "and no arrow is left"
+             (wait-until (lambda () (not (row-p "▶"))) 10))
+      (post (list :open (namestring file)))
+      (settle)
+      (post-key #\< "Meta")
+      (post-key #\n "Control") (post-key #\n "Control")
+      (post (list :named "F9" '()))
+      (check "F9 again takes the breakpoint away"
+             (wait-until (lambda () (not (row-p "● "))) 10)))))
+
 (defun language-server-kind-checks ()
   ;; Servers of other kinds, for YAML and JSON while these checks run: one
   ;; that says what is wrong only when asked, and one that keeps dying.
@@ -631,6 +713,15 @@
         (loop for (mode nil language group) in heml::*language-servers*
               collect (list mode '() language group)))
   (setf heml::*additional-language-servers* '())
+  ;; Nor any debugger the machine has: the stand-in, test/fake-dap.py, is
+  ;; Python's for the run.
+  (setf heml::*debug-adapters* '())
+  (heml::define-debug-adapter
+   "fake" :modes '("Python")
+   :commands (list (list "python3" (namestring (merge-pathnames "test/fake-dap.py"
+                                                                (asdf:system-source-directory
+                                                                 :heml.cocoa)))))
+   :launch 'heml::file-launch)
   ;; Hints change what a line shows: off, until the checks of them.
   (setf (hi::variable-value 'heml::lsp-inlay-hints :global) nil)
   (sleep 2)
@@ -1376,6 +1467,7 @@ gamma
   (language-server-feature-checks)
   (language-server-watch-checks)
   (language-server-kind-checks)
+  (debugger-checks)
 
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))

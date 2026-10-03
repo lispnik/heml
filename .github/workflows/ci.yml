@@ -128,6 +128,19 @@ jobs:
         env:
           SMOKE_LSP_STRICT: 1
 
+      # lldb-dap is Xcode's; debugpy goes in a virtual environment of the
+      # build's own, where the test looks for it.
+      - name: Install the debuggers
+        run: |
+          brew install delve
+          python3 -m venv build/debugpy-venv
+          build/debugpy-venv/bin/pip install debugpy
+
+      - name: Debug a program with each debugger (make smoke-dap)
+        run: make smoke-dap
+        env:
+          SMOKE_DAP_STRICT: 1
+
       - name: Build Heml.app and check it
         run: make check-app
 

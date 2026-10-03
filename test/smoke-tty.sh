@@ -30,6 +30,8 @@ tmux new-session -d -s "$session" -x 100 -y 30 \
         --eval '(asdf:load-system :heml.tty)' \
         --eval '(setf (symbol-value (uiop:find-symbol* :*additional-language-servers* :heml)) nil)' \
         --eval '(uiop:symbol-call :heml :set-lsp-inlay-hints nil)' \
+        --eval '(setf (symbol-value (uiop:find-symbol* :*debug-adapters* :heml)) nil)' \
+        --eval '(uiop:symbol-call :heml :define-debug-adapter \"fake\" :modes (list \"Python\") :commands (list (list \"python3\" \"$PWD/test/fake-dap.py\")) :launch (uiop:find-symbol* :file-launch :heml))' \
         --eval '(let ((servers (uiop:find-symbol* :*language-servers* :heml))) (setf (symbol-value servers) (mapcar (lambda (entry) (list (first entry) nil (third entry) (fourth entry))) (symbol-value servers))))' \
         --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--refuse\") (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
         --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \
@@ -653,6 +655,36 @@ send C-a C-k
 type_text "$PWD/build/smoke-tty-pulled.yaml"
 send Enter
 expect '(1 error)' "a server that waits to be asked what is wrong is asked" 30
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
+# Debugging, with test/fake-dap.py as Python's debugger: a breakpoint, a
+# stop there, a step, and the program's output when it is let go on.
+printf 'def caller():\n    x = 1\n    point = 2\n    print(x)\n    return x\n' > build/smoke-tty-prog.py
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-prog.py"
+send Enter
+expect 'point = 2' "a Python file is visited"
+send 'M-<'
+send C-n C-n
+send C-c d b
+expect '●     point = 2' "C-c d b puts a breakpoint on a line, a dot before it"
+send C-c d d
+expect '● ▶     point = 2' "C-c d d debugs the file, which stops at the breakpoint" 20
+send C-c d n
+expect '▶     print(x)' "C-c d n goes on to the next line" 10
+send C-c d c
+sleep 2
+send C-x b
+sleep 0.3
+send C-a C-k
+type_text 'Debug Output'
+send Enter
+expect 'hello from the fake program' "and C-c d c lets it go on to the end, its output in Debug Output" 10
 send C-x k
 sleep 0.3
 send Enter
