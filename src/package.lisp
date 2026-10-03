@@ -731,14 +731,21 @@
 (defpackage :heml-user
     (:use :common-lisp :heml-interface))
 
-(defpackage :heml.terminfo
-  (:use :common-lisp)
-  (:export #:*terminfo-directories*
-           #:*terminfo*
-           #:capability
-           #:tparm
-           #:tputs
-           #:set-terminal))
+;;; terminfo.lisp exports a symbol for each capability as it is loaded, so a
+;;; package already loaded exports more than this says: defined again -- as
+;;; when a build compiles this file a second time in one Lisp, which the app
+;;; builder does on CI -- it would warn of the difference, and a warning
+;;; fails a build.  So it is defined only when it is not there.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (unless (find-package :heml.terminfo)
+    (defpackage :heml.terminfo
+      (:use :common-lisp)
+      (:export #:*terminfo-directories*
+               #:*terminfo*
+               #:capability
+               #:tparm
+               #:tputs
+               #:set-terminal))))
 
 ;; $Log: package.lisp,v $
 ;; Revision 1.4  2004-09-03 23:06:51  abakic
