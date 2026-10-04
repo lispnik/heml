@@ -151,6 +151,9 @@ jobs:
         env:
           SMOKE_RUN_STRICT: 1
 
+      - name: Use Git from the editor (make smoke-git)
+        run: make smoke-git
+
       - name: Build Heml.app and check it
         run: make check-app
 

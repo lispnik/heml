@@ -537,6 +537,43 @@
       (setf heml::*lsp-watch-ticks* 10)
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun git-checks ()
+  (note "git")
+  (let* ((repo (merge-pathnames "gitrepo/" *out*))
+         (file (merge-pathnames "notes.txt" repo)))
+    (uiop:delete-directory-tree repo :validate t :if-does-not-exist :ignore)
+    (ensure-directories-exist repo)
+    (flet ((sh (command)
+             (uiop:run-program (list "/bin/sh" "-c" command) :directory (namestring repo)))
+           (row-p (text)
+             (find text (map 'list #'heml.cocoa::row-text
+                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                   :test #'search)))
+      (sh "git init -q -b main && git config user.email t@example.com && git config user.name Test")
+      (sh "printf 'one\\ntwo\\nthree\\nfour\\nfive\\n' > notes.txt && git add notes.txt && git commit -q -m 'First commit'")
+      (sh "printf 'one\\nTWO\\nthree\\nfive\\nsix\\n' > notes.txt")
+      (post (list :open (namestring file)))
+      (settle)
+      (check "a file Git tracks has its changed lines marked in the fringe"
+             (wait-until (lambda () (and (row-p "▎TWO") (row-p "▎six") (row-p "▁three"))) 10))
+      (shot "git-fringe")
+      (post-key #\x "Control") (post-key #\g)
+      (check "C-x g shows the repository's status"
+             (wait-until (lambda () (row-p "Unstaged changes (1)")) 10))
+      (post-key #\< "Meta")
+      (post-key #\n) (post-key #\n)
+      (post (list :named "Tab" '()))
+      (check "and Tab its hunk"
+             (wait-until (lambda () (row-p "@@ -1,5 +1,5 @@")) 10))
+      (shot "git-status")
+      (post-key #\q)
+      (post-key #\x "Control") (post-key #\1)
+      ;; Out of the way of the projects' checks, which switch to the last.
+      (settle)
+      (extended-command "Forget Project")
+      (post-key #\x "Control") (post-key #\k) (post (list :named "Return" '()))
+      (settle))))
+
 (defun debugger-checks ()
   (note "debugging")
   (let ((file (merge-pathnames "prog.py" *out*)))
@@ -1475,6 +1512,7 @@ gamma
   (language-server-watch-checks)
   (language-server-kind-checks)
   (debugger-checks)
+  (git-checks)
 
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))

@@ -44,6 +44,9 @@ smoke-dap:
 smoke-run:
 	test/smoke-run.sh
 
+smoke-git:
+	test/smoke-git.sh
+
 # The app's command, bin/heml, from a shell.  Builds the app first.
 smoke-cli: app
 	test/smoke-cli.sh
@@ -267,5 +270,5 @@ clean:
 
 FORCE:
 
-.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl smoke-lsp smoke-dap smoke-run demo demo-cocoa demo-full app run-app install-app \
+.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl smoke-lsp smoke-dap smoke-run smoke-git demo demo-cocoa demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean

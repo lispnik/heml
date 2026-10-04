@@ -228,6 +228,7 @@
                (:file "debug")
                (:file "dabbrev")
                (:file "menus")
+               (:file "git" :depends-on ("results" "grep" "menus"))
                (:file "bindings")
                (:file "slave-list")))
      ;; The iolib event loop and connections, which every backend uses.

@@ -59,7 +59,9 @@
 ;;; and not in it, as Emacs has: what is drawn there says something of the
 ;;; line beside it -- a breakpoint, where a program being debugged stopped.
 ;;; A window has one when its buffer's major mode asks for it (its
-;;; MODE-FRINGE-WIDTH), or every window does when *FRINGE-WIDTH* says so.
+;;; MODE-FRINGE-WIDTH), as wide again as its buffer asks beyond that (its
+;;; BUFFER-FRINGE-EXTRA, after the mode's columns), or every window does
+;;; when *FRINGE-WIDTH* says so.
 ;;; The window's text is that much narrower: its lines are laid out in the
 ;;; rest, and the cursor and a click are placed in it (cursor.lisp).  Each
 ;;; function in *LINE-FRINGE-FUNCTIONS* is called with a line and returns
@@ -80,12 +82,32 @@
 (defun (setf mode-fringe-width) (width mode)
   (setf (gethash mode *mode-fringe-widths*) width))
 
+(defvar *buffer-fringe-extras* (make-hash-table :test 'eq)
+  "Buffer to the columns its windows' fringe has beyond its mode's.")
+
+(defun buffer-fringe-extra (buffer)
+  "The columns BUFFER's windows' fringe has beyond its mode's: its own, as
+   a file Git tracks has one for the lines that differ from the last commit."
+  (gethash buffer *buffer-fringe-extras* 0))
+
+(defun (setf buffer-fringe-extra) (width buffer)
+  (if (and width (plusp width))
+      (setf (gethash buffer *buffer-fringe-extras*) width)
+      (remhash buffer *buffer-fringe-extras*))
+  width)
+
+(defun buffer-fringe-width (buffer)
+  "How wide the fringe of a window showing BUFFER is: its mode's, and its
+   own beyond that, or *FRINGE-WIDTH*."
+  (or *fringe-width*
+      (+ (mode-fringe-width (buffer-major-mode buffer))
+         (buffer-fringe-extra buffer))))
+
 (defun window-fringe-width (window)
   "How many columns at the left of WINDOW are its fringe."
   (let ((buffer (window-buffer window)))
     (min (max 0 (1- (window-width window)))
-         (or *fringe-width*
-             (if buffer (mode-fringe-width (buffer-major-mode buffer)) 0)))))
+         (if buffer (buffer-fringe-width buffer) (or *fringe-width* 0)))))
 
 (defun window-text-width (window)
   "How many columns of WINDOW its text has: those right of its fringe."
