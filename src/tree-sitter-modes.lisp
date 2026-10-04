@@ -435,14 +435,33 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
 ;;;; Running a script, into the compilation buffer, whose lines visit the
 ;;;; places a traceback or an error names.
 
-(defun run-buffer-file (program)
+(defun buffer-file-saved ()
+  "The current buffer's file, saved first if it was modified."
   (let* ((buffer (current-buffer))
          (pathname (or (buffer-pathname buffer) (editor-error "The buffer has no file."))))
     (when (buffer-modified buffer)
       (save-file-command nil))
-    (compile-command nil
-                     (format nil "~A ~A" program (shell-quote (file-namestring pathname)))
-                     (directory-namestring pathname))))
+    pathname))
+
+(defun run-in-compilation (command directory &optional edit)
+  "Run COMMAND in DIRECTORY into the compilation buffer, shown in the other
+   window, staying in this one; with EDIT, offer it to be changed first."
+  (let ((command (if edit
+                     (prompt-for-string :prompt "Command: " :default command)
+                     command))
+        (here (current-window))
+        (compilation (getstring "*compilation*" *buffer-names*)))
+    (unless (and compilation (result-window compilation))
+      (select-window (other-window)))
+    (compile-command nil command (namestring directory))
+    (when (member here *window-list*)
+      (select-window here))))
+
+(defun run-buffer-file (program &optional edit)
+  (let ((pathname (buffer-file-saved)))
+    (run-in-compilation (format nil "~A ~A" program (shell-quote (file-namestring pathname)))
+                        (directory-namestring pathname)
+                        edit)))
 
 (defcommand "Python Run File" (p)
   "Save this file and run it with python3, showing what it prints in the
@@ -468,6 +487,152 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
   "Compile this file with fpc."
   (declare (ignore p))
   (run-buffer-file "fpc"))
+
+;;; Rust, Go and the JavaScript family: running the program, its tests, and
+;;; the test point is in, each into the compilation buffer, from the
+;;; directory its tool works from -- the nearest above holding Cargo.toml for
+;;; cargo, the file's own for go, the nearest holding package.json for npm.
+;;; With an argument, the command is offered to be changed first.
+
+(defun directory-above (pathname name)
+  "The nearest directory at or above PATHNAME's that holds a file NAME."
+  (loop for directory = (pathname-directory pathname) then (butlast directory)
+        while (rest directory)
+        do (let ((here (make-pathname :directory directory :name nil :type nil
+                                      :defaults pathname)))
+             (when (probe-file (merge-pathnames name here))
+               (return here)))))
+
+(defparameter *test-at-point-scanners*
+  `(("Rust" . ,(cl-ppcre:create-scanner "\\bfn\\s+(\\w+)"))
+    ("Go" . ,(cl-ppcre:create-scanner "^func\\s+((?:Test|Benchmark|Example|Fuzz)\\w*)\\s*\\("))
+    ("JavaScript" . ,(cl-ppcre:create-scanner
+                      "\\b(?:test|it|describe)(?:\\.only)?\\s*\\(\\s*(?:'([^']*)'|\"([^\"]*)\"|`([^`]*)`)")))
+  "For each mode, how a test's definition reads; its first group that
+   matched is the test's name.")
+
+(defun test-at-point (kind)
+  "The name of the test point is in, looking back from the end of its line
+   for what *TEST-AT-POINT-SCANNERS* says of KIND."
+  (let ((scanner (cdr (assoc kind *test-at-point-scanners* :test #'string=))))
+    (do ((line (mark-line (current-point)) (line-previous line)))
+        ((null line) (editor-error "No test here."))
+      (multiple-value-bind (start end starts ends) (cl-ppcre:scan scanner (line-string line))
+        (declare (ignore end))
+        (when start
+          (let ((group (position-if-not #'null starts)))
+            (return (subseq (line-string line) (aref starts group) (aref ends group)))))))))
+
+(defvar *last-test* nil
+  "The last test command run, and its directory.")
+
+(defun run-test (command directory edit)
+  (setf *last-test* (list command directory))
+  (run-in-compilation command directory edit))
+
+(defun cargo-directory (pathname)
+  (or (directory-above pathname "Cargo.toml")
+      (editor-error "No Cargo.toml above this file.")))
+
+(defcommand "Rust Run" (p)
+  "Save this file and cargo run its crate -- the binary or the example this
+   file is, when it is one -- showing the output in the compilation buffer."
+  "Run this crate with cargo."
+  (let* ((pathname (buffer-file-saved))
+         (directory (cargo-directory pathname))
+         (parent (car (last (pathname-directory pathname))))
+         (target (cond ((and (equal parent "bin")
+                             (equal (car (last (butlast (pathname-directory pathname)))) "src"))
+                        (format nil " --bin ~A" (pathname-name pathname)))
+                       ((equal parent "examples")
+                        (format nil " --example ~A" (pathname-name pathname)))
+                       (t ""))))
+    (run-in-compilation (format nil "cargo run~A" target) directory p)))
+
+(defcommand "Rust Test" (p)
+  "Save this file and run its crate's tests with cargo test."
+  "Run this crate's tests."
+  (run-test "cargo test" (cargo-directory (buffer-file-saved)) p))
+
+(defcommand "Rust Test at Point" (p)
+  "Save this file and run the test point is in (those whose names hold its
+   name) with cargo test."
+  "Run the test point is in."
+  (let ((name (test-at-point "Rust")))
+    (run-test (format nil "cargo test ~A" (shell-quote name))
+              (cargo-directory (buffer-file-saved)) p)))
+
+(defcommand "Go Run" (p)
+  "Save this file and go run its package, showing the output in the
+   compilation buffer."
+  "Run this package with go run."
+  (run-in-compilation "go run ." (directory-namestring (buffer-file-saved)) p))
+
+(defcommand "Go Test" (p)
+  "Save this file and run its package's tests with go test."
+  "Run this package's tests."
+  (run-test "go test" (directory-namestring (buffer-file-saved)) p))
+
+(defcommand "Go Test at Point" (p)
+  "Save this file and run the test, benchmark or example point is in with
+   go test -run."
+  "Run the test point is in."
+  (let ((name (test-at-point "Go")))
+    (run-test (format nil "go test -run ~A" (shell-quote (format nil "^~A$" name)))
+              (directory-namestring (buffer-file-saved)) p)))
+
+(defcommand "JavaScript Run" (p)
+  "Save this file and run it with node, which strips TypeScript's types,
+   showing the output in the compilation buffer."
+  "Run this file with node."
+  (run-buffer-file "node" p))
+
+(defcommand "JavaScript Test" (p)
+  "Save this file and run the tests: npm test where a package.json is
+   above it, or else node's test runner on this file."
+  "Run the tests."
+  (let* ((pathname (buffer-file-saved))
+         (package (directory-above pathname "package.json")))
+    (if package
+        (run-test "npm test" package p)
+        (run-test (format nil "node --test ~A" (shell-quote (file-namestring pathname)))
+                  (directory-namestring pathname) p))))
+
+(defcommand "JavaScript Test at Point" (p)
+  "Save this file and run the test point is in: with npm test -- -t, as Jest
+   and Vitest take it, where a package.json is above it, or else with
+   node's test runner and --test-name-pattern."
+  "Run the test point is in."
+  (let* ((name (test-at-point "JavaScript"))
+         (pathname (buffer-file-saved))
+         (package (directory-above pathname "package.json")))
+    (if package
+        (run-test (format nil "npm test -- -t ~A" (shell-quote name)) package p)
+        (run-test (format nil "node --test --test-name-pattern=~A ~A"
+                          (shell-quote (cl-ppcre:quote-meta-chars name))
+                          (shell-quote (file-namestring pathname)))
+                  (directory-namestring pathname) p))))
+
+(defcommand "Test Again" (p)
+  "Run the last test command again, from its directory."
+  "Run the last tests again."
+  (unless *last-test*
+    (editor-error "No tests have been run."))
+  (destructuring-bind (command directory) *last-test*
+    (run-in-compilation command directory p)))
+
+(bind-key "Rust Run" #k"control-c control-c" :mode "Rust")
+(bind-key "Rust Test" #k"control-c t f" :mode "Rust")
+(bind-key "Rust Test at Point" #k"control-c t t" :mode "Rust")
+(bind-key "Go Run" #k"control-c control-c" :mode "Go")
+(bind-key "Go Test" #k"control-c t f" :mode "Go")
+(bind-key "Go Test at Point" #k"control-c t t" :mode "Go")
+(dolist (mode '("JavaScript" "TS" "TSX"))
+  (bind-key "JavaScript Run" #k"control-c control-c" :mode mode)
+  (bind-key "JavaScript Test" #k"control-c t f" :mode mode)
+  (bind-key "JavaScript Test at Point" #k"control-c t t" :mode mode))
+(dolist (mode '("Rust" "Go" "JavaScript" "TS" "TSX"))
+  (bind-key "Test Again" #k"control-c t a" :mode mode))
 
 (bind-key "Pascal Compile File" #k"control-c control-c" :mode "Pascal")
 (bind-key "Python Run File" #k"control-c control-c" :mode "Python")
@@ -606,15 +771,20 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
   ("Compile with fpc" "Pascal Compile File")
   ("Next Error" "Next Result"))
 
-(dolist (mode '("Rust" "Go" "JavaScript" "TS" "TSX"))
-  (eval `(define-menu ,mode (:mode ,mode)
-           ("Beginning of Definition" "Beginning of Definition")
-           ("End of Definition" "End of Definition")
-           ("Mark Definition" "Mark Definition")
-           ("Outline" "Outline")
-           :separator
-           ("Compile…" "Compile")
-           ("Next Error" "Next Result"))))
+(loop for (mode language) in '(("Rust" "Rust") ("Go" "Go") ("JavaScript" "JavaScript")
+                               ("TS" "JavaScript") ("TSX" "JavaScript"))
+      do (eval `(define-menu ,mode (:mode ,mode)
+                  ("Beginning of Definition" "Beginning of Definition")
+                  ("End of Definition" "End of Definition")
+                  ("Mark Definition" "Mark Definition")
+                  ("Outline" "Outline")
+                  :separator
+                  ("Run" ,(format nil "~A Run" language))
+                  ("Run Tests" ,(format nil "~A Test" language))
+                  ("Run Test at Point" ,(format nil "~A Test at Point" language))
+                  ("Run Tests Again" "Test Again")
+                  ("Compile…" "Compile")
+                  ("Next Error" "Next Result"))))
 
 (dolist (mode '("JSON" "YAML"))
   (eval `(define-menu ,mode (:mode ,mode)

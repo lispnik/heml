@@ -1111,8 +1111,14 @@ gamma
       (post (list :open (namestring (write-file "bad.pas" "program bad;" "begin" "  x := 1;" "end."))))
       (settle)
       (post-key #\c "Control") (post-key #\c "Control")
-      (check "C-c C-c compiles Pascal with fpc"
-             (wait-until (lambda () (search "Compilation finished" (buffer-text)))))
+      (check "C-c C-c compiles Pascal with fpc, staying in the file's window"
+             (and (wait-until (lambda ()
+                                (let ((compilation (hi::getstring "*compilation*" hi::*buffer-names*)))
+                                  ;; This compilation's, not one before.
+                                  (and compilation
+                                       (search "fpc 'bad.pas'" (buffer-text compilation))
+                                       (search "Compilation finished" (buffer-text compilation))))))
+                  (eq (hi::current-buffer) (file-buffer "bad.pas"))))
       (post-key #\x "Control") (post-key #\`)
       (settle)
       (check "and C-x ` visits its error"

@@ -29,8 +29,11 @@
 ;;; message about its own progress might), and may be a Windows-free
 ;;; relative or absolute name.
 ;;;
+;;; Node's test runner says where a failing test is with test at x.js:3:1,
+;;; which is one of the other places, below, not a file "test at x.js".
+;;;
 (defparameter *location-scanner*
-  (cl-ppcre:create-scanner "^([^:\\s][^:]*):(\\d+):(?:(\\d+):)?"))
+  (cl-ppcre:create-scanner "^(?!test at )([^:\\s][^:]*):(\\d+):(?:(\\d+):)?"))
 
 (defun grep-line-parts (string)
   "For a line naming a place: the end of the file's name, the line number's
@@ -43,23 +46,34 @@
                    (parse-integer string :start (aref starts 2) :end (aref ends 2)))))))
 
 ;;; What else a compilation's lines may name a place with: a Python
-;;; traceback's File "x.py", line 12, a shell's x.sh: line 3:, and Free
-;;; Pascal's and Delphi's x.pas(3,5) Error:.
+;;; traceback's File "x.py", line 12, a shell's x.sh: line 3:, Free
+;;; Pascal's and Delphi's x.pas(3,5) Error:, rustc's indented --> x.rs:3:5,
+;;; a Rust test's panicked at x.rs:3:5, a Go test's indented
+;;; x_test.go:12:, tsc's x.ts(3,5): error, Node's test at x.js:3:1, and
+;;; a Node stack frame's at f (/x.js:3:5).  The third group, when there is
+;;; one, is the column.
 ;;;
 (defparameter *other-location-scanners*
   (list (cl-ppcre:create-scanner "^\\s*File \"([^\"]+)\", line (\\d+)")
-        (cl-ppcre:create-scanner "^([^(\\s][^(]*)\\((\\d+)(?:,\\d+)?\\) (?:Fatal|Error|Warning|Hint|Note)")
-        (cl-ppcre:create-scanner "^([^:\\s][^:]*): line (\\d+):")))
+        (cl-ppcre:create-scanner "^([^(\\s][^(]*)\\((\\d+)(?:,(\\d+))?\\):? (?:Fatal|Error|Warning|Hint|Note|error|warning)")
+        (cl-ppcre:create-scanner "^([^:\\s][^:]*): line (\\d+):")
+        (cl-ppcre:create-scanner "^\\s*--> ([^:\\s][^:]*):(\\d+):(\\d+)")
+        (cl-ppcre:create-scanner "panicked at ([^:\\s][^:]*):(\\d+):(\\d+)")
+        (cl-ppcre:create-scanner "^test at ([^:\\s][^:]*):(\\d+):(\\d+)")
+        (cl-ppcre:create-scanner "^\\s+([^\\s:]+\\.go):(\\d+):")
+        (cl-ppcre:create-scanner "^\\s+at (?:.*\\()?(?:file://)?(/[^():]+):(\\d+):(\\d+)\\)?\\s*$")))
 
 (defun other-location-parts (string)
-  "For a traceback's or a shell's line: the file's start and end, and the
-   line number."
+  "For a traceback's or a shell's line, and the others above: the file's
+   start and end, the line number, and the column or NIL."
   (dolist (scanner *other-location-scanners*)
     (multiple-value-bind (start end starts ends) (cl-ppcre:scan scanner string)
       (declare (ignore end))
       (when start
         (return (values (aref starts 0) (aref ends 0)
-                        (parse-integer string :start (aref starts 1) :end (aref ends 1))))))))
+                        (parse-integer string :start (aref starts 1) :end (aref ends 1))
+                        (and (> (length starts) 2) (aref starts 2)
+                             (parse-integer string :start (aref starts 2) :end (aref ends 2)))))))))
 
 (defun grep-line-location (line)
   (let ((string (line-string line))
@@ -70,10 +84,11 @@
       (if file-end
           (list (merge-pathnames (subseq string 0 file-end) directory) number column)
           (when (string= (buffer-major-mode (line-buffer line)) "Compilation")
-            (multiple-value-bind (file-start file-end number) (other-location-parts string)
+            (multiple-value-bind (file-start file-end number column)
+                (other-location-parts string)
               (when file-start
                 (list (merge-pathnames (subseq string file-start file-end) directory)
-                      number))))))))
+                      number column))))))))
 
 
 ;;;; What a grep searched for.

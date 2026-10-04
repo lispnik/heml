@@ -141,6 +141,16 @@ jobs:
         env:
           SMOKE_DAP_STRICT: 1
 
+      # Node runs TypeScript itself from 22.18.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run programs and their tests (make smoke-run)
+        run: make smoke-run
+        env:
+          SMOKE_RUN_STRICT: 1
+
       - name: Build Heml.app and check it
         run: make check-app
 
