@@ -382,9 +382,9 @@ case $(basename "$LISP") in
         done
         sleep 0.5
         checks=$((checks + 1))
-        if screen | grep -q '^    if (x) {' && screen | grep -q '^        x--;' \
-                && screen | grep -q '^    }' && screen | grep -q '^    return x;' \
-                && screen | grep -q '^}'; then
+        if screen | grep -q '^      if (x) {' && screen | grep -q '^          x--;' \
+                && screen | grep -q '^      }' && screen | grep -q '^      return x;' \
+                && screen | grep -q '^  }'; then
             echo "  ok    C is indented as it is typed"
         else
             echo "  FAIL  C is indented as it is typed"; screen | sed 's/^/        | /'
@@ -410,9 +410,9 @@ case $(basename "$LISP") in
         done
         sleep 0.5
         checks=$((checks + 1))
-        if screen | grep -q '^    let x = 1;' && screen | grep -q '^    if x > 0 {' \
-                && screen | grep -q '^        x - 1;' && screen | grep -q '^    }' \
-                && screen | grep -q '^}'; then
+        if screen | grep -q '^      let x = 1;' && screen | grep -q '^      if x > 0 {' \
+                && screen | grep -q '^          x - 1;' && screen | grep -q '^      }' \
+                && screen | grep -q '^  }'; then
             echo "  ok    Rust is indented as it is typed"
         else
             echo "  FAIL  Rust is indented as it is typed"; screen | sed 's/^/        | /'
@@ -674,9 +674,9 @@ send C-n C-n
 send C-c d b
 expect '●     point = 2' "C-c d b puts a breakpoint on a line, a dot before it"
 send C-c d d
-expect '● ▶     point = 2' "C-c d d debugs the file, which stops at the breakpoint" 20
+expect '●▶    point = 2' "C-c d d debugs the file, which stops at the breakpoint" 20
 send C-c d n
-expect '▶     print(x)' "C-c d n goes on to the next line" 10
+expect '▶    print(x)' "C-c d n goes on to the next line" 10
 send C-c d c
 sleep 2
 send C-x b

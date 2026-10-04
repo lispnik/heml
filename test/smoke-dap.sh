@@ -78,12 +78,12 @@ visit() {
 }
 
 # debug FILE LINE STOPPED STEPPED OUTPUT [PROGRAM]: a breakpoint on FILE's
-# line LINE, and debugging, which stops there -- an arrow before the line
-# STOPPED begins, after any indentation (as far as the language server's
-# hints, which come after) -- and a step in, to the line STEPPED begins;
-# STOPPED and STEPPED are basic regular expressions; x * 10
-# evaluated there; and going on, which prints OUTPUT.  PROGRAM, when given,
-# is what to debug, asked for.
+# line LINE, a dot in the fringe beside it, and debugging, which stops
+# there -- an arrow in the fringe beside the line STOPPED begins (as far as
+# the language server's hints, which come after) -- and a step in, to the
+# line STEPPED begins; STOPPED and STEPPED are basic regular expressions;
+# x * 10 evaluated there; and going on, which prints OUTPUT.  PROGRAM, when
+# given, is what to debug, asked for.
 debug() {
     file=$1
     visit "$file"
@@ -100,7 +100,7 @@ debug() {
         type_text "$6"
         send Enter
     fi
-    expect_re "● ▶ *$3" "the debugger stops there, an arrow before the line" 90
+    expect_re "●▶ *$3" "the debugger stops there, an arrow before the line" 90
     send C-c d s
     expect_re "▶ *$4" "C-c d s steps into the call" 30
     send C-c d e

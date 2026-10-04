@@ -141,7 +141,7 @@ function_checks() {
     send C-g
     sleep 0.5
     send M-.
-    expect_re "^$4" "M-. goes to its definition" 60
+    expect_re "^ *$4" "M-. goes to its definition" 60
     send 'M->'
     press C-p $(( $5 + 2 ))
     send C-e Enter
@@ -177,7 +177,7 @@ other_file() {
     sleep 0.3
     send M-.
     expect_re "([^)]*)  .*$3" "M-. on a call to another file's function visits that file" 60
-    expect_re "^$4" "at its definition" 10
+    expect_re "^ *$4" "at its definition" 10
     visit "$file"
     sleep 0.5
     send C-n C-n

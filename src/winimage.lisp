@@ -55,6 +55,61 @@
               (overlay-dis-line dis-line x0 x1 (car annotation) (cdr annotation))
               (setf x0 (+ x1 2)))))))))
 
+;;; The fringe is a few columns at the left of a window, beside its text
+;;; and not in it, as Emacs has: what is drawn there says something of the
+;;; line beside it -- a breakpoint, where a program being debugged stopped.
+;;; A window has one when its buffer's major mode asks for it (its
+;;; MODE-FRINGE-WIDTH), or every window does when *FRINGE-WIDTH* says so.
+;;; The window's text is that much narrower: its lines are laid out in the
+;;; rest, and the cursor and a click are placed in it (cursor.lisp).  Each
+;;; function in *LINE-FRINGE-FUNCTIONS* is called with a line and returns
+;;; ((COLUMN TEXT FONT) ...), drawn in the fringe beside the line's first
+;;; row.
+;;;
+(defvar *line-fringe-functions* '())
+
+(defvar *fringe-width* nil
+  "The fringe every window has, in columns, or NIL for each mode's own.")
+
+(defvar *mode-fringe-widths* (make-hash-table :test 'equalp)
+  "Major mode's name to the fringe its buffers' windows have.")
+
+(defun mode-fringe-width (mode)
+  (gethash mode *mode-fringe-widths* 0))
+
+(defun (setf mode-fringe-width) (width mode)
+  (setf (gethash mode *mode-fringe-widths*) width))
+
+(defun window-fringe-width (window)
+  "How many columns at the left of WINDOW are its fringe."
+  (let ((buffer (window-buffer window)))
+    (min (max 0 (1- (window-width window)))
+         (or *fringe-width*
+             (if buffer (mode-fringe-width (buffer-major-mode buffer)) 0)))))
+
+(defun window-text-width (window)
+  "How many columns of WINDOW its text has: those right of its fringe."
+  (- (window-width window) (window-fringe-width window)))
+
+(defun fringe-dis-line (dis-line line fringe first-row)
+  "Move DIS-LINE's image right of a fringe FRINGE columns wide, and draw in
+   the fringe what is said of LINE, if this is LINE's FIRST-ROW."
+  (let ((chars (dis-line-chars dis-line))
+        (length (dis-line-length dis-line)))
+    (replace chars chars :start1 fringe :start2 0 :end2 length)
+    (fill chars #\Space :end fringe)
+    (setf (dis-line-length dis-line) (+ length fringe))
+    (do ((change (dis-line-font-changes dis-line) (font-change-next change)))
+        ((null change))
+      (incf (font-change-x change) fringe))
+    (when (and first-row *line-fringe-functions*)
+      (dolist (function *line-fringe-functions*)
+        (loop for (column text font) in (funcall function line)
+              when (< -1 column fringe)
+                do (overlay-dis-line dis-line column
+                                     (min fringe (+ column (length text)))
+                                     text font))))))
+
 ;;; A hidden line is one of a fold's (fold.lisp): the image goes from the
 ;;; line before it to the next that is shown.
 ;;;
@@ -83,7 +138,8 @@
 (defun update-window-image (window)
   (let* ((first (window-first-line window))
          (height (window-height window))
-         (width (window-width window))
+         (fringe (window-fringe-width window))
+         (width (- (window-width window) fringe))
          (start (window-display-start window))
          (line (mark-line start))
          (offset (mark-charpos start))
@@ -108,12 +164,15 @@
               trail cell)
         (setf (dis-line-line dis-line) line
               (dis-line-position dis-line) pos)
-        (multiple-value-setq (string underhang offset)
-          (compute-line-image string underhang line offset dis-line width))
-        (setf (dis-line-text-length dis-line) (dis-line-length dis-line))
+        (let ((first-row (and (null string) (zerop offset))))
+          (multiple-value-setq (string underhang offset)
+            (compute-line-image string underhang line offset dis-line width))
+          (setf (dis-line-text-length dis-line) (dis-line-length dis-line))
+          (when (plusp fringe)
+            (fringe-dis-line dis-line line fringe first-row)))
         (unless underhang
           (when *line-annotation-functions*
-            (annotate-dis-line dis-line line width))
+            (annotate-dis-line dis-line line (+ width fringe)))
           (setq line (next-shown-line line)
                 offset 0))))
     (move-mark (window-old-start window) start)

@@ -43,6 +43,9 @@
   (setf *debug-adapters*
         (cons (list name modes commands launch listens)
               (remove name *debug-adapters* :key #'first :test #'string=)))
+  ;; Their windows have a fringe, for the breakpoints and the arrow.
+  (dolist (mode modes)
+    (setf (mode-fringe-width mode) (max 2 (mode-fringe-width mode))))
   name)
 
 (defun buffer-debug-adapter (buffer)
@@ -432,21 +435,21 @@
     (when frame
       (values (jref frame "source" "path") (jref frame "line")))))
 
-(defun dap-line-inlines (line)
-  "A dot before a line with a breakpoint, and an arrow before the line the
-   program stopped at."
+(defun dap-line-fringe (line)
+  "In the fringe (winimage.lisp), a dot beside a line with a breakpoint, and
+   an arrow beside the line the program stopped at."
   (let ((buffer (line-buffer line)))
     (when (and buffer (or *breakpoints* *dap*))
       (append
        (when (find line *breakpoints* :key #'mark-line)
-         (list (list 0 "● " *breakpoint-font*)))
+         (list (list 0 "●" *breakpoint-font*)))
        (multiple-value-bind (file number) (dap-stopped-place)
          (when (and file (buffer-pathname buffer)
                     (equal (namestring (buffer-pathname buffer)) file)
                     (eql number (mark-line-number (mark line 0))))
-           (list (list 0 "▶ " *stopped-font*))))))))
+           (list (list 1 "▶" *stopped-font*))))))))
 
-(pushnew 'dap-line-inlines hi:*line-inline-functions*)
+(pushnew 'dap-line-fringe hi:*line-fringe-functions*)
 
 
 ;;;; Showing where it stopped.

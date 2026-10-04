@@ -56,7 +56,7 @@
           (line-buffer (mark-line (heml-output-stream-mark stream)))))
     (when buffer
       (do ((w (buffer-windows buffer) (cdr w))
-           (min most-positive-fixnum (min (window-width (car w)) min)))
+           (min most-positive-fixnum (min (window-text-width (car w)) min)))
           ((null w)
            (if (/= min most-positive-fixnum) min))))))
 

@@ -199,11 +199,18 @@
 (defun mark-to-cursorpos (mark window)
   "Return the (x, y) position of mark within window, or NIL if not displayed."
   (update-window-image window)
+  ;; In the text, right of the fringe (winimage.lisp).
+  (multiple-value-bind (x y) (%mark-to-cursorpos mark window)
+    (if x
+        (values (+ x (window-fringe-width window)) y)
+        (values x y))))
+
+(defun %mark-to-cursorpos (mark window)
   (let* ((line (mark-line mark))
          (number (line-number line))
          (charpos (mark-charpos mark))
          (dis-lines (cdr (window-first-line window)))
-         (width (window-width window))
+         (width (window-text-width window))
          (start (window-display-start window))
          (offset (mark-charpos start))
          (start-number (line-number (mark-line start)))
@@ -294,7 +301,7 @@
         (start (window-display-start window)))
     (move-mark start mark)
     (unless (dis-line-offset-guess start (- (truncate height 2))
-                                   (window-width window))
+                                   (window-text-width window))
       (move-mark start (buffer-start-mark (window-buffer window))))
     (update-window-image window)
     ;; If that doesn't work, panic and make the start the point.
@@ -338,7 +345,7 @@
   "Scroll Window down N lines, up if negative."
   (let ((start (window-display-start window))
         (point (window-point window))
-        (width (window-width window))
+        (width (window-text-width window))
         (height (window-height window)))
     (cond ((dis-line-offset-guess start n width))
           ((minusp n)
@@ -400,7 +407,9 @@
 ;;;
 (defun cursorpos-to-mark (x y window)
   (check-type window window)
-  (let ((width (window-width window))
+  ;; A column of the fringe is the text's first.
+  (setf x (max 0 (- x (window-fringe-width window))))
+  (let ((width (window-text-width window))
         (first (window-first-line window)))
     (when (>= x width)
       (return-from cursorpos-to-mark nil))

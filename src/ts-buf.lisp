@@ -112,7 +112,7 @@
                 ts))
          (window (car (buffer-windows (ts-data-buffer ts)))))
     (if window
-        (window-width window)
+        (window-text-width window)
         80))) ; Seems like a good number to me.
 
 

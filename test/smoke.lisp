@@ -553,13 +553,14 @@
       (post-key #\< "Meta")
       (post-key #\n "Control") (post-key #\n "Control")
       (post (list :named "F9" '()))
-      (check "F9 puts a breakpoint on a line, a dot before it"
+      (check "F9 puts a breakpoint on a line, a dot in the fringe beside it"
              (wait-until (lambda () (row-p "● " )) 10))
       (check "and only that line"
              (and (row-p "●     point = 2") (not (row-p "●     x = 1"))))
       (post (list :named "F5" '()))
-      (check "F5 debugs the file, which stops at the breakpoint, an arrow before its line"
-             (wait-until (lambda () (row-p "● ▶     point = 2")) 20))
+      (check "F5 debugs the file, which stops at the breakpoint, an arrow in the fringe beside its line"
+             (wait-until (lambda () (row-p "●▶    point = 2")) 20))
+      (shot "debugger-stopped")
       (check "with point on that line"
              (equal "    point = 2" (point-line)))
       (post-key #\c "Control") (post-key #\d) (post-key #\w)
@@ -588,13 +589,13 @@
                            (search "caller_var = 7" (buffer-text (buffer-named "Debugger"))))
                          10))
       (check "and its place"
-             (wait-until (lambda () (row-p "▶ def caller():")) 10))
+             (wait-until (lambda () (row-p "▶def caller():")) 10))
       (post-key #\x "Control") (post-key #\1)
       (post (list :open (namestring file)))
       (settle)
       (post (list :named "F10" '()))
       (check "F10 goes on to the next line"
-             (wait-until (lambda () (row-p "▶     print(x)")) 10))
+             (wait-until (lambda () (row-p "▶    print(x)")) 10))
       (post-key #\c "Control") (post-key #\d) (post-key #\e)
       (post-key #\a "Control") (post-key #\k "Control")
       (post-text "x
@@ -617,7 +618,7 @@
       (post-key #\n "Control") (post-key #\n "Control")
       (post (list :named "F9" '()))
       (check "F9 again takes the breakpoint away"
-             (wait-until (lambda () (not (row-p "● "))) 10)))))
+             (wait-until (lambda () (not (row-p "●"))) 10)))))
 
 (defun language-server-kind-checks ()
   ;; Servers of other kinds, for YAML and JSON while these checks run: one
