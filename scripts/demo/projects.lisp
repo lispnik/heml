@@ -1,0 +1,60 @@
+;;;; scripts/demo/projects.lisp -- `make demo-projects': Heml's own source
+;;;; as a project -- finding a file, searching, a result list, folding,
+;;;; Dired and Bufed.
+
+(load (merge-pathnames "driver.lisp" *load-truename*))
+(in-package :heml-demo)
+
+(defun steps ()
+  (caption "A project is the nearest directory with .git or a build file; C-x p holds its commands")
+  (open-file (merge-pathnames "README.org" *top*))
+  (pause 1.5)
+
+  (caption "C-x p f finds a file of the project: its letters in order are enough")
+  (keys '(#\x "Control") #\p #\f)
+  (pause 0.6)
+  (type-text "wnimg" :pause 0.12)
+  (pause 1)
+  (keys "Return")
+  (wait-for "winimage.lisp" 10)
+  (pause 2)
+
+  (caption "Fold All folds each definition under its first line; Unfold All opens them")
+  (extended-command "Fold All")
+  (wait-for "lines" 5)
+  (pause 3)
+  (extended-command "Unfold All")
+  (pause 1)
+
+  (caption "C-x p g searches the project -- with ripgrep where it is installed")
+  (keys '(#\x "Control") #\p #\g)
+  (pause 0.6)
+  (keys '(#\a "Control") '(#\k "Control"))
+  (type-text "define-mode-highlighter \"")
+  (keys "Return")
+  (wait-for "result" 20)
+  (pause 2.5)
+  (caption "C-x ` visits each match in turn, from anywhere; Return visits the one point is on")
+  (keys '(#\x "Control") #\`)
+  (pause 2)
+  (keys '(#\x "Control") #\`)
+  (pause 2)
+  (keys '(#\x "Control") #\1)
+
+  (caption "C-x p d: the project in Dired, hidden files too; i lists a directory in place")
+  (keys '(#\x "Control") #\p #\d)
+  (wait-for ".gitignore" 10)
+  (pause 1.5)
+  (keys '(#\s "Control"))
+  (type-text "scripts")
+  (keys '(#\g "Control"))
+  (pause 0.5)
+  (keys #\i)
+  (pause 3)
+
+  (caption "C-x C-b: the buffers, with their sizes, modes and files")
+  (keys '(#\x "Control") '(#\b "Control"))
+  (wait-for "Buffers" 10)
+  (pause 4))
+
+(run-demo "projects" #'steps)

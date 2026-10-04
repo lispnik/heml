@@ -652,7 +652,7 @@
          (frame (dap-session-frame session)))
     (multiple-value-bind (body ok)
         (dap-request-wait session "evaluate"
-                          (json "expression" expression "context" "repl"
+                          (json "expression" expression "context" "watch"
                                 "frameId" (if frame (jref frame "id") 'null)))
       (if (eq ok t)
           (message "~A = ~A" expression (substitute #\Space #\Newline (or (jref body "result") "")))

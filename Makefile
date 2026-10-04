@@ -64,23 +64,21 @@ demo:
 	ecl --eval '(asdf:load-system :heml.tty)' --eval '(ext:quit)'
 	vhs scripts/demo/heml-tty.tape
 
-# A video of the Cocoa editor: build/demo/heml-cocoa.mp4.  Needs ffmpeg.
-demo-cocoa:
-	@mkdir -p build/demo
-	$(LISP) --load scripts/demo/cocoa.lisp
-	ffmpeg -v error -y -framerate 10 -i build/demo/cocoa-frames/%05d.png \
-	  -c:v libx264 -pix_fmt yuv420p build/demo/heml-cocoa.mp4
+# The Cocoa demos, each recorded by scripts/demo/NAME.lisp and encoded with
+# its captions by scripts/demo/encode.sh into build/demo/heml-NAME.mp4: the
+# editor itself (cocoa), highlighting (tree-sitter; needs `make
+# tree-sitter'), a language server (languages; clangd), projects, running
+# programs and tests (run; cargo, go, node), the debugger (debug; lldb-dap)
+# and Git.  Needs ffmpeg.
+COCOA_DEMOS = cocoa tree-sitter languages projects run debug git
 
-# Syntax highlighting, by mode and with tree-sitter:
-# build/demo/heml-tree-sitter.mp4.  Needs ffmpeg and `make tree-sitter'.
-demo-tree-sitter:
+$(addprefix demo-,$(COCOA_DEMOS)):
 	@mkdir -p build/demo
-	$(LISP) --load scripts/demo/tree-sitter.lisp
-	ffmpeg -v error -y -framerate 10 -i build/demo/tree-sitter-frames/%05d.png \
-	  -c:v libx264 -pix_fmt yuv420p build/demo/heml-tree-sitter.mp4
+	$(LISP) --load scripts/demo/$(@:demo-%=%).lisp
+	scripts/demo/encode.sh $(@:demo-%=%)
 
-# Both, after title cards: build/demo/heml.mp4.
-demo-full: demo demo-cocoa
+# Everything, after title cards: build/demo/heml.mp4.
+demo-full: demo $(addprefix demo-,$(COCOA_DEMOS))
 	scripts/demo/combine.sh
 
 # --- the bundle --------------------------------------------------------------
@@ -270,5 +268,5 @@ clean:
 
 FORCE:
 
-.PHONY: demo-tree-sitter tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl smoke-lsp smoke-dap smoke-run smoke-git demo demo-cocoa demo-full app run-app install-app \
+.PHONY: tree-sitter install-tree-sitter run-tty install-cli smoke-cli FORCE deps run smoke smoke-tty smoke-tty-ecl smoke-lsp smoke-dap smoke-run smoke-git demo $(addprefix demo-,$(COCOA_DEMOS)) demo-full app run-app install-app \
         check-dist check-app notarize dmg notarize-dmg release clean
