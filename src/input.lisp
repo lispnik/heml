@@ -215,6 +215,19 @@
 ;;; if we got an error in getting input, we should prompt the user using the
 ;;; input method (recursively even).
 ;;;
+(defvar *last-key-time* 0
+  "The internal real time at which the input loop last read a key.")
+
+(defvar *echo-interval* 1/10
+  "How long after a key output is drawn at once, not held for
+   *REDISPLAY-INTERVAL*: what a program writes then is most likely the key's
+   echo, and was drawn a frame late.")
+
+(defun echo-expected-p ()
+  "Whether a key was read within *ECHO-INTERVAL*."
+  (< (/ (- (get-internal-real-time) *last-key-time*) internal-time-units-per-second)
+     *echo-interval*))
+
 (defgeneric %editor-input-method (editor-input ignore-abort-attempts-p))
 (defmethod %editor-input-method
     ((editor-input editor-input) ignore-abort-attempts-p)
@@ -223,12 +236,15 @@
         key-event)
     (loop
      (when (setf key-event (dq-event editor-input))
+       (setf *last-key-time* (get-internal-real-time))
        (dolist (f (variable-value 'heml::input-hook)) (funcall f))
        (return))
      (invoke-scheduled-events)
      (cond
        ((and (< (time-since-redisplay) *redisplay-interval*)
-             (not (listen-editor-input editor-input)))
+             (not (listen-editor-input editor-input))
+             ;; Just after a key, output is its echo: drawn at once.
+             (not (echo-expected-p)))
         ;; Drawn a moment ago.  Let more events in first, so that a flood
         ;; of output is drawn at most *redisplay-interval* apart.  The
         ;; clock has moved on since it was read, so what is left of the

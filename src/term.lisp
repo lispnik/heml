@@ -344,7 +344,9 @@
 (defun term-note-output (term)
   (let ((since (/ (- (get-internal-real-time) (term-last-refresh term))
                   internal-time-units-per-second)))
-    (cond ((>= since *term-refresh-interval*)
+    (cond ((or (>= since *term-refresh-interval*)
+               ;; Just after a key, output is its echo: read at once.
+               (hi::echo-expected-p))
            (term-refresh term))
           ((not (term-refresh-pending term))
            (setf (term-refresh-pending term) t)
