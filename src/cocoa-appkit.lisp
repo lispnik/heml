@@ -428,13 +428,41 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
     "systemGrayColor" "textColor"))
 
 (defun ns-color (display name)
+  "The colour NAME names: an NSColor's own name, or (RED GREEN BLUE)."
   (or (gethash name (display-colors display))
       (setf (gethash name (display-colors display))
-            (objc:retain (objc:invoke "NSColor" name)))))
+            (objc:retain
+             (if (consp name)
+                 (destructuring-bind (red green blue) name
+                   (objc:invoke "NSColor" "colorWithSRGBRed:green:blue:alpha:"
+                                (/ red 255d0) (/ green 255d0) (/ blue 255d0) 1d0))
+                 (objc:invoke "NSColor" name))))))
+
+(defun xterm-rgb (index)
+  "The colour of INDEX among xterm's 256: its bright colours, its six by six
+   by six cube, and its greys."
+  (cond ((< index 16)
+         (svref #((0 0 0) (205 0 0) (0 205 0) (205 205 0) (0 0 238) (205 0 205)
+                  (0 205 205) (229 229 229) (127 127 127) (255 0 0) (0 255 0)
+                  (255 255 0) (92 92 255) (255 0 255) (0 255 255) (255 255 255))
+                index))
+        ((< index 232)
+         (let ((levels #(0 95 135 175 215 255))
+               (n (- index 16)))
+           (list (svref levels (floor n 36)) (svref levels (mod (floor n 6) 6))
+                 (svref levels (mod n 6)))))
+        (t (let ((grey (+ 8 (* 10 (- index 232))))) (list grey grey grey)))))
 
 (defun color-name-for (index)
+  "What NS-COLOR is given for a font's colour: one of Heml's palette, an
+   index among xterm's 256 past it, or (RED GREEN BLUE), as a terminal's
+   text has."
   (cond ((and (integerp index) (< -1 index (length +palette+)))
          (svref +palette+ index))
+        ((and (integerp index) (< -1 index 256))
+         (xterm-rgb index))
+        ((and (consp index) (= (length index) 3) (every #'integerp index))
+         index)
         ;; What the Cocoa backend makes the active region's font, so that
         ;; a region looks like a selection anywhere else on the Mac.
         ((eq index :selection) "selectedTextBackgroundColor")

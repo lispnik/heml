@@ -174,10 +174,22 @@
   ;; input events data?
   (babel:octets-to-string bytes :encoding (connection-encoding connection)))
 
+(defgeneric note-process-ended (connection)
+  (:documentation "CONNECTION's input is at its end: if it is a process's,
+   the process is reaped, now or soon, and its exit code kept.")
+  (:method (connection) (declare (ignore connection)) nil))
+
+(defgeneric connection-signal (connection signal)
+  (:documentation "Send SIGNAL, a number or a keyword such as :SIGINT, to
+   CONNECTION's process: to the job in its terminal's foreground, for a
+   process on a terminal, and to its process group otherwise."))
+
 (defun process-incoming-data (connection)
   (let ((bytes (%read connection)))
     (case bytes
       (:eof
+       ;; Reaped first, if it can be, so that the sentinel knows the code.
+       (note-process-ended connection)
        (note-disconnected connection)
        :eof)
       (t
@@ -208,7 +220,17 @@
                    :accessor connection-slave-pty-name)
    (directory :initform nil
               :initarg :directory
-              :accessor connection-directory)))
+              :accessor connection-directory)
+   ;; Variable names and values set for the program, ((NAME . VALUE) ...).
+   (environment :initform nil
+                :initarg :environment
+                :accessor connection-environment)
+   ;; True for a program on a terminal that is to be left as a terminal is
+   ;; made -- echoing, translating newlines -- for a terminal emulator; a
+   ;; shell buffer's is set for Heml to do the echoing.
+   (terminal :initform nil
+             :initarg :terminal
+             :accessor connection-terminal)))
 
 (defmethod class-for
     ((backend (eql :iolib)) (type (eql 'process-connection-mixin)))
@@ -217,8 +239,10 @@
 (defun make-process-connection
        (command
         &rest args
-        &key name buffer stream filter sentinel slave-pty-name directory)
-  (declare (ignore buffer stream filter sentinel slave-pty-name directory))
+        &key name buffer stream filter sentinel slave-pty-name directory
+          environment terminal)
+  (declare (ignore buffer stream filter sentinel slave-pty-name directory
+                   environment terminal))
   (apply #'make-instance
          (class-for *connection-backend* 'process-connection-mixin)
          :name (or name (princ-to-string command))
@@ -346,19 +370,62 @@
 
 
 (defun make-process-with-pty-connection
-    (command &key name (buffer nil bufferp) stream)
+    (command &key name (buffer nil bufferp) stream filter sentinel
+               directory environment terminal rows columns)
+  "Run COMMAND on a pseudo-terminal of its own, which is its controlling
+   terminal: what it writes comes to FILTER, or BUFFER or STREAM, and what
+   is written to the connection is what it reads.  With TERMINAL the
+   terminal is left as a terminal is made, for an emulator; ROWS and COLUMNS
+   are its size from the start; ENVIRONMENT, ((NAME . VALUE) ...), is set
+   for the program."
   (multiple-value-bind (master slave slave-name)
       (find-a-pty)
-    (let ((pc (make-process-connection command :slave-pty-name slave-name)))
+    (when (and rows columns)
+      (set-pty-size master rows columns))
+    (let ((pc (make-process-connection command :slave-pty-name slave-name
+                                               :directory directory
+                                               :environment environment
+                                               :terminal terminal)))
       (isys:close slave)
-      (make-pipelike-connection master
-                                master
-                                :name (or name (princ-to-string command))
-                                :process-connection pc
-                                :buffer (if bufferp
-                                            buffer
-                                            (null stream))
-                                :stream stream))))
+      (apply #'make-pipelike-connection master
+             master
+             :name (or name (princ-to-string command))
+             :process-connection pc
+             :buffer (if bufferp
+                         buffer
+                         (and (null stream) (null filter)))
+             :stream stream
+             (append (when filter (list :filter filter))
+                     (when sentinel (list :sentinel sentinel)))))))
+
+#+ecl
+(ffi:clines "#include <sys/ioctl.h>")
+
+;;; A terminal's size is told to it on its master side, and the kernel then
+;;; sends SIGWINCH to the program in its foreground.  ioctl's argument is
+;;; variadic, which CFFI on ECL passes as a fixed one (see TERMINAL-SIZE).
+;;;
+(defun set-pty-size (fd rows columns)
+  "Tell the terminal whose master side is FD that it is ROWS by COLUMNS."
+  #+sbcl
+  (cffi:with-foreign-object (ws '(:struct osicat-posix::winsize))
+    (cffi:with-foreign-slots ((osicat-posix::row osicat-posix::col
+                               osicat-posix::xpixel osicat-posix::ypixel)
+                              ws (:struct osicat-posix::winsize))
+      (setf osicat-posix::row rows osicat-posix::col columns
+            osicat-posix::xpixel 0 osicat-posix::ypixel 0))
+    ;; Not osicat's IOCTL, which takes the request as a signed 32-bit
+    ;; number (TIOCSWINSZ is #x80087467, more than one can be) and passes
+    ;; its argument as a fixed one, where arm64 macOS wants a variadic one
+    ;; on the stack: that way the call fails.
+    (cffi:foreign-funcall-varargs "ioctl" (:int fd :unsigned-long osicat-posix:tiocswinsz)
+                                  :pointer ws :int))
+  #+ecl
+  (ffi:c-inline (fd rows columns) (:int :int :int) :void
+    "{ struct winsize ws;
+       ws.ws_row = #1; ws.ws_col = #2; ws.ws_xpixel = 0; ws.ws_ypixel = 0;
+       ioctl(#0, TIOCSWINSZ, &ws); }"
+    :one-liner nil))
 
 (defclass pipelike-connection-mixin ()
   ())

@@ -286,25 +286,33 @@
 ;;; re-queue it.  While invoking the function, bind *time-queue* to nothing in
 ;;; case the event function tries to read off *editor-input*.
 ;;;
+(defvar *invoking-scheduled-events* nil
+  "True while scheduled events run: one that redisplays, and so would come
+   here again, does not run the others inside itself.")
+
 (defun invoke-scheduled-events ()
-  (let ((time (get-internal-real-time)))
-    (loop
-      (unless *time-queue* (return))
-      (let* ((event (car *time-queue*))
-             (event-time (tq-event-time event)))
-        (cond ((>= time event-time)
-               (let ((*time-queue* nil))
-                 (funcall (tq-event-function event)
-                          (round (- time (tq-event-last-time event))
-                                 internal-time-units-per-second)))
-               (heml-ext:without-interrupts
-                (let ((interval (tq-event-interval event)))
-                  (when interval
-                    (setf (tq-event-time event) (+ time interval))
-                    (setf (tq-event-last-time event) time)
-                    (pop *time-queue*)
-                    (queue-time-event event)))))
-              (t (return)))))))
+  ;; Each event due is taken off the queue before it runs, and one that
+  ;; repeats put back for its next time: so a one-shot event runs once (it
+  ;; ran for ever, never taken off), and what an event schedules or removes,
+  ;; itself too, holds (the queue was bound to NIL while it ran, and that
+  ;; was lost).
+  (unless *invoking-scheduled-events*
+    (let ((*invoking-scheduled-events* t)
+          (time (get-internal-real-time)))
+      (loop
+        (let ((event (car *time-queue*)))
+          (unless (and event (>= time (tq-event-time event)))
+            (return))
+          (let ((elapsed (round (- time (tq-event-last-time event))
+                                internal-time-units-per-second))
+                (interval (tq-event-interval event)))
+            (heml-ext:without-interrupts
+              (pop *time-queue*)
+              (when interval
+                (setf (tq-event-time event) (+ time interval)
+                      (tq-event-last-time event) time)
+                (queue-time-event event)))
+            (funcall (tq-event-function event) elapsed)))))))
 
 (defun schedule-event (time function &optional (repeat t))
   "This causes function to be called after time seconds have passed,

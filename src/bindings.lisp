@@ -575,6 +575,11 @@
 (bind-key "Stop Buffer Subprocess" #k"hyper-z" :mode "Process")
 (bind-key "Quit Buffer Subprocess" #k"hyper-\\")
 (bind-key "Send EOF to Process" #k"hyper-d")
+;;; As in Emacs's shell buffers.
+(bind-key "Interrupt Buffer Subprocess" #k"control-c control-c" :mode "Process")
+(bind-key "Stop Buffer Subprocess" #k"control-c control-z" :mode "Process")
+(bind-key "Quit Buffer Subprocess" #k"control-c control-\\" :mode "Process")
+(bind-key "Send EOF to Process" #k"control-c control-d" :mode "Process")
 
 (bind-key "Previous Interactive Input" #k"meta-p" :mode "Process")
 (bind-key "Search Previous Interactive Input" #k"meta-P" :mode "Process")

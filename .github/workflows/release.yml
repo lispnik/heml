@@ -104,7 +104,7 @@ jobs:
       # --- dependencies --------------------------------------------------------
 
       - name: Install libfixposix and tmux
-        run: brew install libfixposix tmux
+        run: brew install libfixposix tmux libvterm
 
       - name: Install and configure ocicl
         run: |

@@ -537,6 +537,42 @@
       (setf heml::*lsp-watch-ticks* 10)
       (ignore-errors (uiop:delete-directory-tree directory :validate t)))))
 
+(defun terminal-checks ()
+  (note "a terminal")
+  (flet ((row-p (text)
+           (find text (map 'list #'heml.cocoa::row-text
+                           (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                 :test #'search)))
+    (extended-command "Term")
+    (check "M-x Term runs a shell in a terminal"
+           (wait-until (lambda () (row-p "bash-")) 20))
+    (post-text (format nil "printf '\\033[31mred\\033[0m \\033[38;5;208morange\\033[0m \\033[38;2;80;160;255mrgb\\033[0m \\033[1;4mbold\\033[0m\\n'~%"))
+    (check "what the program prints is shown, in its colours"
+           (wait-until (lambda () (row-p "red orange rgb bold")) 10))
+    (check "the terminal is as big as the window"
+           (progn (post-text (format nil "echo cols-$(tput cols)~%"))
+                  (wait-until (lambda () (and (row-p "cols-") (not (row-p "cols-80")))) 10)))
+    (shot "terminal")
+    (post-text (format nil "printf 'first\\nsecond\\n' | less~%"))
+    (check "less runs in it"
+           (wait-until (lambda () (row-p "(END)")) 10))
+    (shot "terminal-less")
+    (post-key #\q)
+    (post-text (format nil "sleep 100~%"))
+    (sleep 1)
+    (post-key #\c "Control") (post-key #\c "Control")
+    (post-text (format nil "echo int-$((3*3))~%"))
+    (check "C-c C-c interrupts what runs in it"
+           (wait-until (lambda () (row-p "int-9")) 10))
+    (post-text (format nil "exit~%"))
+    (check "and its end is shown"
+           (wait-until (lambda () (row-p "The program ended with code 0")) 10))
+    (post-key #\x "Control") (post-key #\k) (post (list :named "Return" '()))
+    (settle)
+    ;; Gone before the projects' checks, which count the windows.
+    (check "killing its buffer ends the terminal"
+           (wait-until (lambda () (not (hi::getstring "*terminal*" hi::*buffer-names*))) 10))))
+
 (defun git-checks ()
   (note "git")
   (let* ((repo (merge-pathnames "gitrepo/" *out*))
@@ -754,6 +790,8 @@
   ;; Nor any debugger the machine has: the stand-in, test/fake-dap.py, is
   ;; Python's for the run.
   (setf heml::*debug-adapters* '())
+  ;; A terminal's shell, without anyone's startup files.
+  (setf (hi:variable-value 'heml::term-program :global) "/bin/bash --norc --noprofile")
   (heml::define-debug-adapter
    "fake" :modes '("Python")
    :commands (list (list "python3" (namestring (merge-pathnames "test/fake-dap.py"
@@ -1513,6 +1551,7 @@ gamma
   (language-server-kind-checks)
   (debugger-checks)
   (git-checks)
+  (terminal-checks)
 
   (note "projects")
   (let ((root (merge-pathnames "proj/" *out*)))

@@ -5,3 +5,6 @@
 [submodule "vendor/jzon"]
 	path = vendor/jzon
 	url = https://github.com/Zulu-Inuoe/jzon.git
+[submodule "vendor/vterm"]
+	path = vendor/vterm
+	url = https://github.com/lispnik/vterm.git

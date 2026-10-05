@@ -439,6 +439,7 @@
    #:make-process-connection
    #:make-pipelike-connection
    #:make-process-with-pty-connection
+   #:connection-signal #:set-pty-size
    #:connection-exit-status
    #:connection-exit-code
    #:file-connection

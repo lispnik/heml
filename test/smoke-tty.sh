@@ -36,6 +36,7 @@ tmux new-session -d -s "$session" -x 100 -y 30 \
         --eval '(uiop:symbol-call :heml :define-language-server \"Pascal\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--refuse\") (list \"python3\" \"$PWD/test/fake-lsp.py\")) :language-id \"pascal\")' \
         --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \
         --eval '(setf (symbol-value (uiop:find-symbol* :*language-server-settings* :heml)) (list (list \"fake\" (cons \"greeting\" \"hello from settings\"))))' \
+        --eval '(eval (read-from-string \"(setf (hi:variable-value (quote heml::term-program) :global) \\\"/bin/bash --norc --noprofile\\\")\"))' \
         --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
@@ -851,6 +852,19 @@ sleep 1
 send C-v
 expect 'row-030' "C-v scrolls a page"
 
+# The shell's command is on a terminal that is its controlling terminal,
+# and C-c C-c sends SIGINT to it: were it not interrupted, the sleep would
+# hold the next command for a hundred seconds.
+send 'M->'
+type_text 'sleep 100'
+send Enter
+sleep 1
+send C-c C-c
+sleep 0.5
+type_text 'echo int-$((2*3))'
+send Enter
+expect 'int-6' "C-c C-c interrupts the shell's command" 10
+
 # Killing the shell's buffer closes its pty.  The event loop must forget
 # the descriptor first, or its next select(2) fails with EBADF.
 send C-x k
@@ -867,6 +881,67 @@ if screen | grep -q 'Bad file descriptor'; then
 else
     echo "  ok    and nothing complains of a bad file descriptor"
 fi
+
+# A terminal: bash on a pseudo-terminal of its own, its screen emulated by
+# libvterm.  What it prints, coloured; its size, the window's; a program on
+# the alternate screen; ^C, and ^Z with job control; a resized window; Term
+# Copy mode; and its end.
+send M-x
+sleep 0.5
+type_text 'Term'
+send Enter
+expect 'bash-' "M-x Term runs a shell in a terminal" 20
+type_text "printf '\\033[31mred\\033[0m plain\\n'"
+send Enter
+expect 'red plain' "what the program prints is shown"
+checks=$((checks + 1))
+if tmux capture-pane -p -e -t "$session" | grep -q "$(printf '\033')\\[31mred"; then
+    echo "  ok    in its colours"
+else
+    echo "  FAIL  in its colours"
+    tmux capture-pane -p -e -t "$session" | grep 'red plain' | cat -v | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
+type_text '[ $(tput cols) -gt 80 ] && echo wide-$(tput lines)'
+send Enter
+expect_re 'wide-2[0-9]' "the terminal is as big as the window"
+type_text "printf 'first\\nsecond\\n' | less"
+send Enter
+expect '(END)' "less runs in it"
+send q
+sleep 0.5
+type_text 'echo less-done'
+send Enter
+expect 'less-done' "and q leaves it"
+type_text 'sleep 100'
+send Enter
+sleep 1
+send C-c C-c
+sleep 0.5
+type_text 'echo int-$((3*3))'
+send Enter
+expect 'int-9' "C-c C-c interrupts what runs in it" 10
+type_text 'sleep 50'
+send Enter
+sleep 1
+send C-z
+expect 'Stopped' "C-z stops it: the shell has job control" 10
+type_text 'kill %1'
+send Enter
+send C-x 2
+sleep 1.5
+type_text 'echo rows-$(tput lines)'
+send Enter
+expect_re 'rows-1[0-9]' "a smaller window makes a smaller terminal" 10
+send C-x 1
+sleep 0.5
+send C-c C-j
+expect '(Term Copy)' "C-c C-j goes to Term Copy mode"
+send q
+expect '(Term)' "and q comes back"
+type_text 'exit'
+send Enter
+expect 'The program ended with code 0' "the program's end, and its code, are shown" 10
 
 send C-x C-c
 sleep 1

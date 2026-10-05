@@ -180,12 +180,110 @@
     (assert (every #'stringp command))
     (assert command)
     (setf (values pid read-fd write-fd)
-          (%fork-and-exec (car command) command directory slave-pty-name))
+          (%fork-and-exec (car command) command directory slave-pty-name
+                          (connection-environment instance)
+                          (connection-terminal instance)))
     (set-iolib-handlers instance)
     (note-connected instance)))
 
+;;;; Signals.  A process Heml starts is the leader of a session and of a
+;;;; process group of its own (setsid in %EXEC-IN-CHILD), and one on a
+;;;; terminal has it as its controlling terminal: the terminal's line
+;;;; discipline makes ^C, ^Z and ^\ typed to it SIGINT, SIGTSTP and SIGQUIT
+;;;; for the job in its foreground, and its size changing SIGWINCH.  Heml
+;;;; signals the same job itself (CONNECTION-SIGNAL), hangs up a terminal's
+;;;; processes when its connection goes (SIGHUP to the group, as closing a
+;;;; terminal does), and reaps each process that ends, keeping its exit
+;;;; code: nothing else waits for them, and they were left as zombies.
+
+(defun signal-number (signal)
+  (if (integerp signal)
+      signal
+      (ecase signal
+        (:sighup osicat-posix:sighup) (:sigint osicat-posix:sigint)
+        (:sigquit osicat-posix:sigquit) (:sigkill osicat-posix:sigkill)
+        (:sigterm osicat-posix:sigterm) (:sigstop osicat-posix:sigstop)
+        (:sigtstp osicat-posix:sigtstp) (:sigcont osicat-posix:sigcont)
+        (:sigwinch osicat-posix:sigwinch))))
+
+(defun signal-group (group signal)
+  "Send SIGNAL to the process group GROUP; whether it could be."
+  (zerop (cffi:foreign-funcall "killpg" :int group :int (signal-number signal) :int)))
+
+(defun signal-process (pid signal)
+  (zerop (cffi:foreign-funcall "kill" :int pid :int (signal-number signal) :int)))
+
+(defmethod connection-signal ((connection process-connection/iolib) signal)
+  (let ((pid (connection-pid connection)))
+    (when (and pid (not (connection-exit-code connection)))
+      (or (signal-group pid signal) (signal-process pid signal)))))
+
+(defun reap-process (connection)
+  "Wait for CONNECTION's process if it has ended, keeping its exit code (128
+   and the signal's number for one a signal ended, as a shell says) and the
+   signal that ended it, or 0; whether it had."
+  (or (connection-exit-code connection)
+      (let ((pid (connection-pid connection)))
+        (cffi:with-foreign-object (status :int)
+          (let ((result (cffi:foreign-funcall "waitpid" :int pid :pointer status
+                                                        :int osicat-posix::wnohang :int)))
+            (cond ((= result pid)
+                   (let* ((status (cffi:mem-ref status :int))
+                          (signal (logand status #x7f)))
+                     (if (zerop signal)
+                         (setf (connection-exit-code connection) (ldb (byte 8 8) status)
+                               (connection-exit-status connection) 0)
+                         (setf (connection-exit-code connection) (+ 128 signal)
+                               (connection-exit-status connection) signal)))
+                   t)
+                  ;; Not a child of ours any more: someone else waited.
+                  ((minusp result)
+                   (setf (connection-exit-code connection) -1
+                         (connection-exit-status connection) 0)
+                   t)
+                  (t nil)))))))
+
+(defvar *unreaped* '()
+  "(CONNECTION . DEADLINE) for each process ended or told to end, but not yet
+   reaped: one still there at its DEADLINE is killed.")
+
+(defun reap-processes (elapsed)
+  (declare (ignore elapsed))
+  (let ((now (get-internal-real-time)))
+    (setf *unreaped*
+          (remove-if (lambda (entry)
+                       (destructuring-bind (connection . deadline) entry
+                         (or (reap-process connection)
+                             (when (and deadline (> now deadline))
+                               (connection-signal connection :sigkill)
+                               (setf (cdr entry) nil)
+                               nil))))
+                     *unreaped*)))
+  (unless *unreaped*
+    (remove-scheduled-event 'reap-processes)))
+
+(defun reap-later (connection &optional kill-after)
+  "Reap CONNECTION's process when it has ended, killing it after KILL-AFTER
+   seconds if it has not."
+  (unless (or (reap-process connection) (assoc connection *unreaped*))
+    (unless *unreaped*
+      (schedule-event 0.5 'reap-processes))
+    (push (cons connection
+                (and kill-after
+                     (+ (get-internal-real-time)
+                        (* kill-after internal-time-units-per-second))))
+          *unreaped*)))
+
+(defmethod note-process-ended ((connection process-connection/iolib))
+  (reap-later connection))
+
 (defmethod delete-connection :before ((connection process-connection/iolib))
-  (isys:kill (connection-pid connection) 15))
+  (unless (reap-process connection)
+    ;; A terminal's processes are hung up, as closing a terminal does; a
+    ;; program on pipes, and what it started, are asked to end.
+    (connection-signal connection
+                       (if (connection-slave-pty-name connection) :sighup :sigterm))
+    (reap-later connection 3)))
 
 (defun invoke-without-interrupts (fun)
   (funcall fun))
@@ -195,21 +293,58 @@
 
 (defun %exec
        (stdin-read stdin-write stdout-read stdout-write file args directory
-                   slave-pty-name)
-  (maybe-without-interrupts
+                   slave-pty-name &optional environment terminal)
+  ;; No signal from outside is taken from here to exec, and nothing the
+  ;; Lisp had queued is handled: ECL's child took a SIGCHLD queued before the fork as an
+  ;; error, and sat in the debugger.
+  (block-child-signals)
+  (heml-ext:without-interrupts
    ;; This is a forked copy of a threaded Lisp: nothing may unwind or reach
    ;; the debugger here, or a second editor goes on running where the
    ;; program was to be, writing into the first's buffer.  Whatever fails --
    ;; a directory that will not do, a terminal setting -- ends the child.
    (handler-case
        (%exec-in-child stdin-read stdin-write stdout-read stdout-write file args directory
-                       slave-pty-name)
+                       slave-pty-name environment terminal)
      (serious-condition () nil))
    (cffi:foreign-funcall "_exit" :int 127 :void)))
 
+(defconstant +sig-setmask+ #+darwin 3 #-darwin 2)
+
+(defun child-signals ()
+  "The signals that come from outside -- not a trap or a fault, which the
+   Lisp itself uses (SBCL's allocation traps), and which may not be blocked."
+  (list osicat-posix:sighup osicat-posix:sigint osicat-posix:sigquit
+        osicat-posix:sigpipe osicat-posix:sigalrm osicat-posix:sigterm
+        osicat-posix:sigchld osicat-posix:sigtstp osicat-posix:sigttin
+        osicat-posix:sigttou osicat-posix:sigwinch osicat-posix:sigusr1
+        osicat-posix:sigusr2 osicat-posix:sigio osicat-posix:sigurg
+        osicat-posix:sigprof osicat-posix:sigvtalrm osicat-posix:sigxcpu))
+
+(defun block-child-signals ()
+  (cffi:with-foreign-object (set :uint8 128)
+    (cffi:foreign-funcall "sigemptyset" :pointer set :int)
+    (dolist (signal (child-signals))
+      (cffi:foreign-funcall "sigaddset" :pointer set :int signal :int))
+    (cffi:foreign-funcall "sigprocmask" :int +sig-setmask+ :pointer set
+                                        :pointer (cffi:null-pointer) :int)))
+
+(defun reset-child-signals ()
+  "Leave the program to be run its signals as a shell would: none blocked,
+   each to its default action.  A thread of the editor's Lisp may block
+   some, or have them ignored, and exec keeps both: a shell started so
+   never saw the SIGINT its terminal sent it for ^C."
+  (dolist (signal (child-signals))
+    (cffi:foreign-funcall "signal" :int signal :pointer (cffi:null-pointer) :pointer))
+  ;; sigset_t is 4 bytes on macOS and 128 on Linux: room for either.
+  (cffi:with-foreign-object (set :uint8 128)
+    (cffi:foreign-funcall "sigemptyset" :pointer set :int)
+    (cffi:foreign-funcall "sigprocmask" :int +sig-setmask+ :pointer set
+                                        :pointer (cffi:null-pointer) :int)))
+
 (defun %exec-in-child
        (stdin-read stdin-write stdout-read stdout-write file args directory
-                   slave-pty-name)
+                   slave-pty-name &optional environment terminal)
   (progn
    ;; A process without a terminal of its own is in a session of its own,
    ;; with none: nothing it starts -- a program a debugger runs, say -- can
@@ -234,9 +369,14 @@
          (isys:close fd)))
      (isys:close 0)
      (isys:open slave-pty-name isys:o-rdwr)
+     ;; Its controlling terminal: opening it after setsid makes it one on
+     ;; Linux but not on macOS, where without this the line discipline had
+     ;; no foreground job to send ^C's SIGINT to, and a shell no job control.
+     (ignore-errors (isys:ioctl 0 osicat-posix:tiocsctty))
      (isys:dup2 0 1)
      (isys:dup2 0 2)
-     (cffi:with-foreign-object (tios '(:struct osicat-posix::termios))
+     (unless terminal
+      (cffi:with-foreign-object (tios '(:struct osicat-posix::termios))
        (osicat-posix::tcgetattr 0 tios)
        (cffi:with-foreign-slots ((osicat-posix::iflag
                                   osicat-posix::oflag
@@ -259,9 +399,12 @@
                              :uint8
                              osicat-posix::cflag-verase)
                #o177)
-         (osicat-posix::tcsetattr 0 osicat-posix::tcsaflush tios))))
+         (osicat-posix::tcsetattr 0 osicat-posix::tcsaflush tios)))))
    (when directory
      (isys:chdir (if (pathnamep directory) (namestring directory) directory)))
+   (loop for (name . value) in environment
+         do (cffi:foreign-funcall "setenv" :string name :string value :int 1 :int))
+   (reset-child-signals)
    (let ((n (length args)))
      (cffi:with-foreign-object (argv :pointer (1+ n))
        (iter:iter (iter:for i from 0)
@@ -271,7 +414,7 @@
        (setf (cffi:mem-aref argv :pointer n) (cffi:null-pointer))
        (isys:execvp file argv)))))
 
-(defun %fork-and-exec (file args &optional directory slave-pty-name)
+(defun %fork-and-exec (file args &optional directory slave-pty-name environment terminal)
   (multiple-value-bind (stdin-read stdin-write)
       (isys:pipe)
     (multiple-value-bind (stdout-read stdout-write)
@@ -285,7 +428,9 @@
                     file
                     args
                     directory
-                    slave-pty-name))
+                    slave-pty-name
+                    environment
+                    terminal))
           (t
            (isys:close stdin-read)
            (isys:close stdout-write)
@@ -336,6 +481,23 @@
 (defclass process-with-pty-connection/iolib
     (process-with-pty-connection-mixin pipelike-connection/iolib)
   ())
+
+;;; Once nothing has the terminal's other side open, reading this side
+;;; fails with EIO on Linux, where macOS reads nothing: both are its end.
+(defmethod %read ((connection process-with-pty-connection/iolib))
+  (handler-case (call-next-method)
+    (isys:eio () :eof)))
+
+(defmethod connection-signal ((connection process-with-pty-connection/iolib) signal)
+  ;; The terminal's foreground job: a shell's command, or the shell.
+  (let ((group (cffi:foreign-funcall "tcgetpgrp" :int (connection-read-fd connection) :int)))
+    (if (plusp group)
+        (signal-group group signal)
+        (connection-signal (connection-process-connection connection) signal))))
+
+(defmethod note-process-ended ((connection process-with-pty-connection/iolib))
+  (reap-later (connection-process-connection connection)))
+
 
 
 ;;;;

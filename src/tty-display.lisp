@@ -257,6 +257,47 @@
 
 ;;; Font attribute support: color, bold.
 
+;;; A font's colour is one of Heml's palette -- 0 to 9 -- an index among
+;;; xterm's 256, or (RED GREEN BLUE), as a terminal emulated in a buffer
+;;; has.  Past the palette it is the terminal's own index when it has 256
+;;; colours, and the nearest of its eight when it has only those.
+
+(defun rgb-xterm-index (red green blue)
+  "The nearest of xterm's 256 colours to RED, GREEN and BLUE: in its cube, or
+   among its greys."
+  (flet ((level (value) (if (< value 48) 0 (if (< value 115) 1 (floor (- value 35) 40))))
+         (distance (r g b) (+ (expt (- r red) 2) (expt (- g green) 2) (expt (- b blue) 2))))
+    (let* ((levels #(0 95 135 175 215 255))
+           (r (level red)) (g (level green)) (b (level blue))
+           (cube (+ 16 (* 36 r) (* 6 g) b))
+           (grey-index (min 23 (max 0 (round (- (/ (+ red green blue) 3) 8) 10))))
+           (grey (+ 8 (* 10 grey-index))))
+      (if (< (distance grey grey grey)
+             (distance (svref levels r) (svref levels g) (svref levels b)))
+          (+ 232 grey-index)
+          cube))))
+
+(defun rgb-basic-index (red green blue)
+  "The nearest of a terminal's eight colours to RED, GREEN and BLUE."
+  (let ((bright (max red green blue)))
+    (if (< bright 64)
+        0
+        (+ (if (> red (/ bright 2)) 1 0) (if (> green (/ bright 2)) 2 0)
+           (if (> blue (/ bright 2)) 4 0)))))
+
+(defun tty-color (color)
+  "COLOR as the index the terminal is to be given, or NIL for its default."
+  (let ((colors (or heml.terminfo::max-colors 8)))
+    (cond ((null color) nil)
+          ((and (integerp color) (<= 0 color 9)) color)
+          ((integerp color)
+           (if (and (< color 256) (>= colors 256)) color nil))
+          ((and (consp color) (= (length color) 3))
+           (if (>= colors 256)
+               (apply #'rgb-xterm-index color)
+               (apply #'rgb-basic-index color)))
+          (t nil))))
+
 (defun setaf (color)
   (when heml.terminfo:set-a-foreground
     (tty-write-cmd
@@ -328,10 +369,10 @@
                                                 font)
                                                ((listp font)
                                                 (getf font :fg)))))
-                         (when (and foreground (<= 0 foreground 9))
-                           (setaf foreground)))
-                       (let ((background (and (listp font) (getf font :bg))))
-                         (when (and background (<= 0 background 9))
+                         (let ((index (tty-color foreground)))
+                           (when index (setaf index))))
+                       (let ((background (tty-color (and (listp font) (getf font :bg)))))
+                         (when background
                            (setab background)))
                        (let ((boldp (and (listp font) (getf font :bold))))
                          (when boldp

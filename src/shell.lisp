@@ -678,8 +678,15 @@
   (deliver-signal-to-process :sigkill process))
 
 (defun process-kill (process signal frob)
-  (declare (ignore process signal frob))
-  (warn "process-kill not implemented"))
+  "Send SIGNAL to PROCESS: with FROB :PTY-PROCESS-GROUP, to the job in its
+   terminal's foreground -- a shell's command -- and with :PROCESS-GROUP to
+   the process and what it started."
+  (unless (or (null process) (connection-exit-code process))
+    (connection-signal (if (and (eq frob :process-group)
+                                (typep process 'hi::process-with-pty-connection-mixin))
+                           (hi::connection-process-connection process)
+                           process)
+                       signal)))
 
 (defun deliver-signal-to-process (signal process)
   "Delivers a signal to a process."
@@ -691,10 +698,9 @@
   (declare (ignore p))
   (unless (heml-bound-p 'process-connection :buffer (current-buffer))
     (editor-error "Not in a process buffer."))
-  #+(or)
-  (let ((stream (ext:process-pty (value process-connection))))
-    (write-char (code-char 4) stream)
-    (force-output stream)))
+  ;; The terminal's end-of-file character, which its line discipline turns
+  ;; into an end of file for what reads it.
+  (connection-write (string (code-char 4)) (value process-connection)))
 
 (defcommand "Interrupt Buffer Subprocess" (p)
   "Stop the subprocess currently executing in this shell."
