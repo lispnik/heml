@@ -31,7 +31,13 @@
   (title nil)
   (exit-code nil)
   cell                                  ; a VTermScreenCell to read into
-  rgb)                                  ; a VTermColor to convert in
+  rgb                                   ; a VTermColor to convert in
+  (dirty nil)                           ; a bit for each row libvterm damaged, or T
+  (positions nil)                       ; each row's column positions, last read
+  (last-cursor nil))                    ; (ROW . COLUMN) at the last refresh
+
+(defvar *term-rows-skipped* 0
+  "Rows a refresh did not read, being as they were: for measuring.")
 
 (defvar *terms* (make-hash-table)
   "Each terminal by its number, which libvterm's callbacks are given.")
@@ -72,6 +78,39 @@
           (setf (aref octets i) (cffi:mem-aref bytes :uint8 i)))
         (connection-write octets (term-connection term))))))
 
+;;; What a write changed: libvterm's damage, a rectangle of rows and columns
+;;; given by value.  A VTermRect is four ints, start_row, end_row,
+;;; start_col and end_col, which on arm64 and x86-64 come in two 64-bit
+;;; registers: the rows in the first, the columns in the second.  Only the
+;;; rows matter -- each is read whole -- and they are marked to be read at
+;;; the next refresh.  Lines scrolled are damage too: with no moverect
+;;; callback, libvterm damages where they went.
+(cffi:defcallback term-damage :int ((rows :uint64) (columns :uint64) (user :pointer))
+  (declare (ignore columns))
+  (let ((term (user-term user)))
+    (when term
+      (mark-term-rows term (ldb (byte 32 0) rows) (ldb (byte 32 32) rows))))
+  1)
+
+(defun mark-term-rows (term start end)
+  "Mark rows START (inclusive) to END (exclusive) to be read again."
+  (let ((dirty (term-dirty term)))
+    (unless (eq dirty t)
+      (unless (and dirty (= (length dirty) (term-rows term)))
+        (setf dirty (make-array (term-rows term) :element-type 'bit :initial-element 0)
+              (term-dirty term) dirty))
+      (loop for row from (max 0 start) below (min end (term-rows term))
+            do (setf (sbit dirty row) 1)))))
+
+(defun mark-term-all (term)
+  "Have the next refresh read every row: after a resize, at the start."
+  (setf (term-dirty term) t))
+
+(defun row-dirty-p (term row)
+  (let ((dirty (term-dirty term)))
+    (or (eq dirty t)
+        (and dirty (< row (length dirty)) (= 1 (sbit dirty row))))))
+
 ;;; A line scrolling off the top of the screen, kept as scrollback.
 (cffi:defcallback term-pushline :int ((columns :int) (cells :pointer) (user :pointer))
   (let ((term (user-term user)))
@@ -109,6 +148,9 @@
         (dotimes (i 9)
           (setf (cffi:mem-aref callbacks :pointer i) (cffi:null-pointer)))
         (setf (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
+                                       'vterm::damage)
+              (cffi:callback term-damage)
+              (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
                                        'vterm::settermprop)
               (cffi:callback term-settermprop)
               (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
@@ -287,6 +329,8 @@
         ;; As many lines after it as the screen has rows.
         (let ((wanted (term-rows term))
               (have (count-lines (region (term-screen-mark term) (buffer-end-mark buffer)))))
+          (unless (= have wanted)
+            (mark-term-all term))
           (cond ((< have wanted)
                  (with-mark ((end (buffer-end-mark buffer) :left-inserting))
                    (dotimes (i (- wanted have)) (insert-character end #\Newline))))
@@ -296,22 +340,38 @@
                    (line-offset start (- wanted have))
                    (line-end start)
                    (delete-region (region start end))))))
-        ;; The screen.
+        ;; The screen: the rows libvterm damaged since the last refresh,
+        ;; and the cursor's rows, old and new, which a cursor moved without
+        ;; writing leaves undamaged (its row is long enough for it).
         (let ((line (screen-first-line term))
               (cursor-positions nil))
           (multiple-value-bind (cursor-row cursor-column) (term-cursor term)
+            (let ((old (term-last-cursor term)))
+              (unless (and old (= (car old) cursor-row) (= (cdr old) cursor-column))
+                (when old (mark-term-rows term (car old) (1+ (car old))))
+                (mark-term-rows term cursor-row (1+ cursor-row))
+                (setf (term-last-cursor term) (cons cursor-row cursor-column))))
+            (unless (and (term-positions term)
+                         (= (length (term-positions term)) (term-rows term)))
+              (setf (term-positions term) (make-array (term-rows term) :initial-element nil))
+              (mark-term-all term))
             (dotimes (row (term-rows term))
-              (multiple-value-bind (string fonts positions) (screen-row-text term row)
-                (when (= row cursor-row)
-                  (setf cursor-positions positions)
-                  ;; The line long enough for the cursor to be on it.
-                  (let ((at (aref positions (min cursor-column (term-columns term)))))
-                    (when (< (length string) at)
-                      (setf string (concatenate 'string string
-                                                (make-string (- at (length string))
-                                                             :initial-element #\Space))))))
-                (set-line-text line string fonts))
+              (if (row-dirty-p term row)
+                  (multiple-value-bind (string fonts positions) (screen-row-text term row)
+                    (setf (svref (term-positions term) row) positions)
+                    (when (= row cursor-row)
+                      ;; The line long enough for the cursor to be on it.
+                      (let ((at (aref positions (min cursor-column (term-columns term)))))
+                        (when (< (length string) at)
+                          (setf string (concatenate 'string string
+                                                    (make-string (- at (length string))
+                                                                 :initial-element #\Space))))))
+                    (set-line-text line string fonts))
+                  (incf *term-rows-skipped*))
+              (when (= row cursor-row)
+                (setf cursor-positions (svref (term-positions term) row)))
               (setf line (or (line-next line) line)))
+            (setf (term-dirty term) nil)
             ;; Point at the cursor, but in Term Copy mode, where it is read.
             (when (string= (buffer-major-mode buffer) "Term")
               (let ((cursor-line (screen-first-line term)))
@@ -375,6 +435,8 @@
       (setf (term-rows term) rows
             (term-columns term) columns)
       (vterm:vterm-set-size (term-vt term) rows columns)
+      (vterm:vterm-screen-flush-damage (term-screen term))
+      (mark-term-all term)
       (when (and (term-connection term) (not (term-exit-code term)))
         (set-pty-size (hi::connection-read-fd (term-connection term)) rows columns))
       (term-refresh term))))
@@ -442,6 +504,8 @@
       ;; A narrower terminal wraps its lines, and a wider one joins them
       ;; again, rather than cutting them off at the new width.
       (vterm:vterm-screen-enable-reflow screen 1)
+      ;; Damage merged a row at a time, and flushed after each write.
+      (vterm:vterm-screen-set-damage-merge screen vterm:+damage-row+)
       (vterm:vterm-screen-reset screen 1))
     (setf (term-connection term)
           (make-process-with-pty-connection
@@ -471,7 +535,8 @@
       (cffi:with-foreign-object (buffer :uint8 length)
         (dotimes (i length)
           (setf (cffi:mem-aref buffer :uint8 i) (aref bytes i)))
-        (vterm:vterm-input-write (term-vt term) buffer length)))
+        (vterm:vterm-input-write (term-vt term) buffer length)
+        (vterm:vterm-screen-flush-damage (term-screen term))))
     (term-note-output term)))
 
 (defun term-ended (term connection)
@@ -490,7 +555,8 @@
         (cffi:with-foreign-object (buffer :uint8 (length octets))
           (dotimes (i (length octets))
             (setf (cffi:mem-aref buffer :uint8 i) (aref octets i)))
-          (vterm:vterm-input-write (term-vt term) buffer (length octets))))
+          (vterm:vterm-input-write (term-vt term) buffer (length octets))
+          (vterm:vterm-screen-flush-damage (term-screen term))))
       (term-refresh term))))
 
 (defun term-buffer-deleted (buffer)
