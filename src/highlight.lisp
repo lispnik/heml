@@ -124,12 +124,19 @@
             (unless (line-offset mark 1 0) (return))
             (when (mark>= mark end) (return)))
           (unless (start-line-p end) (stash-a-mark end 0))))))
-  (setf *active-region-font-marks* (nreverse *active-region-font-marks*)))
+  (setf *active-region-font-marks* (nreverse *active-region-font-marks*))
+  (note-region-font-marks))
 
 (defun kill-active-region-font-marks ()
   (dolist (m *active-region-font-marks*)
     (delete-font-mark m))
-  (setf *active-region-font-marks* nil))
+  (setf *active-region-font-marks* nil)
+  (note-region-font-marks))
+
+;;; The line image draws these marks over the syntax colours (linimage.lisp).
+(defun note-region-font-marks ()
+  (setf hi::*region-font-marks* *active-region-font-marks*
+        hi::*region-font* *active-region-highlight-font*))
 
 ;;; CHECK-ACTIVE-REGION-FONT-MARKS returns t if the current region is the same
 ;;; as that what is highlighted on the screen.  This assumes
@@ -190,6 +197,7 @@
                             (list (font-mark (line-previous (mark-line mark))
                                              0
                                              *active-region-highlight-font*)))
+                      (note-region-font-marks)
                       (return t))
                     (return res)))
                 (let ((fmark (car marks)))

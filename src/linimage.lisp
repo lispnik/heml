@@ -379,6 +379,70 @@
 ;;; underhang, then this is 0.
 ;;;    3) The index in line after the last character displayed.
 ;;;
+;;; The active region is drawn with font marks too (highlight.lisp): one
+;;; in its font at its start on each of its lines, and one in font 0 at its
+;;; end.  A font mark's font holds until the next, so a syntax colour's mark
+;;; inside the region ended the region's font, and the highlighting drew
+;;; over the selection.  The region's marks are *REGION-FONT-MARKS*, and
+;;; each mark is drawn in MARK-DISPLAY-FONT: inside the region, its font
+;;; under the region's (whose keys win: its background over the token's
+;;; colour); a region mark, in the region's over the token font in effect
+;;; there, or at the region's end that token font alone.
+
+(defvar *region-font-marks* nil
+  "The font marks that draw the active region, set by highlight.lisp.")
+
+(defvar *region-font* nil
+  "The font the active region is drawn in.")
+
+(defun merge-region-font (font)
+  "FONT under the region's: a region font that is a number replaces it."
+  (let ((region *region-font*))
+    (if (integerp region)
+        region
+        (append region
+                (cond ((eql font 0) nil)
+                      ((integerp font) (list :fg font))
+                      (t font))))))
+
+(defun line-region-span (line)
+  "Where the active region starts and ends on LINE, as charpositions (the
+   end NIL when it goes on past the line), or NIL when it is not on LINE."
+  (when *region-font-marks*
+    (let ((start nil) (end nil))
+      (dolist (mark (line-marks line))
+        (when (and (fast-font-mark-p mark) (member mark *region-font-marks* :test #'eq))
+          (if (eql (font-mark-font mark) 0)
+              (setf end (mark-charpos mark))
+              (setf start (mark-charpos mark)))))
+      (when start (cons start end)))))
+
+(defun mark-display-font (mark line span)
+  "The font MARK, one of LINE's font marks, is drawn in, given SPAN, the
+   region's on LINE."
+  (if (null span)
+      (font-mark-font mark)
+      (flet ((token-font-at (charpos)
+               (let ((best nil) (font 0))
+                 (dolist (other (line-marks line) font)
+                   (when (and (fast-font-mark-p other)
+                              (not (member other *region-font-marks* :test #'eq))
+                              (<= (mark-charpos other) charpos)
+                              (or (null best) (>= (mark-charpos other) best)))
+                     (setf best (mark-charpos other)
+                           font (font-mark-font other))))))
+             (inside-p (charpos)
+               (and (<= (car span) charpos)
+                    (or (null (cdr span)) (< charpos (cdr span))))))
+        (let ((charpos (mark-charpos mark)))
+          (cond ((not (member mark *region-font-marks* :test #'eq))
+                 (if (inside-p charpos)
+                     (merge-region-font (font-mark-font mark))
+                     (font-mark-font mark)))
+                ((eql (font-mark-font mark) 0)
+                 (token-font-at charpos))
+                (t (merge-region-font (token-font-at charpos))))))))
+
 (defun compute-line-image (string underhang line offset dis-line width)
   ;;
   ;; Bring the line's syntax highlighting up to date, as its buffer's major
@@ -403,7 +467,8 @@
         (compute-inline-line-image string underhang line offset dis-line width inlines))))
   ;;
   ;; If the line has any Font-Marks, add Font-Changes for them.
-  (let ((marks (line-marks line)))
+  (let ((marks (line-marks line))
+        (span (line-region-span line)))
     (when (dolist (m marks nil)
             (when (fast-font-mark-p m) (return t)))
       (let ((prev nil))
@@ -418,7 +483,7 @@
                 (when (and (< charpos offset) (> charpos max))
                   (setq max charpos  max-mark m)))))
           (when max-mark
-            (setq prev (alloc-font-change 0 (font-mark-font max-mark) max-mark))
+            (setq prev (alloc-font-change 0 (mark-display-font max-mark line span) max-mark))
             (setf (dis-line-font-changes dis-line) prev)))
         ;;
         ;; Repeatedly scan through marks, adding a font-change for the
@@ -443,7 +508,7 @@
                              (if string
                                  (- (length (the simple-string string)) underhang)
                                  0))
-                          (font-mark-font min-mark)
+                          (mark-display-font min-mark line span)
                           min-mark)))
                 (if prev
                     (setf (font-change-next prev) new)
@@ -578,9 +643,10 @@
                                                  (line-marks line))
                                   #'< :key #'mark-charpos))
               (first nil)
-              (prev nil))
+              (prev nil)
+              (span (line-region-span line)))
           (flet ((add (x mark)
-                   (let ((new (alloc-font-change x (font-mark-font mark) mark)))
+                   (let ((new (alloc-font-change x (mark-display-font mark line span) mark)))
                      (if prev
                          (setf (font-change-next prev) new)
                          (setf (dis-line-font-changes dis-line) new))
