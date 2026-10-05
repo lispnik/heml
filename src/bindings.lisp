@@ -398,6 +398,7 @@
 (bind-key "Down List" #k"control-meta-d")
 (bind-key "Extract List" #k"control-meta-x")
 (bind-key "Lisp Insert )" #k")" :mode "Lisp")
+(bind-key "Lisp Return" #k"return" :mode "Lisp")
 (bind-key "Delete Previous Character Expanding Tabs" #k"backspace" :mode "Lisp")
 
 (bind-key "Evaluate Expression" #k"meta-escape")

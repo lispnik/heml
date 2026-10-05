@@ -1817,3 +1817,17 @@
    It must take one argument that is the prefix argument."
   :value 'indent-for-lisp
   :mode "Lisp")
+
+(defhvar "Lisp Indent on Return"
+  "When true, Return in Lisp mode starts a new line indented for the Lisp
+   it is in, as C-j does; when NIL, a new line at the left margin."
+  :mode "Lisp" :value t)
+
+(defcommand "Lisp Return" (p)
+  "Start a new line: indented for the Lisp it is in when \"Lisp Indent on
+   Return\" is true, as C-j does, and at the left margin when not.  With an
+   argument, that many."
+  "Start a new line, indented as \"Lisp Indent on Return\" says."
+  (if (value lisp-indent-on-return)
+      (indent-new-line-command p)
+      (new-line-command p)))

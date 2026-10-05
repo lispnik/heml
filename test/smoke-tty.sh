@@ -882,6 +882,40 @@ else
     echo "  ok    and nothing complains of a bad file descriptor"
 fi
 
+# Return in Lisp mode indents the new line, as "Lisp Indent on Return"
+# says, and not when it is NIL.
+mkdir -p build/smoke-tty-lisp
+rm -f build/smoke-tty-lisp/ret.lisp
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-lisp/ret.lisp"
+send Enter
+sleep 1
+type_text '(defun twice (x)'
+send Enter
+type_text '(* x 2))'
+expect_re '^  (\* x 2))' "Return in Lisp mode indents the new line"
+send M-x
+sleep 0.5
+type_text 'Set Variable'
+send Enter
+sleep 0.5
+type_text 'Lisp Indent on Return'
+send Enter
+sleep 0.5
+type_text 'nil'
+send Enter
+sleep 0.5
+send Enter
+type_text '(list'
+send Enter
+type_text 'margin)'
+expect_re '^margin)' "and with \"Lisp Indent on Return\" NIL, does not"
+send Enter
+send C-x C-s
+sleep 0.5
+
 # A terminal: bash on a pseudo-terminal of its own, its screen emulated by
 # libvterm.  What it prints, coloured; its size, the window's; a program on
 # the alternate screen; ^C, and ^Z with job control; a resized window; Term
