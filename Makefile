@@ -23,6 +23,11 @@ run-tty:
 smoke:
 	$(LISP) --load test/smoke.lisp
 
+# Heml as a guest in another program's application: START-HOSTED, the
+# host's delegate and menu bar kept, the window hidden rather than quit.
+smoke-hosted:
+	$(LISP) --load test/smoke-hosted.lisp
+
 # The TTY backend in a real terminal: tmux, driven with keys, its screen
 # checked.  Needs tmux.
 smoke-tty:

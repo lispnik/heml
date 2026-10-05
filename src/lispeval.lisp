@@ -745,13 +745,36 @@
       :buffer (current-buffer)
       :value (maybe-create-server))))
 
+;;; Evaluating elsewhere.  A program that hosts Heml (START-HOSTED, in
+;;; src/cocoa-main.lisp) may have evaluation be its own: a Lisp listener types
+;;; the text at its prompt, where the transcript records it and an error opens
+;;; its debugger.  When *EVALUATE-TEXT-FUNCTION* is set, the commands below
+;;; give it their text and the package at point, and do nothing else.
+;;;
+(defvar *evaluate-text-function* nil
+  "NIL, or a function of a string of Lisp text and the name of the package it
+is to be read in, which evaluates it somewhere of the host's choosing.")
+
+(defun host-evaluate (text)
+  "Give TEXT to *EVALUATE-TEXT-FUNCTION*, if there is one.  True if there was."
+  (when *evaluate-text-function*
+    (funcall *evaluate-text-function* text (package-at-point))
+    (message "Evaluating at the listener's prompt")
+    t))
+
+(defun host-evaluate-region (region)
+  (host-evaluate (region-to-string region)))
+
 (defcommand "Evaluate Defun" (p)
   "Evaluates the current or next top-level form.
    If the current region is active, then evaluate it."
   "Evaluates the current or next top-level form."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((host-evaluate-region (if (region-active-p)
+                                     (current-region)
+                                     (defun-region (current-point)))))
+          ((not info)
            (message "Evaluate Defun in the editor Lisp ...")
            (editor-evaluate-defun-command nil))
           ((region-active-p)
@@ -822,7 +845,10 @@
   "Prompt for an expression to evaluate."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((and *evaluate-text-function*
+                (host-evaluate (prompt-for-string :prompt "Eval: "
+                                                  :help "Expression to evaluate."))))
+          ((not info)
            (message "Evaluate Expression in the editor Lisp ...")
            (editor-evaluate-expression-command nil))
           (t
@@ -840,7 +866,10 @@
   "Evaluates the current or next top-level form."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((host-evaluate-region (if (region-active-p)
+                                     (current-region)
+                                     (defun-region (current-point)))))
+          ((not info)
            (message "Compiling in the editor Lisp ...")
            (editor-compile-defun-command nil))
           ((region-active-p)
@@ -853,7 +882,8 @@
   "Compiles lisp forms between the point and the mark."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((host-evaluate-region (current-region)))
+          ((not info)
            (message "Compiling in the editor Lisp ...")
            (editor-compile-region-command nil))
           (t
@@ -864,7 +894,8 @@
   "Evaluates lisp forms between the point and the mark."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((host-evaluate-region (current-region)))
+          ((not info)
            (message "Evaluating region in the editor Lisp ...")
            (editor-evaluate-region-command nil))
           (t
@@ -876,7 +907,8 @@
   the echo area.  The prefix argument is ignored."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((host-evaluate-region (buffer-region (current-buffer))))
+          ((not info)
            (message "Evaluating buffer in the editor Lisp ...")
            (editor-evaluate-buffer-command nil))
           (t
@@ -890,7 +922,14 @@
   "Prompt for a file to load into the current eval server."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((and *evaluate-text-function*
+                (host-evaluate
+                 (format nil "(load ~S)"
+                         (namestring
+                          (prompt-for-file :default (buffer-default-pathname (current-buffer))
+                                           :prompt "File to load: "
+                                           :help "The name of the file to load"))))))
+          ((not info)
            (message "Load File in the editor Lisp ...")
            (editor-load-file-command nil))
           (t
@@ -914,7 +953,13 @@
   "Prompts for file to compile."
   (declare (ignore p))
   (let ((info (value current-eval-server)))
-    (cond ((not info)
+    (cond ((and *evaluate-text-function*
+                (host-evaluate
+                 (format nil "(load (compile-file ~S))"
+                         (namestring
+                          (prompt-for-file :default (buffer-default-pathname (current-buffer))
+                                           :prompt "File to compile: "))))))
+          ((not info)
            (message "Compile File in the editor Lisp ...")
            (editor-compile-file-command nil))
           (t

@@ -120,6 +120,10 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
           ((eq (car item) :open)
            ;; As a file named on the command line is visited.
            (hi::process-command-line-argument (second item)))
+          ((eq (car item) :goto-line)
+           ;; A host showing where something is defined: the line, counted
+           ;; from one, as Goto Absolute Line counts.
+           (heml::goto-absolute-line-command (second item)))
           ((eq (car item) :mouse)
            (destructuring-bind (name modifiers column line) (rest item)
              (unless (drag-border name column line)

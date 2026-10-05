@@ -5,6 +5,10 @@
 (defpackage :heml.cocoa
   (:use :common-lisp)
   (:export #:main
+           ;; Heml as a guest in another program's application.
+           #:start-hosted
+           #:hosted-running-p
+           #:hosted-quit-ok-p
            #:*font-name*
            #:*font-size*
            #:*option-is-meta*

@@ -685,6 +685,7 @@
 ;;;  (:import-from :heml-internals #:*fast*)
   (:import-from :heml-internals #:heml)
   (:export #:heml
+           #:*evaluate-text-function*
            #:main
            #:with-editor
            #:call-with-editor

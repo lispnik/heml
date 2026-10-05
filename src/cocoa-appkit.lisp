@@ -22,6 +22,10 @@ types the characters the keyboard layout puts on it, dead keys included.")
   "Whether the right Option key is Meta too.  By default it is left to
 AppKit, so that one Option key is Meta and the other types characters.")
 
+(defvar *hosted* nil
+  "True while Heml is a guest in another program's NSApplication: see
+START-HOSTED in src/cocoa-main.lisp.")
+
 (defvar *activate* t
   "Whether showing the window makes Heml the active application.  The
 smoke test turns it off, so that a run does not take the keyboard from
@@ -1174,18 +1178,24 @@ that exists, ready to save."
 (objc:define-objc-method ("windowShouldClose:" objc:objc-bool)
     ((self window-delegate) (sender objc:objc-object-pointer))
   (declare (ignore sender))
-  ;; Heml decides: it may want to save files first.
-  (post-to-editor :quit)
+  (if *hosted*
+      ;; A guest's window is put away, not quit: the buffers live on, and the
+      ;; host shows it again when it is next asked for.
+      (hide-window)
+      ;; Heml decides: it may want to save files first.
+      (post-to-editor :quit))
   nil)
 
 (objc:define-objc-method ("windowDidBecomeKey:" :void)
     ((self window-delegate) (notification objc:objc-object-pointer))
   (declare (ignore notification))
+  (when *hosted* (use-hosted-menubar t))
   (request-redraw))
 
 (objc:define-objc-method ("windowDidResignKey:" :void)
     ((self window-delegate) (notification objc:objc-object-pointer))
   (declare (ignore notification))
+  (when *hosted* (use-hosted-menubar nil))
   (request-redraw))
 
 ;;; Files from Finder -- Open With, a drop on the Dock icon, `open -a`
@@ -1245,8 +1255,10 @@ that exists, ready to save."
           (cond ((eq action :services)
                  (let ((services (make-menu title)))
                    (objc:invoke item "setSubmenu:" services)
-                   (objc:invoke (objc.runloop:shared-application)
-                                "setServicesMenu:" services)))
+                   ;; The application's Services menu is its own host's.
+                   (unless *hosted*
+                     (objc:invoke (objc.runloop:shared-application)
+                                  "setServicesMenu:" services))))
                 ((eq (first action) :selector)
                  (objc:invoke item "setAction:" (objc:coerce-to-selector (second action))))
                 (t
@@ -1274,6 +1286,32 @@ that exists, ready to save."
   "The right-click menus the menu bar was last built with, as (MODE . ENTRIES).
 Main thread only.")
 
+(defvar *hosted-menubar* nil
+  "A guest's menu bar, retained, while the host's is the application's.")
+
+(defvar *host-menubar* nil
+  "The host's menu bar, retained, while a guest's has taken its place.")
+
+(defun heml-window-key-p ()
+  (and *display*
+       (objc:invoke-bool (display-window *display*) "isKeyWindow")))
+
+(defun use-hosted-menubar (heml-key-p)
+  "Make the menu bar Heml's while its window is key, and the host's otherwise.
+Main thread."
+  (let ((app (objc.runloop:shared-application)))
+    (cond ((and heml-key-p *hosted-menubar*)
+           (let ((current (objc:invoke app "mainMenu")))
+             (unless (or (null-pointer-p current)
+                         (cffi:pointer-eq current *hosted-menubar*))
+               (when *host-menubar* (objc:release *host-menubar*))
+               (setf *host-menubar* (objc:retain current))))
+           (objc:invoke app "setMainMenu:" *hosted-menubar*))
+          ((and (not heml-key-p) *host-menubar*)
+           (objc:invoke app "setMainMenu:" *host-menubar*)
+           (objc:release *host-menubar*)
+           (setf *host-menubar* nil)))))
+
 (defun rebuild-main-menu (menus context-menus)
   "Make the menu bar from MENUS, as HEML::COPY-MENUS gives them, and keep
 CONTEXT-MENUS for the right click.  Main thread."
@@ -1288,14 +1326,23 @@ CONTEXT-MENUS for the right click.  Main thread."
           (objc:invoke item "setTitle:" title)
           (objc:invoke item "setSubmenu:" menu)
           (objc:invoke menubar "addItem:" item)
-          (case role
-            (:windows (objc:invoke app "setWindowsMenu:" menu))
-            (:help (objc:invoke app "setHelpMenu:" menu)))
+          (unless *hosted*
+            (case role
+              (:windows (objc:invoke app "setWindowsMenu:" menu))
+              (:help (objc:invoke app "setHelpMenu:" menu))))
           (when mode
             ;; A mode's menu: hidden until its mode is current.
             (push (cons mode (objc:retain item)) *mode-menus*)
             (objc:invoke item "setHidden:" t)))))
-    (objc:invoke app "setMainMenu:" menubar)
+    (cond ((not *hosted*)
+           (objc:invoke app "setMainMenu:" menubar))
+          (t
+           ;; A guest's menu bar is the menu bar only while its window is key:
+           ;; kept here, and swapped in and out by the window's delegate.
+           (when *hosted-menubar* (objc:release *hosted-menubar*))
+           (setf *hosted-menubar* (objc:retain menubar))
+           (when (heml-window-key-p)
+             (objc:invoke app "setMainMenu:" menubar))))
     (show-mode-menus (and *screen* (screen-shown-mode *screen*)))
     (setf *context-menu-specs* context-menus
           *context-menu-objects* '())))
@@ -1419,9 +1466,13 @@ window and the screen.  Main thread only."
         (let ((app (objc.runloop:shared-application))
               (display (make-instance 'display)))
           (let ((app-delegate (make-instance 'app-delegate)))
+            ;; Made either way: it is the menu items' target.  It is the
+            ;; APPLICATION's delegate only when the application is Heml's.
             (setf (display-app-delegate display) app-delegate)
-            (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate)))
-          (use-icon-if-unbundled app)
+            (unless *hosted*
+              (objc:invoke app "setDelegate:" (objc:objc-object-pointer app-delegate))))
+          (unless *hosted*
+            (use-icon-if-unbundled app))
           (restore-font-choice)
           (install-fonts display)
           (make-window display)
