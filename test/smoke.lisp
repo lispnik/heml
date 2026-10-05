@@ -559,6 +559,12 @@
         (check "and the text keeps its colour"
                (eql (colour-of (run-font-at "\"Twice X.\"" 1)) colour))
         (shot "selection-over-colours")
+        (check "the modelines are drawn in the system's accent colour"
+               (let ((font (run-font-at "Heml CL-USER:" 0)))
+                 (and (consp font) (eq (getf font :bg) :accent)
+                      (equal (heml.cocoa::color-name-for :accent) "controlAccentColor")
+                      (equal (heml.cocoa::color-name-for :accent-text)
+                             "alternateSelectedControlTextColor"))))
         (post-key #\g "Control")
         (settle)
         (check "and with the selection gone, its colour alone"

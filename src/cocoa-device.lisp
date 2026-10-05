@@ -250,6 +250,10 @@ that, and should not also reach the editor as a key."
     (hi::bind-key "Mouse Point Unless In Region" (key "Rightdown"))
     (hi::bind-key "Do Nothing" (key "Rightup"))
     (hi::bind-key "Menu Command" (key "Menucommand")))
+  ;; The modelines and a popup's choice in the accent colour the user chose
+  ;; in System Settings, as the Mac's own selections are.
+  (setf hi::*modeline-font* '(:fg :accent-text :bg :accent :bold t)
+        heml::*popup-selected-font* '(:fg :accent-text :bg :accent :bold t))
   (setf heml::*active-region-highlight-font* '(:bg :selection)
         heml::*interprogram-cut-function*
         (lambda (text) (on-main-thread (write-pasteboard text)))

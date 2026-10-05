@@ -470,6 +470,10 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
         ;; What the Cocoa backend makes the active region's font, so that
         ;; a region looks like a selection anywhere else on the Mac.
         ((eq index :selection) "selectedTextBackgroundColor")
+        ;; The accent colour the user chose in System Settings, and the
+        ;; text macOS draws on it: the modelines' and a popup's choice.
+        ((eq index :accent) "controlAccentColor")
+        ((eq index :accent-text) "alternateSelectedControlTextColor")
         (t "textColor")))
 
 (defun palette-color (display index)
@@ -895,6 +899,13 @@ movement in points, a fraction of a line at a time.")
     ((self heml-view) (event objc:objc-object-pointer))
   (declare (ignore event))
   t)
+
+;;; The accent colour changed in System Settings: the colours are the
+;;; system's own, resolved as they are drawn, so drawing again shows it.
+(objc:define-objc-method ("hemlSystemColorsChanged:" :void)
+    ((self heml-view) (notification objc:objc-object-pointer))
+  (declare (ignore notification))
+  (objc:invoke (objc:objc-object-pointer self) "setNeedsDisplay:" t))
 
 (objc:define-objc-method ("hemlDrain" :void) ((self heml-view))
   (drain-main-thread-queue))
@@ -1433,6 +1444,10 @@ other modes'.  Main thread."
     (objc:invoke window "setTitle:" "Heml")
     (objc:invoke view "setFrame:" rect)
     (objc:invoke window "setContentView:" view)
+    (objc:invoke (objc:invoke "NSNotificationCenter" "defaultCenter")
+                 "addObserver:selector:name:object:"
+                 view (objc:coerce-to-selector "hemlSystemColorsChanged:")
+                 "NSSystemColorsDidChangeNotification" nil)
     (objc:invoke window "setDelegate:" (objc:objc-object-pointer delegate))
     (objc:invoke window "makeFirstResponder:" view)
     (objc:invoke window "center")
