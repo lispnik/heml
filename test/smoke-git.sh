@@ -126,6 +126,13 @@ expect_re '^-two' "Return shows the commit's diff" 10
 send C-x o
 send 'M-<'
 send n
+# Return on the hunk's @@ line visits its first line.
+send Enter
+sleep 1
+type_text '@@'
+expect_re '^.@@one' "Return on a hunk's @@ line visits its first line" 5
+send BSpace BSpace
+send C-x o
 press C-n 3
 send Enter
 sleep 1

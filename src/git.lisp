@@ -176,7 +176,12 @@
   "The file and line a line of a diff shows: for a line taken out, the line
    after it."
   (let ((count 0) (start nil))
-    (do ((l (line-previous line) (line-previous l)))
+    ;; On the hunk's own @@ line, its first line.
+    (multiple-value-bind (match groups)
+        (cl-ppcre:scan-to-strings *hunk-header-scanner* (line-string line))
+      (when match
+        (setf start (parse-integer (aref groups 0)))))
+    (do ((l (if start nil (line-previous line)) (line-previous l)))
         ((null l))
       (let ((string (line-string l)))
         (multiple-value-bind (match groups) (cl-ppcre:scan-to-strings *hunk-header-scanner* string)
@@ -444,7 +449,9 @@
           do (let ((field (pop fields)))
                (when (> (length field) 3)
                  (let ((x (char field 0)) (y (char field 1)) (file (subseq field 3)))
-                   (when (find x "RC") (pop fields))
+                   ;; A rename or copy, in either column, is followed by
+                   ;; the path it came from.
+                   (when (or (find x "RC") (find y "RC")) (pop fields))
                    (cond ((and (char= x #\?) (char= y #\?))
                           (push (list :untracked "" file) files))
                          ((or (char= x #\U) (char= y #\U)
@@ -1054,8 +1061,23 @@
               (setf (git-file-marks file) marks)
               (incf hi:*decoration-tick*)))))))
 
+(defvar *git-index-files* (make-hash-table :test 'equal)
+  "Each repository's index file: in a linked worktree or a submodule .git is
+   a file, and the index is elsewhere.")
+
+(defun git-index-file (root)
+  (let ((key (namestring root)))
+    (or (gethash key *git-index-files*)
+        (setf (gethash key *git-index-files*)
+              (let ((path (string-trim '(#\Newline)
+                                       (or (ignore-errors (git root "rev-parse" "--git-path" "index"))
+                                           ""))))
+                (if (plusp (length path))
+                    (merge-pathnames path root)
+                    (merge-pathnames ".git/index" root)))))))
+
 (defun git-index-changed-p (root)
-  (let* ((index (merge-pathnames ".git/index" root))
+  (let* ((index (git-index-file root))
          (date (and (probe-file index) (file-write-date index)))
          (key (namestring root)))
     (unless (eql date (gethash key *git-index-dates*))

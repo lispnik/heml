@@ -437,6 +437,9 @@
       (vterm:vterm-output-set-callback vt (cffi:callback term-output) (cffi:make-pointer id))
       (vterm:vterm-screen-set-callbacks screen (term-callbacks) (cffi:make-pointer id))
       (vterm:vterm-screen-enable-altscreen screen 1)
+      ;; A narrower terminal wraps its lines, and a wider one joins them
+      ;; again, rather than cutting them off at the new width.
+      (vterm:vterm-screen-enable-reflow screen 1)
       (vterm:vterm-screen-reset screen 1))
     (setf (term-connection term)
           (make-process-with-pty-connection
@@ -494,8 +497,10 @@
       (remhash (term-id term) *terms*)
       (let ((connection (term-connection term)))
         (setf (term-connection term) nil)
-        ;; Its processes are hung up, as closing a terminal window does.
-        (when (and connection (not (term-exit-code term)))
+        ;; Its processes are hung up, as closing a terminal window does,
+        ;; and its descriptor closed: after the program has ended too, or
+        ;; each terminal left a pseudo-terminal open.
+        (when connection
           (ignore-errors (delete-connection connection))))
       (when (term-vt term)
         (vterm:vterm-free (term-vt term))
@@ -609,8 +614,10 @@
               do (term key-event)
                  (unless (char= (code-char code) #\x)
                    (term (heml-ext:make-key-event key-event meta))))
-      ;; Control and a letter, but C-c and C-x, which are Heml's.
-      (loop for char across "abdefghijklmnopqrstuvwyz@[\\]^_ "
+      ;; Control and a letter, but C-c and C-x, which are Heml's, and C-g,
+      ;; which the editor takes as its abort before any key is looked up:
+      ;; C-c C-g sends it.
+      (loop for char across "abdefhijklmnopqrstuvwyz@[\\]^_ "
             for key-event = (heml-ext:char-key-event char)
             when key-event
               do (term (heml-ext:make-key-event key-event control))
@@ -631,6 +638,7 @@
   (bind-key "Term Send Key" #k"control-c control-x" :mode "Term")
   (bind-key "Term Send Key" #k"control-c control-z" :mode "Term")
   (bind-key "Term Send Key" #k"control-c control-d" :mode "Term")
+  (bind-key "Term Send Key" #k"control-c control-g" :mode "Term")
   (bind-key "Term Copy Mode" #k"control-c control-j" :mode "Term")
   ;; A terminal's ^J is Linefeed.
   (bind-key "Term Copy Mode" #k"control-c linefeed" :mode "Term")
