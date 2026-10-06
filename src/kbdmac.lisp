@@ -135,7 +135,6 @@
                         ,(heml-ext:key-event-char (aref *kbdmac-text* 0))))))))
 ;;;
 (define-kbdmac-transform "Self Insert" #'self-insert-kbdmac-transform)
-(define-kbdmac-transform "Lisp Insert )" #'self-insert-kbdmac-transform)
 
 ;;;; Do-Nothing transform:
 ;;;

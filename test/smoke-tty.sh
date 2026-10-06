@@ -925,6 +925,54 @@ send BSpace BSpace BSpace
 type_text 'Y'
 expect '(f Y)' "and an empty list is taken away whole"
 send C-e Enter
+# Structural editing, from sexp-edit, as the Lisp Listener has it: ( and "
+# put in pairs, ) steps over, Delete before a list goes into it, M-( wraps,
+# C-c ) slurps, and C-M-q indents by the shared rules.
+type_text '(car "a'
+expect '(car "a")' "( and \" put in their pairs"
+send C-e Enter
+type_text '(g (h))'
+send C-a C-d
+type_text 'Z'
+expect '(Zg (h))' "Delete before a matched paren moves inside the list"
+send C-e Enter
+type_text '(m n)'
+send C-b
+send 'M-('
+type_text 'w '
+expect '(w (m n))' "M-( wraps the form in a list"
+send C-e Enter
+type_text '(s) t'
+send C-a C-f C-f
+send C-c ')'
+expect '(s t)' "C-c ) slurps the next form into the list"
+send C-e Enter
+type_text '(defun f (x)'
+send Enter
+type_text '(flet ((g (y)'
+send Enter
+type_text '(* y 2)))'
+send Enter
+type_text '(loop for i in x'
+send Enter
+type_text 'collect (g i)'
+# Up to the defun: every line starts at the margin, so C-M-a would stop at
+# the first of them that starts with a parenthesis.
+send C-M-u C-M-u C-M-u C-M-q
+expect_re '^  (flet ((g (y)$' "C-M-q indents a form by sexp-edit's rules"
+expect_re '^           (\* y 2)))$' "a function FLET defines like a DEFUN"
+expect_re '^          collect (g i))))$' "and LOOP's clauses under the first"
+send C-M-e Enter
+# Every case of sexp-edit's corpus, through Heml's buffers: the same answers
+# the library gives on a string, and the Lisp Listener on a text view.
+send M-x
+sleep 0.5
+type_text 'Editor Evaluate Expression'
+send Enter
+sleep 0.5
+type_text '(progn (load (asdf:system-relative-pathname "sexp-edit" "tests/cases.lisp")) (heml::sexp-corpus-failures (symbol-value (find-symbol "*EDIT-CASES*" "SEXP-EDIT-TESTS"))))'
+send Enter
+expect 'cases, 0 failed' "Heml edits sexp-edit's corpus as the library does" 90
 send C-x C-s
 sleep 0.5
 
@@ -1043,7 +1091,24 @@ else
     failures=$((failures + 1))
 fi
 
+# Lisp mode's structural editing works here too: the pairs close
+# themselves, and Backspace after a list goes inside it.
 send C-a C-k
+ready
+type_text '(list (+ 1 2'
+send Enter
+expect_re '^(3)' "heml:repl closes the parentheses as they are typed"
+ready
+type_text '(+ 1 2)'
+send BSpace
+type_text ' 3'
+send Enter
+expect_re '^6$' "and Backspace after a list goes inside it"
+
+ready
+send C-a C-k
+# A parenthesis on its own: C-q puts in just the character.
+send C-q
 type_text '(defun'
 send Enter
 expect 'Not a complete form' "an unfinished form is not read"

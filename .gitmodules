@@ -8,3 +8,6 @@
 [submodule "vendor/vterm"]
 	path = vendor/vterm
 	url = https://github.com/lispnik/vterm.git
+[submodule "vendor/sexp-edit"]
+	path = vendor/sexp-edit
+	url = https://github.com/lispnik/sexp-edit.git

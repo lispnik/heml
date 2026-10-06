@@ -37,6 +37,14 @@
 (pushnew (merge-pathnames "vendor/conium/" *heml-base-directory*)
          asdf:*central-registry* :test #'equal)
 
+;;; vendor/sexp-edit is a submodule too: lispnik/sexp-edit, the structural
+;;; editing and indentation Lisp mode shares with the Lisp Listener.  Not when
+;;; one is already known: the Listener has the same submodule, and loads it
+;;; before heml when its application hosts the editor.
+(unless (asdf:registered-system "sexp-edit")
+  (pushnew (merge-pathnames "vendor/sexp-edit/" *heml-base-directory*)
+           asdf:*central-registry* :test #'equal))
+
 (defparameter *binary-pathname*
   (make-pathname :directory
                  (append (pathname-directory *heml-base-directory*)
@@ -52,6 +60,7 @@
      :depends-on (:alexandria
                   :bordeaux-threads
                   :conium
+                  :sexp-edit
                   :trivial-gray-streams
                   :iterate
                   :prepl
@@ -190,6 +199,7 @@
                (:file "text")
 
                (:file "lispmode")
+               (:file "lisp-sexp" :depends-on ("lispmode" "indent" "morecoms" "command"))
                (:file "ts-buf")
                (:file "ts-stream")
                (:file "request")

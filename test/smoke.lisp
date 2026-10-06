@@ -573,6 +573,45 @@
                                (not (and (consp font) (getf font :bg)))))
                            5)))))))
 
+(defvar *corpus-result* nil)
+
+(defun lisp-edit-checks ()
+  (note "structural editing in Lisp mode, from sexp-edit")
+  (let ((file (merge-pathnames "sexp.lisp" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede))
+    (post (list :open (namestring file)))
+    (settle)
+    (post-text "(setq foo \"bar")
+    (settle)
+    (check "( and \" put in their pairs in Lisp mode"
+           (wait-until (lambda () (search "(setq foo \"bar\")" (buffer-text))) 5))
+    (post-key #\e "Control")
+    (post (list :named "Backspace" '()))
+    (post-text "X")
+    (settle)
+    (check "Backspace after a closing paren moves inside the list"
+           (wait-until (lambda () (search "(setq foo \"bar\"X)" (buffer-text))) 5))
+    (post-key #\e "Control")
+    (post-text (format nil "~%(list (a) b)"))
+    (post-key #\b "Control") (post-key #\b "Control") (post-key #\b "Control")
+    (post-key #\b "Control")
+    (post-key #\) "Control")
+    (settle)
+    (check "C-) slurps the next form into the list"
+           (wait-until (lambda () (search "(list (a b))" (buffer-text))) 5))
+    ;; Every case of sexp-edit's corpus, through Heml's buffers.
+    (setf *corpus-result* nil)
+    (extended-command "Editor Evaluate Expression")
+    (settle)
+    (post-text "(setf heml-smoke::*corpus-result* (progn (load (asdf:system-relative-pathname \"sexp-edit\" \"tests/cases.lisp\")) (heml::sexp-corpus-failures (symbol-value (find-symbol \"*EDIT-CASES*\" \"SEXP-EDIT-TESTS\")))))")
+    (post-text (string #\Newline))
+    (check "Heml edits sexp-edit's corpus as the library does"
+           (and (wait-until (lambda () *corpus-result*) 60)
+                (search "cases, 0 failed" *corpus-result*)))
+    (unless (and *corpus-result* (search "cases, 0 failed" *corpus-result*))
+      (note "~A" *corpus-result*))
+    (setf (hi::buffer-modified (hi::current-buffer)) nil)))
+
 (defun terminal-checks ()
   (note "a terminal")
   (flet ((row-p (text)
@@ -1588,6 +1627,7 @@ gamma
   (debugger-checks)
   (git-checks)
   (selection-checks)
+  (lisp-edit-checks)
   (terminal-checks)
 
   (note "projects")

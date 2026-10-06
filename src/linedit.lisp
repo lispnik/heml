@@ -260,7 +260,9 @@
       (progn
         (heml::save-all-files-command nil)
         (throw 'linedit-eof nil))
-      (heml::delete-next-character-command p)))
+      (if (find "Lisp" (buffer-modes (current-buffer)) :test #'string=)
+          (heml::lisp-delete-next-character-command p)
+          (heml::delete-next-character-command p))))
 
 (defcommand "Linedit Clear Screen" (p) "" ""
   (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen)))

@@ -35,7 +35,10 @@
 ;;;
 (defmethod listen-editor-input ((stream tty-editor-input))
   (process-editor-tty-input)
-  nil)
+  ;; Whether a key is waiting.  It said NIL always, so a key that arrived
+  ;; while the screen was drawn (heml:repl's redisplay dispatches events) sat
+  ;; in the queue while the input loop waited on the terminal for another.
+  (not (null (input-event-next (editor-input-head stream)))))
 
 (defvar *tty-translations* (make-hash-table :test #'equal))
 

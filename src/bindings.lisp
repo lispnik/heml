@@ -397,9 +397,29 @@
 (bind-key "Forward Up List" #k"control-meta-)")
 (bind-key "Down List" #k"control-meta-d")
 (bind-key "Extract List" #k"control-meta-x")
-(bind-key "Lisp Insert )" #k")" :mode "Lisp")
 (bind-key "Lisp Return" #k"return" :mode "Lisp")
+;;; Structural editing, from sexp-edit (lisp-sexp.lisp), as the Lisp
+;;; Listener has it.  Heml's own keys stay where the Listener's clash: C-k is
+;;; "Kill Line" and C-M-k "Forward Kill Form", M-s and M-r search, so
+;;; splicing and raising are C-c M-s and C-c M-r.  C-) and the like cannot be
+;;; typed in a terminal, so each also has a C-c key.
+(bind-key "Lisp Insert (" #k"(" :mode "Lisp")
+(bind-key "Lisp Insert )" #k")" :mode "Lisp")
+(bind-key "Lisp Insert \"" #k"\"" :mode "Lisp")
 (bind-key "Lisp Delete Previous Character" #k"backspace" :mode "Lisp")
+(bind-key "Lisp Delete Next Character" #k"delete" :mode "Lisp")
+(bind-key "Lisp Delete Next Character" #k"control-d" :mode "Lisp")
+(bind-key "Wrap Form" #k"meta-(" :mode "Lisp")
+(bind-key "Splice Form" #k"control-c meta-s" :mode "Lisp")
+(bind-key "Raise Form" #k"control-c meta-r" :mode "Lisp")
+(bind-key "Slurp Forward" #k"control-)" :mode "Lisp")
+(bind-key "Slurp Forward" #k"control-c )" :mode "Lisp")
+(bind-key "Barf Forward" #k"control-}" :mode "Lisp")
+(bind-key "Barf Forward" #k"control-c }" :mode "Lisp")
+(bind-key "Slurp Backward" #k"control-(" :mode "Lisp")
+(bind-key "Slurp Backward" #k"control-c (" :mode "Lisp")
+(bind-key "Barf Backward" #k"control-{" :mode "Lisp")
+(bind-key "Barf Backward" #k"control-c {" :mode "Lisp")
 
 (bind-key "Evaluate Expression" #k"meta-escape")
 (bind-key "Evaluate Defun" #k"control-x control-e")
