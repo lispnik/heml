@@ -150,13 +150,18 @@ this quit, and the person quits again once Heml has finished."
   "The entry point of the application bundle: the editor, Cocoa unless the
 command line asks for another, and the process ends when it does.
 
-Launched by Finder, the process has no terminal, starts in /, and its
-output goes to the log asdf-macos-app opens.  Run from a shell, through
-the bin/heml launcher, its output goes to the terminal, and files named
-on the command line are found from the shell's directory."
+Launched by Finder or the Dock -- by launchd -- the process has no
+terminal, starts in /, and its output goes to the log asdf-macos-app
+opens; it goes to the home directory instead, so that a prompt for a file,
+a shell and a terminal start there.  Run from a shell, through the bin/heml
+launcher, its output goes to the terminal, and files named on the command
+line are found from the shell's directory."
   (let ((cwd (uiop:getcwd)))
-    (unless (equal (uiop:native-namestring cwd) "/")
-      (setf *default-pathname-defaults* cwd)))
+    (if (equal (uiop:native-namestring cwd) "/")
+        (let ((home (user-homedir-pathname)))
+          (ignore-errors (uiop:chdir home))
+          (setf *default-pathname-defaults* home))
+        (setf *default-pathname-defaults* cwd)))
   ;; A slave is this image again, started as the launcher starts it.
   (setf heml::*slave-command*
         (list (uiop:native-namestring sb-ext:*runtime-pathname*)
