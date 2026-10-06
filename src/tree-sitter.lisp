@@ -281,7 +281,8 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
                      (highlight-line language line))
                     (fallback
                      (heml-interface:define-mode-highlighter mode fallback)
-                     (funcall fallback line))))))
+                     (funcall fallback line))))
+       :marks 'tree-sitter))
     language))
 
 (defun language-ready-p (language)
@@ -350,7 +351,7 @@ with spaces.  DEFINITIONS are the types of the nodes -- functions, classes
 
 (defparameter *capture-fonts*
   '(("comment" . 1)
-    ("string.special" . 5) ("string" . 4) ("character" . 4)
+    ("string.escape" . 6) ("string.special" . 5) ("string" . 4) ("character" . 4)
     ("escape" . 6) ("embedded" . 6)
     ("number" . 3) ("float" . 3) ("boolean" . 3) ("constant" . 3)
     ("keyword" . 5) ("conditional" . 5) ("repeat" . 5) ("include" . 5)
@@ -397,6 +398,15 @@ coloured.")
 
 (defvar *parses* (make-hash-table :test 'eq :weakness :key)
   "Buffer to its latest parse.")
+
+(defun forget-parse (buffer)
+  "Free BUFFER's parse, which is foreign memory: a killed buffer's was kept."
+  (let ((parse (gethash buffer *parses*)))
+    (when parse
+      (free-parse parse)
+      (remhash buffer *parses*))))
+
+(heml-interface:add-hook heml::delete-buffer-hook 'forget-parse)
 
 (defvar *parser* nil)
 
@@ -841,6 +851,18 @@ become their regular-expression equivalents."
         when (= index (u32 capture +node-size+))
           collect (ts "ts_node_type" :string (:node capture))))
 
+(defvar *predicate-scanners* (make-hash-table :test 'equal)
+  "A #match? or #lua-match? pattern to its scanner, made once: making it
+again for each capture was most of the time a line took.")
+
+(defun predicate-scanner (name pattern)
+  (let ((key (cons name pattern)))
+    (or (gethash key *predicate-scanners*)
+        (setf (gethash key *predicate-scanners*)
+              (ppcre:create-scanner (if (string= name "lua-match?")
+                                        (lua-pattern-regex pattern)
+                                        pattern))))))
+
 (defun predicates-hold-p (language parse pattern captures count
                           &optional (predicates (language-predicates language)))
   (every (lambda (predicate)
@@ -858,10 +880,8 @@ become their regular-expression equivalents."
                            (let ((other (texts (second arguments))))
                              (every (lambda (text) (member text other :test #'string=)) subject)))
                           ((or (string= name "match?") (string= name "lua-match?"))
-                           (let ((regex (if (string= name "lua-match?")
-                                            (lua-pattern-regex (second arguments))
-                                            (second arguments))))
-                             (every (lambda (text) (ppcre:scan regex text)) subject)))
+                           (let ((scanner (predicate-scanner name (second arguments))))
+                             (every (lambda (text) (ppcre:scan scanner text)) subject)))
                           ((string= name "any-of?")
                            (every (lambda (text) (member text (rest arguments) :test #'string=))
                                   subject))

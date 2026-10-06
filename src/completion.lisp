@@ -776,8 +776,8 @@
                   (loop for (position . font) in (completion-line-fonts line)
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Completelist" 'completion-highlight-line)
-(define-mode-highlighter "Fuzzylist" 'completion-highlight-line)
+(define-mode-highlighter "Completelist" 'completion-highlight-line :marks 'completion-marks)
+(define-mode-highlighter "Fuzzylist" 'completion-highlight-line :marks 'completion-marks)
 
 (defun make-completelist-buffer (entries)
   (let ((buf (or *completelist-buffer*

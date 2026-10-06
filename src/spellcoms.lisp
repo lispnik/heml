@@ -903,4 +903,4 @@
                            collect (font-mark line start *misspelled-font*)
                            collect (font-mark line end 0)))))))))
 
-(define-mode-highlighter "Text" 'text-highlight-line)
+(define-mode-highlighter "Text" 'text-highlight-line :marks 'text-marks)

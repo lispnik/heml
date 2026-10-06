@@ -167,7 +167,7 @@
   :documentation "A diff: Return on a line visits the place in the file it
    shows, n and p go to the next and previous hunk, q buries it.")
 
-(define-mode-highlighter "Diff" 'diff-highlight-line)
+(define-mode-highlighter "Diff" 'diff-highlight-line :marks 'git-marks)
 
 (defparameter *hunk-header-scanner*
   (cl-ppcre:create-scanner "^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,(\\d+))? @@"))
@@ -269,7 +269,7 @@
   :documentation "Commits, the latest first: Return shows one, q buries
    the list.")
 
-(define-mode-highlighter "Git Log" 'git-highlight-line)
+(define-mode-highlighter "Git Log" 'git-highlight-line :marks 'git-marks)
 
 (defparameter *git-log-limit* 500
   "How many commits a log shows.")
@@ -322,7 +322,7 @@
   :documentation "A file's lines, each with the commit that last changed
    it: Return shows the commit, q buries the list.")
 
-(define-mode-highlighter "Git Blame" 'git-highlight-line)
+(define-mode-highlighter "Git Blame" 'git-highlight-line :marks 'git-marks)
 
 (defconstant +unix-epoch+ (encode-universal-time 0 0 0 1 1 1970 0))
 
@@ -425,7 +425,7 @@
    file's hunks; c commits (with an argument, amends); Return visits; d
    shows a diff; l the log; g makes the list again; P pushes, F pulls.")
 
-(define-mode-highlighter "Git Status" 'git-highlight-line)
+(define-mode-highlighter "Git Status" 'git-highlight-line :marks 'git-marks)
 
 (defvar *git-expanded* (make-hash-table :test 'equal)
   "(ROOT SECTION FILE) to T for each file whose hunks the status shows.")
@@ -859,7 +859,7 @@
                 (t '())))
     (git-highlight-line line)))
 
-(define-mode-highlighter "Git Commit" 'git-commit-highlight-line)
+(define-mode-highlighter "Git Commit" 'git-commit-highlight-line :marks 'git-marks)
 
 (defun open-commit-buffer (root amend)
   (let* ((staged (git-ok root "diff" "--cached" "--stat"))

@@ -97,6 +97,8 @@
 (defun %init-redisplay (backend-type display)
   (%init-screen-manager backend-type display)
   (add-hook heml::buffer-major-mode-hook 'queue-buffer-change)
+  ;; A buffer that changes mode is coloured again by the new one's.
+  (add-hook heml::buffer-major-mode-hook 'forget-highlighting)
   (add-hook heml::buffer-minor-mode-hook 'queue-buffer-change)
   (add-hook heml::buffer-name-hook 'queue-buffer-change)
   (add-hook heml::buffer-pathname-hook 'queue-buffer-change)

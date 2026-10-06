@@ -108,7 +108,7 @@
                   (loop for (position . font) in (xref-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Xref" 'xref-highlight-line)
+(define-mode-highlighter "Xref" 'xref-highlight-line :marks 'xref-marks)
 
 (defun make-xref-buffer (entries &optional title)
   (let ((buf (make-result-buffer "*Xref*" "Xref" 'plist-line-location)))

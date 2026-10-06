@@ -169,7 +169,7 @@
                   (loop for (position . font) in (slave-list-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Slave-List" 'slave-list-highlight-line)
+(define-mode-highlighter "Slave-List" 'slave-list-highlight-line :marks 'slave-list-marks)
 
 (defcommand "List Slaves" (p)
   "" ""

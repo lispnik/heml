@@ -625,4 +625,4 @@ then the others under no heading."
                   (loop for (position . font) in (bufed-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Bufed" 'bufed-highlight-line)
+(define-mode-highlighter "Bufed" 'bufed-highlight-line :marks 'bufed-marks)

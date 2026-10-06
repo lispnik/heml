@@ -156,7 +156,7 @@
                   (loop for (position . font) in (debug-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Debug" 'debug-highlight-line)
+(define-mode-highlighter "Debug" 'debug-highlight-line :marks 'debug-marks)
 
 (defvar *debug-context* nil)
 

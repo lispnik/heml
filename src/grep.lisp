@@ -208,9 +208,9 @@
                           in (grep-line-fonts (line-buffer line) (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Grep" 'grep-highlight-line)
-(define-mode-highlighter "Compilation" 'grep-highlight-line)
-(define-mode-highlighter "Wgrep" 'grep-highlight-line)
+(define-mode-highlighter "Grep" 'grep-highlight-line :marks 'grep-marks)
+(define-mode-highlighter "Compilation" 'grep-highlight-line :marks 'grep-marks)
+(define-mode-highlighter "Wgrep" 'grep-highlight-line :marks 'grep-marks)
 
 
 ;;;; Running the command.

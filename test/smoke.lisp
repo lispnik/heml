@@ -573,6 +573,42 @@
                                (not (and (consp font) (getf font :bg)))))
                            5)))))))
 
+(defun highlight-checks ()
+  (note "highlighting: a mode change, and a selection")
+  (let ((file (merge-pathnames "colours.c" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out "int x = 1; /* see http://example.com/c */~%"))
+    (post (list :open (namestring file)))
+    (settle)
+    (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-c.dylib")
+      (check "a C comment is coloured"
+             (wait-until (lambda () (eql 1 (run-font-at "/* see" 0))) 10))
+      (extended-command "Fundamental Mode")
+      (settle)
+      (check "and in Fundamental mode, after a mode change, it is not"
+             (wait-until (lambda () (member (run-font-at "/* see" 0) '(nil 0))) 5))
+      (check "but its link still is"
+             (let ((font (run-font-at "http://example.com/c" 0)))
+               (and (consp font) (getf font :link))))
+      (setf (hi::buffer-modified (hi::current-buffer)) nil)))
+  ;; Lines first drawn while selected keep their links once it is gone.
+  (let ((file (merge-pathnames "selected-links.dat" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (dotimes (i 120) (format out "line ~D~%" i))
+      (format out "the last https://example.com/last here~%"))
+    (post (list :open (namestring file)))
+    (settle)
+    (post-key #\x "Control") (post-key #\h)
+    (post-key #\> "Meta")
+    (settle)
+    (post-key #\g "Control")
+    (settle)
+    (check "a line drawn while selected shows its link once the selection goes"
+           (wait-until (lambda ()
+                         (let ((font (run-font-at "https://example.com/last" 0)))
+                           (and (consp font) (getf font :link))))
+                       5))))
+
 (defvar *corpus-result* nil)
 
 (defun lisp-edit-checks ()
@@ -1026,7 +1062,7 @@ café λ 日本語 end")
       (check "Markdown's emphasis is italic and its strong emphasis bold"
              (and (getf (run-font-at "*slanted*" 1) :italic)
                   (getf (run-font-at "**heavy**" 2) :bold)))))
-  (let ((file (merge-pathnames "links.txt" *out*))
+  (let ((file (merge-pathnames "links.dat" *out*))
         (target (merge-pathnames "linked.txt" *out*)))
     (with-open-file (out target :direction :output :if-exists :supersede)
       (write-line "the linked file" out))
@@ -1628,6 +1664,7 @@ gamma
   (git-checks)
   (selection-checks)
   (lisp-edit-checks)
+  (highlight-checks)
   (terminal-checks)
 
   (note "projects")

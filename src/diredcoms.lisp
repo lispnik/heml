@@ -1083,7 +1083,7 @@ is the size of what the top directory holds."
                   (loop for (position . font) in (dired-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Dired" 'dired-highlight-line)
+(define-mode-highlighter "Dired" 'dired-highlight-line :marks 'dired-marks)
 
 
 
@@ -1480,7 +1480,7 @@ is the size of what the top directory holds."
   :documentation "Editing the names in a Dired listing: C-c C-c renames the
    files whose names were changed; C-c C-k goes back to Dired as it was.")
 
-(define-mode-highlighter "Wdired" 'dired-highlight-line)
+(define-mode-highlighter "Wdired" 'dired-highlight-line :marks 'dired-marks)
 
 (defun dired-line-name (string)
   "The name a Dired line shows, or NIL when it is not a file line."

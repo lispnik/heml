@@ -190,7 +190,8 @@
         ((char= ch #\") (call string))
         ((char= ch #\#) (call hash))
         ((char= ch #\:) (call keyword))
-        ((or (alphanumericp ch) (find ch "-+*/"))
+        ;; |a "b"| and a\"b are symbols, not the start of a string.
+        ((or (alphanumericp ch) (find ch "-+*/|\\"))
          (call atom))
         (t
          ;; hmm
@@ -229,8 +230,7 @@
 
 (defstate keyword ()
   (consume)                             ;consume :
-  (while (or (alphanumericp ch) (find ch "-+*/"))
-    (consume)))
+  (call atom))
 
 (defstate char-const ()
   (consume)                             ;\\
@@ -252,8 +252,34 @@
            (consume)))))
 
 (defstate atom ()
-  (while (or (alphanumericp ch) (find ch "-+*/"))
-    (consume)))
+  loop
+  (cond ((or (alphanumericp ch) (find ch "-+*/"))
+         (consume)
+         (go loop))
+        ((char= ch #\\)                 ;an escaped character
+         (consume)
+         (consume)
+         (go loop))
+        ((char= ch #\|)
+         (call pipe-symbol)
+         (go loop))
+        (t
+         (return))))
+
+;;; |...|, in which anything but \ and | is a character of the name.
+(defstate pipe-symbol ()
+  (consume)                             ;consume |
+  loop
+  (cond ((char= ch #\\)
+         (consume)
+         (consume)
+         (go loop))
+        ((char= ch #\|)
+         (consume)
+         (return))
+        (t
+         (consume)
+         (go loop))))
 
 (defstate list ()
   (consume)                             ;consume open-paren
@@ -277,15 +303,17 @@
 
 (defstate hash-plus ()
   (consume)                             ;#\+
-  (call sexp)                                ;cond
-  (call sexp)                                ;form
-  )
+  (call feature)
+  (call sexp))                          ;the form, coloured as any other
 
 (defstate hash-minus ()
   (consume)                             ;#\-
-  (call sexp)                                ;cond
-  (call sexp)                                ;form
-  )
+  (call feature)
+  (call sexp))
+
+;;; The feature expression of #+ or #-, which alone is coloured as one.
+(defstate feature ()
+  (call sexp))
 
 ;; --------------------
 
@@ -388,35 +416,70 @@ a buffer in another mode must not be coloured as Lisp on that account."
                         (push (hi::font-mark line p font) font-marks)
                         (setf last-font font)))))
              (setf state (step** state #\newline))
-             ;; hack
-             (let ((s (line-string line)) p1 p2)
-               (when (and (eql 0 (search "(def" s))
-                          (setf p1 (position #\space s))
-                          (setf p2 (position #\space s :start (1+ p1))))
-                 (push (hi::font-mark line (1+ p1) 5) font-marks)
-                 (push (hi::font-mark line p2 0) font-marks)))
+             ;; The name a top-level definition defines.
+             (multiple-value-bind (start end) (definition-name-bounds line prev-to)
+               (when start
+                 (push (hi::font-mark line start 5) font-marks)
+                 (push (hi::font-mark line end 0) font-marks)))
              (make-syntax-info (line-signature line)
                                prev-to
                                state
                                font-marks) )))))
 
+(defparameter *definers*
+  '("DEFUN" "DEFMACRO" "DEFVAR" "DEFPARAMETER" "DEFCONSTANT" "DEFGENERIC"
+    "DEFMETHOD" "DEFCLASS" "DEFSTRUCT" "DEFTYPE" "DEFPACKAGE" "DEFSETF"
+    "DEFINE-CONDITION" "DEFINE-COMPILER-MACRO" "DEFINE-MODIFY-MACRO"
+    "DEFINE-SETF-EXPANDER" "DEFINE-SYMBOL-MACRO" "DEFINE-METHOD-COMBINATION")
+  "Operators whose second element is the name of what they define, beside
+those named DEFINE-... and macros named DEF... that this Lisp has.")
+
+(defun definer-p (operator)
+  (let ((name (string-upcase operator)))
+    (or (member name *definers* :test #'string=)
+        (and (> (length name) 7) (string= "DEFINE-" name :end2 7))
+        (and (> (length name) 3) (string= "DEF" name :end2 3)
+             (some (lambda (package)
+                     (let ((symbol (and (find-package package) (find-symbol name package))))
+                       (and symbol (macro-function symbol))))
+                   (list *package* "COMMON-LISP-USER" "HEML"))))))
+
+(defun definition-name-bounds (line state)
+  "Where the name is on LINE when it begins a top-level definition --
+(defun NAME ...), and so on -- and STATE, the parser's at its start, is not
+within a string or a comment: (values START END), or NIL.  Any (def... was
+taken for one, (default-value a b) too, and a docstring's line."
+  (let ((string (line-string line)))
+    (when (and (> (length string) 4)
+               (char= (char string 0) #\()
+               (not (member-if (lambda (x) (member x '(string comment block-comment pipe-symbol)))
+                               state)))
+      (let* ((operator-end (position-if (lambda (c) (member c '(#\Space #\Tab #\( #\)))) string
+                                        :start 1))
+             (start (and operator-end
+                         (position-if-not (lambda (c) (member c '(#\Space #\Tab))) string
+                                          :start operator-end)))
+             (end (and start
+                       (or (position-if (lambda (c) (member c '(#\Space #\Tab #\( #\)))) string
+                                        :start start)
+                           (length string)))))
+        (when (and start (< start end)
+                   (not (find (char string start) "(\";"))
+                   (definer-p (subseq string 1 operator-end)))
+          (values start end))))))
+
 (defun state-font (state)
-  (cond ((member 'hash-plus state)
-         6)
-        (t
-         (let ((q (member-if (lambda (x) (member x '(string rq bq uq comment block-comment
-                                                       keyword hash-plus hash-minus)))
-                             state)))
-           (case (car q)
-             ((comment block-comment) 1)
-             (keyword 6)
-             (rq 5)
-             (bq 2)
-             (uq 3)
-             (string 4)
-             (hash-plus 6)
-             (hash-minus 7)
-             ((nil) 0))))))
+  (let ((q (member-if (lambda (x) (member x '(string rq bq uq comment block-comment
+                                                keyword feature)))
+                      state)))
+    (case (car q)
+      ((comment block-comment) 1)
+      ((keyword feature) 6)
+      (rq 5)
+      (bq 2)
+      (uq 3)
+      (string 4)
+      ((nil) 0))))
 
 
 ;;;; Highlighters by mode
@@ -431,17 +494,47 @@ a buffer in another mode must not be coloured as Lisp on that account."
   "Major mode name to the function that brings a line's highlighting up to
 date.")
 
-(defun define-mode-highlighter (mode function)
+(defvar *highlight-mark-properties* '()
+  "The line properties in which highlighters keep their font marks, each
+(KEY . MARKS): what FORGET-HIGHLIGHTING deletes.")
+
+(defun define-mode-highlighter (mode function &key marks)
   "Make FUNCTION, of a line, the highlighter of lines in buffers whose major
-mode is MODE.  NIL removes it."
+mode is MODE.  NIL removes it.  MARKS names the line property in which
+FUNCTION keeps (KEY . FONT-MARKS), so that the marks can be taken away when a
+buffer leaves the mode."
+  (when marks
+    (pushnew marks *highlight-mark-properties*))
   (if function
       (setf (gethash mode *mode-highlighters*) function)
       (remhash mode *mode-highlighters*))
-  ;; Tags already computed made font marks, or not, by the highlighter
-  ;; before: they are computed again as they are drawn.
+  ;; What the highlighter before made is taken away, and tags are computed
+  ;; again as they are drawn.
   (dolist (buffer *buffer-list*)
-    (setf (buffer-tag-line-number buffer) 0))
+    (if (equal (buffer-major-mode buffer) mode)
+        (forget-highlighting buffer)
+        (setf (buffer-tag-line-number buffer) 0)))
   mode)
+
+(defun forget-highlighting (&optional (buffer (current-buffer)) &rest ignore)
+  "Take away the font marks BUFFER's highlighters made, so that its lines
+are coloured again, from nothing, by its major mode's.  A buffer whose mode
+changed kept the colours of the mode before, and they hid its links."
+  (declare (ignore ignore))
+  (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+      ((null line))
+    (dolist (property *highlight-mark-properties*)
+      (let ((old (getf (line-plist line) property)))
+        (when old
+          (when (consp old)
+            (mapc #'delete-font-mark (cdr old)))
+          (remf (line-plist line) property))))
+    (let ((tag (%line-tag line)))
+      (when (and tag (tag-syntax-info tag))
+        (mapc #'delete-font-mark (sy-font-marks (tag-syntax-info tag)))
+        (setf (tag-syntax-info tag) (empty-syntax-info)))))
+  (setf (buffer-tag-line-number buffer) 0)
+  buffer)
 
 (defun highlight-line (line)
   (let ((buffer (line-buffer line)))
@@ -452,6 +545,7 @@ mode is MODE.  NIL removes it."
             (highlight-links line))))))
 
 (define-mode-highlighter "Lisp" 'line-tag)
+(pushnew 'link-marks *highlight-mark-properties*)
 
 ;;; Links.  A line's links are found in its text: a Markdown link
 ;;; [text](url), an autolink <url>, and a bare URL.  Each is drawn in
@@ -525,7 +619,12 @@ mode is MODE.  NIL removes it."
         (delete-font-mark mark))
       (setf (getf (line-plist line) 'link-marks)
             (cons (line-signature line)
-                  (unless (some (lambda (m) (fast-font-mark-p m)) (line-marks line))
+                  ;; A selection's marks are not the line's colours: a
+                  ;; line drawn while selected lost its links for good.
+                  (unless (some (lambda (m)
+                                  (and (fast-font-mark-p m)
+                                       (not (member m *region-font-marks* :test #'eq))))
+                                (line-marks line))
                     (loop for (start end target) in (line-links (line-string line))
                           collect (font-mark line start (link-font target))
                           collect (font-mark line end 0))))))))
@@ -557,7 +656,9 @@ mode is MODE.  NIL removes it."
     (unless (line-previous start-line)
       (let ((tag (make-tag :syntax-info (empty-syntax-info))))
         (setf (%line-tag start-line) tag)
-        (setf (tag-syntax-info tag) (recompute-syntax-marks start-line tag)))
+        (setf (tag-syntax-info tag) (recompute-syntax-marks start-line tag))
+        ;; The first line's (in-package ...) counts too.
+        (setf (tag-package tag) (line-package start-line (tag-package tag))))
       (setf start-line (line-next start-line)))
     (iter (for line initially start-line then (line-next line))
           (while line)
@@ -573,21 +674,19 @@ mode is MODE.  NIL removes it."
         (tag (or (%line-tag line)
                  (setf (%line-tag line) (make-tag)))))
     (setf (tag-syntax-info tag) (recompute-syntax-marks line tag))
-    (setf (tag-package tag)
-          (or (cl-ppcre:register-groups-bind
-                  (package)
-                  ((cache-scanner
-                    "^\\((?:[a-zA-Z]+:)?in-package (?:[^)]*::?)([^)]*)\\)")
-                   (line-string line))
-                (when package
-                  (heml::canonicalize-slave-package-name package)))
-              (cl-ppcre:register-groups-bind
-                  (package)
-                  ((cache-scanner "^\\(in-package \"([^)]*)\"\\)")
-                   (line-string line))
-                (when package
-                  (heml::canonicalize-slave-package-name package)))
-              (tag-package ptag)))))
+    (setf (tag-package tag) (line-package line (tag-package ptag)))))
+
+(defun line-package (line previous)
+  "The package LINE's (in-package ...) names -- :foo, #:foo, \"FOO\" or
+foo, written in any case -- or else PREVIOUS."
+  (or (cl-ppcre:register-groups-bind
+          (package)
+          ((cache-scanner
+            "^\\((?i:(?:[a-z]+::?)?in-package)\\s+(?:#?:|\")?([^\\s()\"]+)\"?\\s*\\)")
+           (line-string line))
+        (when package
+          (heml::canonicalize-slave-package-name package)))
+      previous))
 
 ;; $Log: exp-syntax.lisp,v $
 ;; Revision 1.1  2004-07-09 15:16:14  gbaumann

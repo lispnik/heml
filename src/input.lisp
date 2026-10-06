@@ -255,8 +255,13 @@
         (device-note-read-wait device t)
         ;; Unless key events arrived in the meantime, wait for input, but
         ;; only until the next scheduled event is due, so that it runs on
-        ;; time rather than at the next keystroke.
-        (unless (listen-editor-input editor-input)
+        ;; time rather than at the next keystroke.  The queue is looked at
+        ;; too: a key queued while the screen was drawn (heml:repl's redisplay
+        ;; dispatches events) waited for the next, as the TTY's LISTEN says
+        ;; NIL always -- which redisplay relies on, since its saying otherwise
+        ;; made a terminal's echo wait for the keys typed after.
+        (unless (or (input-event-next (editor-input-head editor-input))
+                    (listen-editor-input editor-input))
           (let ((wait (next-scheduled-event-wait)))
             (if wait
                 (dispatch-events-for wait)

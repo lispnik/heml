@@ -352,7 +352,7 @@ node types C-M-a and its fellows move among, and COMMENT starts a comment."
                            (list (hi::font-mark line 0 '(:fg 4 :bold t))))
                           (t (list (hi::font-mark line 0 4))))))))))
 
-(define-mode-highlighter "Outline" 'outline-highlight-line)
+(define-mode-highlighter "Outline" 'outline-highlight-line :marks 'outline-marks)
 
 
 ;;;; C: the header and the source.

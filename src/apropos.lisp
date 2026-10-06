@@ -145,7 +145,7 @@
                   (loop for (position . font) in (apropos-line-fonts (line-string line))
                         collect (hi::font-mark line position font)))))))
 
-(define-mode-highlighter "Apropos" 'apropos-highlight-line)
+(define-mode-highlighter "Apropos" 'apropos-highlight-line :marks 'apropos-marks)
 
 (defun make-apropos-buffer (entries &optional title)
   (let ((buf (or *apropos-buffer*

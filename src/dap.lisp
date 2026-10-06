@@ -523,14 +523,20 @@
     buffer))
 
 (defun debugger-highlight-line (line)
-  (let ((text (line-string line)))
-    (hi:delete-line-font-marks line)
-    (when (member text '("Frames" "Variables") :test #'string=)
-      (hi:font-mark line 0 *debugger-header-font*))
-    (when (uiop:string-prefix-p "Stopped" text)
-      (hi:font-mark line 0 *stopped-font*))))
+  ;; Its own marks only: deleting every font mark on the line took a
+  ;; selection's with them.
+  (let ((text (line-string line))
+        (old (getf (line-plist line) 'debugger-marks)))
+    (unless (and old (eq (car old) (line-signature line)))
+      (mapc #'hi:delete-font-mark (cdr old))
+      (setf (getf (line-plist line) 'debugger-marks)
+            (cons (line-signature line)
+                  (cond ((member text '("Frames" "Variables") :test #'string=)
+                         (list (hi:font-mark line 0 *debugger-header-font*)))
+                        ((uiop:string-prefix-p "Stopped" text)
+                         (list (hi:font-mark line 0 *stopped-font*)))))))))
 
-(define-mode-highlighter "Debugger" 'debugger-highlight-line)
+(define-mode-highlighter "Debugger" 'debugger-highlight-line :marks 'debugger-marks)
 
 (defcommand "Debugger Select" (p)
   "On a frame: make it the frame shown, its place and its variables.  On a
