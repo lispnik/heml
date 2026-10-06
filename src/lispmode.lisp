@@ -1818,6 +1818,43 @@
   :value 'indent-for-lisp
   :mode "Lisp")
 
+(defhvar "Lisp Keep Parens Balanced"
+  "When true, Backspace in Lisp mode leaves a list's parentheses with it, as
+   Emacs's paredit does: after a closing parenthesis it moves inside the
+   list, after an opening one it moves out of it, and in an empty list it
+   takes both away.  Parentheses in strings and comments are characters like
+   any other.  When NIL, it deletes the character before point."
+  :mode "Lisp" :value t)
+
+(defun real-paren-before-p (mark syntax)
+  "Whether the character before MARK is a parenthesis of SYNTAX
+   (:open-paren or :close-paren), not in a string or comment."
+  (let ((char (previous-character mark)))
+    (and char
+         (eq (character-attribute :lisp-syntax char) syntax)
+         (progn (pre-command-parse-check mark)
+                (valid-spot mark nil)))))
+
+(defcommand "Lisp Delete Previous Character" (p)
+  "Delete the character before point, but for a list's parentheses while
+   \"Lisp Keep Parens Balanced\" is true: after a closing parenthesis move
+   inside the list, after an opening one move out of it, and in an empty
+   list take both away.  With an argument, delete that many characters."
+  "Delete the character before point, keeping parentheses balanced."
+  (let ((point (current-point)))
+    (cond ((or p (not (value lisp-keep-parens-balanced)))
+           (delete-previous-character-expanding-tabs-command p))
+          ((real-paren-before-p point :close-paren)
+           (mark-before point))
+          ((real-paren-before-p point :open-paren)
+           (let ((next (next-character point)))
+             (if (and next (eq (character-attribute :lisp-syntax next) :close-paren))
+                 ;; An empty list: both of its parentheses.
+                 (progn (delete-characters point 1)
+                        (delete-characters point -1))
+                 (mark-before point))))
+          (t (delete-previous-character-expanding-tabs-command p)))))
+
 (defhvar "Lisp Indent on Return"
   "When true, Return in Lisp mode starts a new line indented for the Lisp
    it is in, as C-j does; when NIL, a new line at the left margin."

@@ -913,6 +913,18 @@ send Enter
 type_text 'margin)'
 expect_re '^margin)' "and with \"Lisp Indent on Return\" NIL, does not"
 send Enter
+# Backspace keeps a list's parentheses: after a closing one it moves inside,
+# and an empty list goes whole.
+type_text '(setq foo 42)'
+send BSpace
+type_text 'X'
+expect '(setq foo 42X)' "Backspace after a closing paren moves inside the list"
+send C-e Enter
+type_text '(f ())'
+send BSpace BSpace BSpace
+type_text 'Y'
+expect '(f Y)' "and an empty list is taken away whole"
+send C-e Enter
 send C-x C-s
 sleep 0.5
 
