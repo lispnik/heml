@@ -9,9 +9,12 @@
 ;;; and are written, searched and counted as ever.  The line before a fold,
 ;;; its header, says after its end how many lines are under it.
 ;;;
-;;; What can be folded is what the mode's "Fold Ranges Function" says: a
-;;; language server's folding ranges where there is one (lsp-features.lisp),
-;;; and otherwise each line with the more indented lines after it.
+;;; What can be folded is the file's own sections -- form feeds, ;;;; titles
+;;; and dashed comment headers -- and what the mode's "Fold Ranges Function"
+;;; says: a language server's folding ranges where there is one
+;;; (lsp-features.lisp), and otherwise each line with the more indented lines
+;;; after it.  A window of a buffer with sections or folds has a column in
+;;; its fringe for their markers, which a click toggles.
 
 (in-package :heml)
 
@@ -52,11 +55,116 @@
       (close-to 0))
     (sort ranges #'< :key #'car)))
 
+;;;; Sections.
+
+;;; A file's own sections: a form feed, a Lisp file's ;;;; title (the first
+;;; of a run of such lines), and a dashed comment, such as
+;;;   ;;; --- Intel HEX -----------------------------------------
+;;; in any mode with comment syntax ("Comment Start").  A section runs from
+;;; its header to before the next header as high or higher, less the blank
+;;; lines at its end: a form feed's is the highest, a dashed comment's the
+;;; lowest.
+
+(defun dashed-header-scanner (comment-start comment-end)
+  "A scanner for a dashed section header in comments that start so, or
+   with // where they start with /*."
+  (let* ((start (string-trim '(#\Space #\Tab) comment-start))
+         (end (and comment-end (string-trim '(#\Space #\Tab) comment-end)))
+         (opener (if (string= start "/*")
+                     "/\\*|//"
+                     (ppcre:quote-meta-chars start))))
+    (ppcre:create-scanner
+     (format nil "^\\s*(?:~A)+\\s*-{2,}\\s*[^-\\s].*?-{2,}\\s*~@[(?:~A)?\\s*~]$"
+             opener
+             (and end (plusp (length end)) (ppcre:quote-meta-chars end))))))
+
+(defparameter *title-scanner* (ppcre:create-scanner "^;;;;\\s+\\S")
+  "A Lisp file's ;;;; section title.")
+
+(defun section-header-level (string previous scanner lisp-p)
+  "0, 1 or 2 when STRING, after the line PREVIOUS, heads a section, or NIL."
+  (cond ((and (plusp (length string)) (char= (char string 0) #\Page)) 0)
+        ((and scanner (ppcre:scan scanner string)) 2)
+        ((and lisp-p (title-line-p string) (not (and previous (title-line-p previous))))
+         1)))
+
+(defun title-line-p (string)
+  "Whether STRING is a ;;;; title's line: not the file's -*- line."
+  (and (ppcre:scan *title-scanner* string) (not (search "-*-" string))))
+
+(defun buffer-variable (name buffer)
+  "The value of the Heml variable NAME as BUFFER sees it -- its own, its
+   major mode's, or the global one -- whether or not it is current: the
+   fringe is drawn for every window's buffer."
+  (let ((mode (buffer-major-mode buffer)))
+    (cond ((heml-bound-p name :buffer buffer) (variable-value name :buffer buffer))
+          ((heml-bound-p name :mode mode) (variable-value name :mode mode))
+          ((heml-bound-p name :global) (variable-value name :global)))))
+
+(defvar *buffer-sections* (make-hash-table :test 'eq :weakness :key)
+  "Buffer to (SIGNATURE RANGES HEADERS MODE): its sections when last looked
+   for, HEADERS a table of their header lines.")
+
+(defun buffer-sections (buffer)
+  "BUFFER's sections, ((FIRST . LAST) ...) lines numbered from 0, and a
+   table of their headers' lines."
+  (let ((cached (gethash buffer *buffer-sections*)))
+    (if (and cached (eql (first cached) (buffer-signature buffer))
+             (equal (fourth cached) (buffer-major-mode buffer)))
+        (values (second cached) (third cached))
+        (let* ((comment-start (buffer-variable 'comment-start buffer))
+               (comment-end (buffer-variable 'comment-end buffer))
+               (scanner (and comment-start (plusp (length (string-trim " " comment-start)))
+                             (dashed-header-scanner comment-start comment-end)))
+               (lisp-p (and comment-start (string= (string-trim " " comment-start) ";")))
+               (headers (make-hash-table :test 'eq))
+               (open '())               ; ((LEVEL FIRST) ...), innermost first
+               (ranges '())
+               (last-text -1)
+               (number 0)
+               (previous nil))
+          (flet ((close-to (level)
+                   (loop while (and open (>= (first (first open)) level))
+                         do (let ((first (second (pop open))))
+                              (when (> last-text first)
+                                (push (cons first last-text) ranges))))))
+            (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+                ((null line))
+              (let* ((string (line-string line))
+                     (level (section-header-level string previous scanner lisp-p)))
+                (when level
+                  (close-to level)
+                  (push (list level number) open)
+                  (setf (gethash line headers) t))
+                (unless (every (lambda (c) (member c '(#\Space #\Tab #\Page))) string)
+                  (setf last-text number))
+                (setf previous string)
+                (incf number)))
+            (close-to -1))
+          (setf ranges (sort ranges #'< :key #'car))
+          (setf (gethash buffer *buffer-sections*)
+                (list (buffer-signature buffer) ranges headers (buffer-major-mode buffer)))
+          (values ranges headers)))))
+
+(defun section-header-line-p (line)
+  "Whether LINE heads a section of its buffer."
+  (let ((buffer (line-buffer line)))
+    (and buffer
+         (gethash line (nth-value 1 (buffer-sections buffer))))))
+
+
 (defun fold-ranges (buffer)
-  "What can be folded in BUFFER, the current buffer."
+  "What can be folded in BUFFER, the current buffer: its sections, and what
+   the mode's function says or else its indentation; by their first lines,
+   and of two that start together, the longer first."
   (let ((function (value fold-ranges-function)))
-    (or (and function (ignore-errors (funcall function buffer)))
-        (indentation-fold-ranges buffer))))
+    (stable-sort (copy-list
+                  (append (buffer-sections buffer)
+                          (or (and function (ignore-errors (funcall function buffer)))
+                              (indentation-fold-ranges buffer))))
+                 (lambda (a b)
+                   (or (< (car a) (car b))
+                       (and (= (car a) (car b)) (> (cdr a) (cdr b))))))))
 
 
 ;;;; Hiding and showing.
@@ -187,6 +295,7 @@
              (hide-lines buffer (car range) (fold-last buffer (car range) (cdr range)))
              (when (hi:line-hidden-p (mark-line point))
                (line-end point (buffer-line buffer (car range)))))))
+    (update-fold-column buffer)
     (setf *last-point-line* (mark-line point))))
 
 (defcommand "Fold All" (p)
@@ -198,7 +307,7 @@
          (point (current-point))
          (end -1)
          (count 0))
-    (dolist (range (sort (copy-list (fold-ranges buffer)) #'< :key #'car))
+    (dolist (range (fold-ranges buffer))
       (when (> (car range) end)
         (let ((last (fold-last buffer (car range) (cdr range))))
           (hide-lines buffer (car range) last)
@@ -206,6 +315,7 @@
         (incf count)))
     (when (hi:line-hidden-p (mark-line point))
       (line-end point (fold-header (mark-line point))))
+    (update-fold-column buffer)
     (setf *last-point-line* (mark-line point))
     (message "~D fold~:P." count)))
 
@@ -215,4 +325,122 @@
   (declare (ignore p))
   (do ((line (mark-line (buffer-start-mark (current-buffer))) (line-next line)))
       ((null line))
-    (remf (line-plist line) 'hi::hidden)))
+    (remf (line-plist line) 'hi::hidden))
+  (update-fold-column (current-buffer)))
+
+(defun line-number-in-buffer (mark)
+  "MARK's line's number, from 0."
+  (1- (count-lines (region (buffer-start-mark (line-buffer (mark-line mark))) mark))))
+
+(defun section-at (buffer number)
+  "The innermost of BUFFER's sections that holds its line NUMBER."
+  (let ((best nil))
+    (dolist (range (buffer-sections buffer) best)
+      (when (and (<= (car range) number (cdr range))
+                 (or (null best) (> (car range) (car best))))
+        (setf best range)))))
+
+(defun toggle-section (buffer header)
+  "Fold the section HEADER heads, or open it when it is folded; whether
+   HEADER heads one."
+  (cond ((fold-header-p header)
+         (unfold-under header)
+         t)
+        (t
+         (let* ((number (line-number-in-buffer (mark header 0)))
+                (range (find number (buffer-sections buffer) :key #'car)))
+           (when range
+             (hide-lines buffer (car range) (cdr range))
+             t)))))
+
+(defcommand "Fold Section" (p)
+  "Fold the section point is in -- a form feed's page, a ;;;; title's, or a
+   dashed comment header's, such as ;;; --- Intel HEX --- -- under its
+   header; on a folded section's header, open it."
+  "Fold the section point is in, or open the one at point."
+  (declare (ignore p))
+  (let* ((buffer (current-buffer))
+         (point (current-point))
+         (line (mark-line point)))
+    (if (fold-header-p line)
+        (unfold-under line)
+        (let ((range (section-at buffer (line-number-in-buffer point))))
+          (unless range (editor-error "Not in a section."))
+          (hide-lines buffer (car range) (cdr range))
+          (line-end point (buffer-line buffer (car range)))))
+    (update-fold-column buffer)
+    (setf *last-point-line* (mark-line point))))
+
+
+;;;; The fold column, in the fringe.
+
+(defparameter *fold-marker-open* "▾"
+  "Drawn in the fringe beside an open section's header.")
+
+(defparameter *fold-marker-closed* "▸"
+  "Drawn in the fringe beside a line with a fold under it.")
+
+(defparameter *fold-marker-font* '(:fg 8)
+  "The font of an open section's marker.")
+
+(defparameter *fold-marker-closed-font* '(:fg 6 :bold t)
+  "The font of a fold's marker.")
+
+(defun buffer-has-folds-p (buffer)
+  (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+      ((null line) nil)
+    (when (hi:line-hidden-p line) (return t))))
+
+(defun update-fold-column (buffer)
+  "Give BUFFER's windows a fringe column for fold markers when it has
+   sections or folds, and take it away when it has neither."
+  (setf (hi:buffer-fringe-columns buffer :fold)
+        (if (or (buffer-sections buffer) (buffer-has-folds-p buffer)) 1 0)))
+
+(defun fold-line-fringe (line)
+  (let ((buffer (line-buffer line)))
+    (when (and buffer (plusp (hi:buffer-fringe-columns buffer :fold)))
+      (let ((column (hi:buffer-fringe-column buffer :fold)))
+        (cond ((fold-header-p line)
+               (list (list column *fold-marker-closed* *fold-marker-closed-font*)))
+              ((section-header-line-p line)
+               (list (list column *fold-marker-open* *fold-marker-font*))))))))
+
+(pushnew 'fold-line-fringe hi:*line-fringe-functions*)
+
+(defvar *fold-signatures* (make-hash-table :test 'eq :weakness :key)
+  "Each buffer's signature when its fold column was last decided.")
+
+(defun fold-idle (&optional elapsed)
+  "Once a second: the fold column of each buffer shown that has changed."
+  (declare (ignore elapsed))
+  (dolist (window *window-list*)
+    (let ((buffer (window-buffer window)))
+      (when (and buffer
+                 (not (eql (gethash buffer *fold-signatures*) (buffer-signature buffer))))
+        (setf (gethash buffer *fold-signatures*) (buffer-signature buffer))
+        (ignore-errors (update-fold-column buffer))))))
+
+(defun start-fold-idle ()
+  (remove-scheduled-event 'fold-idle)
+  (schedule-event 1 'fold-idle))
+
+(add-hook entry-hook 'start-fold-idle)
+
+;;; A click in the fold column beside a header folds or opens it.
+;;;
+(defun fold-fringe-click (line column window)
+  (declare (ignore window))
+  (let ((buffer (line-buffer line)))
+    (when (and buffer
+               (plusp (hi:buffer-fringe-columns buffer :fold))
+               (= column (hi:buffer-fringe-column buffer :fold))
+               (toggle-section buffer line))
+      (let ((point (current-point)))
+        (when (hi:line-hidden-p (mark-line point))
+          (line-end point line)))
+      (update-fold-column buffer)
+      (setf *last-point-line* (mark-line (current-point)))
+      t)))
+
+(pushnew 'fold-fringe-click *fringe-click-functions*)

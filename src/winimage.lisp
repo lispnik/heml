@@ -82,19 +82,41 @@
 (defun (setf mode-fringe-width) (width mode)
   (setf (gethash mode *mode-fringe-widths*) width))
 
-(defvar *buffer-fringe-extras* (make-hash-table :test 'eq)
-  "Buffer to the columns its windows' fringe has beyond its mode's.")
+(defvar *buffer-fringe-columns* (make-hash-table :test 'eq)
+  "Buffer to the columns its windows' fringe has beyond its mode's, as a
+   property list of each owner's.")
+
+(defparameter *fringe-column-owners* '(:fold :git)
+  "The owners of a buffer's own fringe columns, left to right: the fold
+   markers, then Git's.")
+
+(defun buffer-fringe-columns (buffer owner)
+  "How many of BUFFER's own fringe columns OWNER has."
+  (getf (gethash buffer *buffer-fringe-columns*) owner 0))
+
+(defun (setf buffer-fringe-columns) (width buffer owner)
+  (let ((plist (gethash buffer *buffer-fringe-columns*)))
+    (if (and width (plusp width))
+        (setf (getf plist owner) width)
+        (remf plist owner))
+    (if plist
+        (setf (gethash buffer *buffer-fringe-columns*) plist)
+        (remhash buffer *buffer-fringe-columns*)))
+  width)
 
 (defun buffer-fringe-extra (buffer)
   "The columns BUFFER's windows' fringe has beyond its mode's: its own, as
-   a file Git tracks has one for the lines that differ from the last commit."
-  (gethash buffer *buffer-fringe-extras* 0))
+   a file Git tracks has one for the lines that differ from the last commit
+   and a file with sections one for their fold markers."
+  (loop for (nil width) on (gethash buffer *buffer-fringe-columns*) by #'cddr
+        sum width))
 
-(defun (setf buffer-fringe-extra) (width buffer)
-  (if (and width (plusp width))
-      (setf (gethash buffer *buffer-fringe-extras*) width)
-      (remhash buffer *buffer-fringe-extras*))
-  width)
+(defun buffer-fringe-column (buffer owner)
+  "The fringe column OWNER's columns start at in BUFFER's windows."
+  (+ (mode-fringe-width (buffer-major-mode buffer))
+     (loop for other in *fringe-column-owners*
+           until (eq other owner)
+           sum (buffer-fringe-columns buffer other))))
 
 (defun buffer-fringe-width (buffer)
   "How wide the fringe of a window showing BUFFER is: its mode's, and its

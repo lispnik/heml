@@ -557,10 +557,27 @@
     (when (and y (eq window (current-window)))
       (cursorpos-to-mark (min x (1- (window-width window))) y window))))
 
+(defvar *fringe-click-functions* '()
+  "Functions of a line, a fringe column and a window, called in turn for a
+   click in a window's fringe beside the line until one returns true: it
+   has done what the click was for, and point stays where it was.  A click
+   no function takes is in the text's first column.")
+
+(defun fringe-click (x y window)
+  "Give a click at X and Y in WINDOW's fringe to *FRINGE-CLICK-FUNCTIONS*;
+   whether one took it."
+  (when (and y (< x (window-fringe-width window)))
+    (let ((mark (cursorpos-to-mark (window-fringe-width window) y window)))
+      (when mark
+        (let ((line (mark-line mark)))
+          (some (lambda (function) (funcall function line x window))
+                *fringe-click-functions*))))))
+
 (defcommand "Mouse Set Point" (p)
   "Move point to where the pointer is, in the window it is in, and get ready
    for \"Mouse Drag Region\" to mark a region from there.  In a modeline,
-   just select that window."
+   just select that window.  In the fringe, beside a fold or a section's
+   header, fold or open it."
   "Move point to the pointer, deactivating the region."
   (declare (ignore p))
   (multiple-value-bind (x y window) (last-key-event-cursorpos)
@@ -568,7 +585,7 @@
     (maybe-change-window window)
     (deactivate-region)
     (setf *mouse-drag-start* nil)
-    (when y
+    (when (and y (not (fringe-click x y window)))
       (let ((m (pointer-mark)))
         (when m
           (move-mark (current-point) m)

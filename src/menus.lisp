@@ -217,6 +217,7 @@ while the current buffer is in the mode."
   ("Delete Other Windows" "Delete Other Windows")
   :separator
   ("Fold or Unfold" "Toggle Fold")
+  ("Fold Section" "Fold Section")
   ("Fold All" "Fold All")
   ("Unfold All" "Unfold All"))
 

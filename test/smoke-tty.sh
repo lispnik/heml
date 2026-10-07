@@ -712,6 +712,38 @@ sleep 0.5
 send n
 sleep 0.5
 
+# Folding by section: a ;;;; title holding two dashed headers' sections,
+# each with its marker in a fold column in the fringe; C-c @ folds the
+# section point is in and opens it again; Fold All leaves the title.
+printf ';;;; Tools\n;;; --- A ---\n(a1)\n(a2)\n;;; --- B ---\n(b1)\n' > build/smoke-tty-sections.lisp
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-sections.lisp"
+send Enter
+expect '(a2)' "a file with sections is visited"
+expect_re '^▾;;; --- A ---' "its section headers are marked in the fringe"
+send M-\< C-n C-n
+send C-c @
+expect ';;; --- A ---  ... 2 lines' "C-c @ folds the section point is in"
+expect_re '^▸;;; --- A ---' "and its marker says it is folded"
+send C-c @
+expect '(a2)' "C-c @ on its header opens it"
+send M-x
+sleep 0.5
+type_text 'Fold All'
+send Enter
+expect ';;;; Tools  ... 5 lines' "Fold All folds the file to its outermost section"
+send M-x
+sleep 0.5
+type_text 'Unfold All'
+send Enter
+expect '(b1)' "and Unfold All opens it all"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
 # A file known by its name: a shell's own file is a shell script.
 mkdir -p build/smoke-tty-dot
 printf 'export EDITOR=heml # a comment\n' > build/smoke-tty-dot/.zshrc

@@ -473,6 +473,7 @@
 (bind-key "Indent New Line" #k"control-j")
 (bind-key "Complete at Point" #k"control-meta-i")
 (bind-key "Toggle Fold" #k"control-c control-f")
+(bind-key "Fold Section" #k"control-c @")
 (bind-key "Queued Command" (heml-ext:make-key-event "Queuedcommand" 0))
 (bind-key "Complete at Point" #k"meta-tab")
 (bind-key "Indent Or Complete" #k"tab")

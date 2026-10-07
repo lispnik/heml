@@ -609,6 +609,39 @@
                            (and (consp font) (getf font :link))))
                        5))))
 
+(defun section-fold-checks ()
+  (note "folding by section, from the fringe")
+  (let ((file (merge-pathnames "sections.lisp" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out ";;;; Tools~%;;; --- A ---~%(a1)~%(a2)~%;;; --- B ---~%(b1)~%"))
+    (post (list :open (namestring file)))
+    (settle)
+    (flet ((click-marker ()
+             ;; The marker's own cell: the window need not be at the left.
+             (let* ((rows (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                    (row (position-if (lambda (row) (search ";;; --- A ---" (heml.cocoa::row-text row)))
+                                      rows))
+                    (text (heml.cocoa::row-text (elt rows row)))
+                    (column (1- (search ";;; --- A ---" text))))
+               (mouse :down column row)
+               (mouse :up column row)))
+           (row-p (text)
+             (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
+                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+      (check "a section's header is marked in the fringe"
+             (wait-until (lambda () (row-p "▾;;; --- A ---")) 10))
+      (click-marker)
+      (settle)
+      (check "a click on its marker folds the section"
+             (wait-until (lambda () (and (row-p ";;; --- A ---  ... 2 lines")
+                                         (not (row-p "(a1)"))
+                                         (row-p "▸;;; --- A ---")))
+                         5))
+      (click-marker)
+      (settle)
+      (check "and a second click opens it"
+             (wait-until (lambda () (row-p "(a1)")) 5)))))
+
 (defvar *corpus-result* nil)
 
 (defun lisp-edit-checks ()
@@ -1688,6 +1721,7 @@ gamma
   (selection-checks)
   (lisp-edit-checks)
   (highlight-checks)
+  (section-fold-checks)
   (terminal-checks)
 
   (note "projects")

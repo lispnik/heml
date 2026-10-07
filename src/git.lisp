@@ -970,7 +970,7 @@
 
 (defun note-git-buffer (buffer pathname)
   (remhash buffer *git-files*)
-  (setf (buffer-fringe-extra buffer) 0)
+  (setf (buffer-fringe-columns buffer :git) 0)
   (when (and pathname (value git-fringe) (probe-file pathname))
     (let* ((directory (directory-namestring pathname))
            (root (git-root directory)))
@@ -980,11 +980,11 @@
                                            (file-namestring pathname))))))
         (setf (gethash buffer *git-files*)
               (make-git-file root (file-namestring pathname) directory)
-              (buffer-fringe-extra buffer) 1)))))
+              (buffer-fringe-columns buffer :git) 1)))))
 
 (defun forget-git-buffer (buffer)
   (remhash buffer *git-files*)
-  (setf (buffer-fringe-extra buffer) 0))
+  (setf (buffer-fringe-columns buffer :git) 0))
 
 (defun forget-git-bases (root)
   (maphash (lambda (buffer file)
@@ -1111,7 +1111,7 @@
          (kind (and marks (gethash line marks))))
     (when kind
       (destructuring-bind (text font) (cdr (assoc kind *git-mark-fonts*))
-        (list (list (1- (buffer-fringe-width buffer)) text font))))))
+        (list (list (buffer-fringe-column buffer :git) text font))))))
 
 (pushnew 'git-line-fringe hi:*line-fringe-functions*)
 
