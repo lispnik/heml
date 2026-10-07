@@ -629,13 +629,13 @@
              (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
                       (heml.cocoa::screen-rows heml.cocoa::*screen*))))
       (check "a section's header is marked in the fringe"
-             (wait-until (lambda () (row-p "▾;;; --- A ---")) 10))
+             (wait-until (lambda () (row-p "▼;;; --- A ---")) 10))
       (click-marker)
       (settle)
       (check "a click on its marker folds the section"
              (wait-until (lambda () (and (row-p ";;; --- A ---  ... 2 lines")
                                          (not (row-p "(a1)"))
-                                         (row-p "▸;;; --- A ---")))
+                                         (row-p "►;;; --- A ---")))
                          5))
       (click-marker)
       (settle)
@@ -1802,6 +1802,9 @@ gamma
       (post-text "src/b.c
 ")
       (settle)
+      ;; b.c's body folded, which the session keeps.
+      (post-key #\c "Control") (post-key #\f "Control")
+      (settle)
       (extended-command "Save Project Session")
       (post-key #\x "Control") (post-key #\1)
       (extended-command "Kill Project Buffers")
@@ -1816,12 +1819,18 @@ gamma
       (extended-command "Restore Project Session")
       (settle)
       (check "Restore Project Session reopens the files, in their windows"
-             (and (file-shown-p "a.c") (file-shown-p "b.c")
-                  (= 2 (length (remove hi::*echo-area-window* hi::*window-list*)))))
+             (wait-until (lambda ()
+                           (and (file-shown-p "a.c") (file-shown-p "b.c")
+                                (= 2 (length (remove hi::*echo-area-window* hi::*window-list*)))))
+                         10))
       (check "with their points"
              (let ((w (file-shown-p "a.c")))
                (and w (equal "  return 1;"
                              (line-text (hi::mark-line (hi::window-point w)))))))
+      (check "and their folds"
+             (let ((buffer (find "b.c" hi::*buffer-list* :key #'hi::buffer-name :test #'search)))
+               (and buffer
+                    (hi:line-hidden-p (hi::line-next (hi::mark-line (hi::buffer-start-mark buffer)))))))
       ;; A window on one of the project's directories comes back too.
       (post-key #\x "Control") (post-key #\p) (post-key #\d)
       (settle)
@@ -1836,9 +1845,11 @@ gamma
       (extended-command "Restore Project Session")
       (settle)
       (check "a Dired window of the project is reopened with its session"
-             (find "Dired" (remove hi::*echo-area-window* hi::*window-list*)
-                   :key (lambda (w) (hi::buffer-major-mode (hi::window-buffer w)))
-                   :test #'equal))
+             (wait-until (lambda ()
+                           (find "Dired" (remove hi::*echo-area-window* hi::*window-list*)
+                                 :key (lambda (w) (hi::buffer-major-mode (hi::window-buffer w)))
+                                 :test #'equal))
+                         10))
       ;; Back to the two files side by side, for what follows.
       (post-key #\x "Control") (post-key #\1)
       (post (list :open (namestring (merge-pathnames "src/a.c" root))))
@@ -1862,7 +1873,7 @@ gamma
       (post (list :named "Return" '()))
       (settle)
       (check "C-x p p back to the project reopens its session"
-             (and (file-shown-p "a.c") (file-shown-p "b.c")))
+             (wait-until (lambda () (and (file-shown-p "a.c") (file-shown-p "b.c"))) 10))
       ;; The project's compile commands are remembered, for M-p at the prompt.
       (dolist (command '("echo one" "echo two"))
         (post-key #\x "Control") (post-key #\p) (post-key #\c)

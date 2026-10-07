@@ -775,8 +775,9 @@
 
 ;;;; Sessions.
 
-;;; A session is (:FILES ((FILE LINE COLUMN) ...) :CURRENT FILE
-;;; :LAYOUT NODE), FILE relative to the root, LINE and START counting from 1;
+;;; A session is (:FILES ((FILE LINE COLUMN FOLDS) ...) :CURRENT FILE
+;;; :LAYOUT NODE), FILE relative to the root, LINE and START counting from 1,
+;;; FOLDS the file's folds as BUFFER-FOLDS gives them (fold.lisp);
 ;;; a NODE is (:WINDOW FILE LINE COLUMN START), (:DIRED DIRECTORY) for a
 ;;; window on a directory of the project, (:SHELL) for one on its shell, or
 ;;; (:SPLIT DIRECTION SIZES NODE ...), as the device's layout tree is
@@ -833,7 +834,8 @@
       (list :files (loop for buffer in buffers
                          for point = (buffer-point buffer)
                          collect (list (enough-namestring (buffer-pathname buffer) root)
-                                       (mark-line-number point) (mark-charpos point)))
+                                       (mark-line-number point) (mark-charpos point)
+                                       (buffer-folds buffer)))
             :current (let ((pathname (buffer-pathname (current-buffer))))
                        (and (under-root-p pathname root) (enough-namestring pathname root)))
             :layout (and layout (session-layout (current-layout-root) root))
@@ -894,10 +896,13 @@
    when there was a session."
   (let ((session (read-state (session-file-name root))))
     (when (getf session :files)
-      (loop for (file line column) in (getf session :files)
+      (loop for (file line column folds) in (getf session :files)
             for buffer = (session-buffer root file)
             when buffer
-              do (move-to-line (buffer-point buffer) line column))
+              do (move-to-line (buffer-point buffer) line column)
+                 ;; Its folds as they were, unless it is folded already.
+                 (when (and folds (not (buffer-folds buffer)))
+                   (restore-buffer-folds buffer folds)))
       (let ((layout (getf session :layout))
             (current (getf session :current)))
         (when layout

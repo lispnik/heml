@@ -218,6 +218,7 @@ while the current buffer is in the mode."
   :separator
   ("Fold or Unfold" "Toggle Fold")
   ("Fold Section" "Fold Section")
+  ("Fold Selection" "Fold Selection")
   ("Fold All" "Fold All")
   ("Unfold All" "Unfold All"))
 

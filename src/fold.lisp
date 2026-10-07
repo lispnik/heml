@@ -101,17 +101,83 @@
           ((heml-bound-p name :mode mode) (variable-value name :mode mode))
           ((heml-bound-p name :global) (variable-value name :global)))))
 
+;;;; Regions marked in comments.
+
+;;; As IntelliJ and Visual Studio mark them: Visual Studio's
+;;;   // region Name ... // endregion   (#region, # region, #pragma region)
+;;; and NetBeans's
+;;;   // <editor-fold desc="Name" defaultstate="collapsed"> ... // </editor-fold>
+;;; in the mode's comments.  A region folds from its first line through its
+;;; last, and one whose defaultstate is collapsed is folded as its file is
+;;; read.
+
+(defun comment-opener-regex (comment-start)
+  "A regex for what starts a comment in a mode whose \"Comment Start\" is
+   COMMENT-START, or NIL."
+  (let ((start (and comment-start (string-trim '(#\Space #\Tab) comment-start))))
+    (when (plusp (length start))
+      (if (string= start "/*")
+          "/\\*+|//+"
+          (format nil "(?:~A)+" (ppcre:quote-meta-chars start))))))
+
+(defun region-scanners (comment-start)
+  "Scanners for a region's start, its end, an editor-fold's start and its
+   end, in comments that start so; the first's register is the region's
+   name, the third's the editor-fold's attributes."
+  (let* ((opener (comment-opener-regex comment-start))
+         (in-comment (if opener (format nil "(?:~A)\\s*" opener) "(?!)")))
+    (list (ppcre:create-scanner
+           (format nil "^\\s*(?:~A#?|#\\s*(?:pragma\\s+)?)region\\b\\s*(.*?)\\s*$" in-comment))
+          (ppcre:create-scanner
+           (format nil "^\\s*(?:~A#?|#\\s*(?:pragma\\s+)?)endregion\\b" in-comment))
+          (ppcre:create-scanner
+           (format nil "^\\s*~A<editor-fold\\b([^>]*)>" in-comment))
+          (ppcre:create-scanner
+           (format nil "^\\s*~A</editor-fold\\s*>" in-comment)))))
+
+(defun buffer-regions (buffer comment-start)
+  "BUFFER's marked regions, as ((FIRST . LAST) ...) and a list of those to
+   be folded at first, lines numbered from 0."
+  (destructuring-bind (start end fold-start fold-end) (region-scanners comment-start)
+    (let ((open '())                    ; ((KIND FIRST COLLAPSED) ...)
+          (ranges '())
+          (collapsed '())
+          (number 0))
+      (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+          ((null line))
+        (let ((string (line-string line)))
+          (flet ((close-region (kind)
+                   (let ((entry (find kind open :key #'first)))
+                     (when entry
+                       (setf open (cdr (member entry open)))
+                       (let ((range (cons (second entry) number)))
+                         (when (> number (second entry))
+                           (push range ranges)
+                           (when (third entry) (push range collapsed))))))))
+            (cond ((ppcre:scan end string) (close-region :region))
+                  ((ppcre:scan fold-end string) (close-region :fold))
+                  ((ppcre:scan start string)
+                   (push (list :region number nil) open))
+                  (t (ppcre:register-groups-bind (attributes) (fold-start string)
+                       (push (list :fold number
+                                   (and attributes
+                                        (ppcre:scan "defaultstate\\s*=\\s*\"collapsed\"" attributes)))
+                             open))))))
+        (incf number))
+      (values (sort ranges #'< :key #'car) collapsed))))
+
 (defvar *buffer-sections* (make-hash-table :test 'eq :weakness :key)
-  "Buffer to (SIGNATURE RANGES HEADERS MODE): its sections when last looked
-   for, HEADERS a table of their header lines.")
+  "Buffer to (SIGNATURE RANGES HEADERS MODE COLLAPSED): its sections and
+   regions when last looked for, HEADERS a table of their first lines.")
 
 (defun buffer-sections (buffer)
-  "BUFFER's sections, ((FIRST . LAST) ...) lines numbered from 0, and a
-   table of their headers' lines."
+  "BUFFER's sections and marked regions, ((FIRST . LAST) ...) lines
+   numbered from 0, a table of their first lines, and the regions to be
+   folded at first."
   (let ((cached (gethash buffer *buffer-sections*)))
     (if (and cached (eql (first cached) (buffer-signature buffer))
              (equal (fourth cached) (buffer-major-mode buffer)))
-        (values (second cached) (third cached))
+        (values (second cached) (third cached) (fifth cached))
         (let* ((comment-start (buffer-variable 'comment-start buffer))
                (comment-end (buffer-variable 'comment-end buffer))
                (scanner (and comment-start (plusp (length (string-trim " " comment-start)))
@@ -141,10 +207,20 @@
                 (setf previous string)
                 (incf number)))
             (close-to -1))
-          (setf ranges (sort ranges #'< :key #'car))
-          (setf (gethash buffer *buffer-sections*)
-                (list (buffer-signature buffer) ranges headers (buffer-major-mode buffer)))
-          (values ranges headers)))))
+          ;; And the regions marked in comments, whose first lines are
+          ;; headers too.
+          (multiple-value-bind (regions collapsed) (buffer-regions buffer comment-start)
+            (dolist (range regions)
+              (let ((line (buffer-line buffer (car range))))
+                (when line (setf (gethash line headers) t))))
+            (setf ranges (stable-sort (append ranges regions)
+                                      (lambda (a b)
+                                        (or (< (car a) (car b))
+                                            (and (= (car a) (car b)) (> (cdr a) (cdr b)))))))
+            (setf (gethash buffer *buffer-sections*)
+                  (list (buffer-signature buffer) ranges headers (buffer-major-mode buffer)
+                        collapsed))
+            (values ranges headers collapsed))))))
 
 (defun section-header-line-p (line)
   "Whether LINE heads a section of its buffer."
@@ -268,11 +344,14 @@
 
 (defcommand "Toggle Fold" (p)
   "Fold what starts on this line, or else what this line is in, under its
-   first line; on a line with a fold under it, open the fold.  What can be
-   folded is what the language server says, or else a line and the more
-   indented lines after it."
+   first line; on a line with a fold under it, open the fold; with the
+   region active, fold its lines (\"Fold Selection\").  What can be
+   folded is a section or a marked region, what the language server says,
+   or else a line and the more indented lines after it."
   "Fold what is at point, or open the fold there."
   (declare (ignore p))
+  (when (region-active-p)
+    (return-from toggle-fold-command (fold-selection-command nil)))
   (let* ((buffer (current-buffer))
          (point (current-point))
          (line (mark-line point)))
@@ -374,10 +453,10 @@
 
 ;;;; The fold column, in the fringe.
 
-(defparameter *fold-marker-open* "▾"
+(defparameter *fold-marker-open* "▼"
   "Drawn in the fringe beside an open section's header.")
 
-(defparameter *fold-marker-closed* "▸"
+(defparameter *fold-marker-closed* "►"
   "Drawn in the fringe beside a line with a fold under it.")
 
 (defparameter *fold-marker-font* '(:fg 8)
@@ -444,3 +523,74 @@
       t)))
 
 (pushnew 'fold-fringe-click *fringe-click-functions*)
+
+
+;;;; Folding the selection.
+
+(defun fold-lines (buffer first last)
+  "Fold BUFFER's lines after FIRST as far as LAST, from 0, point taken to
+   FIRST's end when it is folded away."
+  (hide-lines buffer first last)
+  (let ((point (current-point)))
+    (when (hi:line-hidden-p (mark-line point))
+      (line-end point (buffer-line buffer first))))
+  (update-fold-column buffer)
+  (setf *last-point-line* (mark-line (current-point))))
+
+(defcommand "Fold Selection" (p)
+  "Fold the lines the region covers under its first line, as IntelliJ's
+   Fold Selection does."
+  "Fold the region's lines under its first."
+  (declare (ignore p))
+  (let* ((region (current-region))
+         (start (region-start region))
+         (end (region-end region))
+         (first (line-number-in-buffer start))
+         (last (- (line-number-in-buffer end)
+                  ;; A region that ends at a line's start ends before it.
+                  (if (and (zerop (mark-charpos end)) (mark< start end)) 1 0))))
+    (unless (> last first)
+      (editor-error "Select more than one line to fold."))
+    (fold-lines (current-buffer) first last)
+    (deactivate-region)))
+
+
+;;;; Regions that start folded.
+
+(defun fold-collapsed-regions (buffer &optional existed)
+  "Fold BUFFER's regions marked defaultstate=\"collapsed\": on Read File
+   Hook, as its file is read."
+  (declare (ignore existed))
+  (let ((collapsed (nth-value 2 (buffer-sections buffer))))
+    (dolist (range collapsed)
+      (hide-lines buffer (car range) (cdr range)))
+    (when collapsed
+      (update-fold-column buffer))))
+
+(add-hook read-file-hook 'fold-collapsed-regions)
+
+
+;;;; Folds in a project's session.
+
+(defun buffer-folds (buffer)
+  "BUFFER's folds, ((FIRST . LAST) ...): each a shown line and the last of
+   the hidden lines after it, from 0."
+  (let ((folds '()) (number 0) (first nil))
+    (do ((line (mark-line (buffer-start-mark buffer)) (line-next line)))
+        ((null line))
+      (cond ((hi:line-hidden-p line)
+             (unless first (setf first (1- number))))
+            (first
+             (push (cons first (1- number)) folds)
+             (setf first nil)))
+      (incf number))
+    (when first (push (cons first (1- number)) folds))
+    (nreverse folds)))
+
+(defun restore-buffer-folds (buffer folds)
+  "Fold BUFFER as FOLDS, from BUFFER-FOLDS, says, as far as it still can."
+  (let ((count (count-lines (buffer-region buffer))))
+    (loop for (first . last) in folds
+          when (and (<= 0 first) (< first last count))
+            do (hide-lines buffer first last))
+    (update-fold-column buffer)))

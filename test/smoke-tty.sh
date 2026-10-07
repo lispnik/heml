@@ -722,11 +722,11 @@ send C-a C-k
 type_text "$PWD/build/smoke-tty-sections.lisp"
 send Enter
 expect '(a2)' "a file with sections is visited"
-expect_re '^▾;;; --- A ---' "its section headers are marked in the fringe"
+expect_re '^▼;;; --- A ---' "its section headers are marked in the fringe"
 send M-\< C-n C-n
 send C-c @
 expect ';;; --- A ---  ... 2 lines' "C-c @ folds the section point is in"
-expect_re '^▸;;; --- A ---' "and its marker says it is folded"
+expect_re '^►;;; --- A ---' "and its marker says it is folded"
 send C-c @
 expect '(a2)' "C-c @ on its header opens it"
 send M-x
@@ -739,6 +739,33 @@ sleep 0.5
 type_text 'Unfold All'
 send Enter
 expect '(b1)' "and Unfold All opens it all"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
+
+# Regions marked in comments, as IntelliJ marks them: one whose
+# defaultstate is collapsed is folded as the file is read; C-c C-f on
+# another's first line folds it; and with the region active C-c C-f folds
+# just its lines (Fold Selection).
+printf '// region Setup\nint a;\nint b;\n// endregion\n// <editor-fold desc="Hidden" defaultstate="collapsed">\nint d;\n// </editor-fold>\nint e;\nint f;\nint g;\n' > build/smoke-tty-regions.c
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$PWD/build/smoke-tty-regions.c"
+send Enter
+expect 'int a;' "a file with marked regions is visited"
+expect '<editor-fold desc="Hidden" defaultstate="collapsed">  ... 2 lines' "a collapsed editor-fold is folded as the file is read"
+send M-\<
+send C-c C-f
+expect '// region Setup  ... 3 lines' "C-c C-f folds a region from its first line"
+send C-c C-f
+expect 'int b;' "and opens it"
+send M-\>
+send C-p C-p C-p
+send C-Space C-n C-n C-e
+send C-c C-f
+expect 'int e;  ... 2 lines' "C-c C-f with the region active folds its lines"
 send C-x k
 sleep 0.3
 send Enter
