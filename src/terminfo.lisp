@@ -45,7 +45,7 @@
                     (format stream "~A" (first (terminfo-names object)))))))
     (names (required-argument) :type list :read-only t)
     (booleans (required-argument) :type (simple-array (member t nil) (*)))
-    (numbers (required-argument) :type (simple-array (signed-byte 16) (*)))
+    (numbers (required-argument) :type (simple-array (signed-byte 32) (*)))
     (strings (required-argument) :type (simple-array t (*)))))
 
 
@@ -649,6 +649,12 @@
                        (if (> n 32767)
                            (- n 65536)
                            n)))
+                   (read-long (stream)
+                     (let ((n (loop for shift from 0 below 32 by 8
+                                    sum (ash (read-byte stream) shift))))
+                       (if (> n #x7FFFFFFF)
+                           (- n #x100000000)
+                           n)))
                    (read-string (stream)
                      (do ((c (read-byte stream) (read-byte stream))
                           (s '()))
@@ -668,21 +674,26 @@
                                            :element-type '(or t nil)
                                            :initial-element nil))
                      (numbers (make-array sznumbers
-                                          :element-type '(signed-byte 16)
+                                          :element-type '(signed-byte 32)
                                           :initial-element -1))
                      (strings (make-array szstrings
                                           :element-type '(signed-byte 16)
                                           :initial-element -1))
                      (stringtable (make-string szstringtable))
                      (count 0))
-                (unless (= magic #o432)
+                ;; ncurses' 32-bit format, which current systems write
+                ;; (pairs#65536 does not fit in 16 bits), differs only in
+                ;; its numbers being four bytes rather than two.
+                (unless (member magic '(#o432 #o1036))
                   (error "Invalid file format"))
                 (dotimes (i szbooleans)
                   (setf (aref booleans i) (not (zerop (read-byte stream)))))
                 (when (oddp (+ sznames szbooleans))
                   (read-byte stream))
                 (dotimes (i sznumbers)
-                  (setf (aref numbers i) (read-short stream)))
+                  (setf (aref numbers i) (if (= magic #o1036)
+                                             (read-long stream)
+                                             (read-short stream))))
                 (dotimes (i szstrings)
                   (unless (minusp (setf (aref strings i) (read-short stream)))
                     (incf count)))
@@ -1025,10 +1036,178 @@ either way over any conditional nested inside."
       (nreverse strings-and-delays))))
 
 
+;;;; Terminals known by name.
+;;;
+;;; Every terminal in use speaks xterm's dialect of ECMA-48: xterm, tmux and
+;;; screen, Terminal.app, iTerm2, kitty, Alacritty, WezTerm, foot, Ghostty,
+;;; VTE's (GNOME Terminal and the rest), Konsole, Windows Terminal.  So for a
+;;; $TERM of one of these families the entry is built here, from xterm's
+;;; (ncurses' xterm-256color, and tmux-256color for the multiplexers), and no
+;;; terminfo database is read: it need not be installed, nor in a format this
+;;; reader knows, nor right.  Any other $TERM is looked up as before.
+
+(defvar *builtin-terminals* t
+  "When true, a $TERM of a family every terminal now imitates (see
+   BUILTIN-TERMINAL-FAMILY) is given a built-in entry, and the terminfo
+   database is read only for others.")
+
+(defparameter *xterm-family-prefixes*
+  '("xterm" "alacritty" "kitty" "foot" "wezterm" "ghostty" "contour" "vte"
+    "gnome" "konsole" "iterm" "mintty" "rio" "ms-terminal")
+  "$TERM prefixes of terminals that are xterm's, as far as Heml looks.")
+
+(defun builtin-terminal-family (name)
+  "Which built-in entry NAME, a $TERM, gets: :XTERM, :TMUX, :SCREEN, or NIL
+   to have the terminfo database read."
+  (flet ((prefixp (prefix) (eql 0 (search prefix name))))
+    (cond ((prefixp "tmux") :tmux)
+          ((prefixp "screen") :screen)
+          ((some #'prefixp *xterm-family-prefixes*) :xterm))))
+
+(defun builtin-terminal-colors (name family)
+  "How many colours a terminal of FAMILY named NAME has: 256 when its name
+   or $COLORTERM says so, or when it is one of the newer terminals, which
+   all have 256 and more; else 16 or 8, as plain xterm's, tmux's and
+   screen's entries say."
+  (let ((colorterm (string-downcase (or (heml-ext:getenv "COLORTERM") ""))))
+    (cond ((or (some (lambda (word) (search word name)) '("256" "direct" "truecolor"))
+               (some (lambda (word) (search word colorterm)) '("truecolor" "24bit")))
+           256)
+          ((search "16color" name) 16)
+          ((and (eq family :xterm)
+                (or (not (eql 0 (search "xterm" name)))     ; alacritty, foot ...
+                    (search "kitty" name) (search "ghostty" name)))
+           256)
+          (t 8))))
+
+(defun expand-cap-string (string)
+  "STRING, a capability as infocmp writes it, as the terminal is sent it:
+   \\E for Escape and ^X for Control-X."
+  (with-output-to-string (out)
+    (loop with i = 0
+          while (< i (length string))
+          do (let ((c (char string i)))
+               (cond ((and (char= c #\\) (< (1+ i) (length string))
+                           (char= (char string (1+ i)) #\E))
+                      (write-char (code-char 27) out) (incf i 2))
+                     ((and (char= c #\^) (< (1+ i) (length string)))
+                      (let ((next (char string (1+ i))))
+                        (write-char (if (char= next #\?)
+                                        (code-char 127)
+                                        (code-char (logand (char-code next) #x1f)))
+                                    out))
+                      (incf i 2))
+                     (t (write-char c out) (incf i)))))))
+
+(defparameter *xterm-capabilities*
+  '((:auto-right-margin . t)
+    (:columns . 80) (:lines . 24)
+    (:bell . "^G") (:tab . "^I") (:newline . "\\EE")
+    (:clear-screen . "\\E[H\\E[2J") (:clr-eol . "\\E[K") (:clr-eos . "\\E[J")
+    (:cursor-address . "\\E[%i%p1%d;%p2%dH") (:column-address . "\\E[%i%p1%dG")
+    (:cursor-up . "\\E[A") (:cursor-down . "^J") (:cursor-left . "^H") (:cursor-right . "\\E[C")
+    (:cursor-invisible . "\\E[?25l") (:cursor-normal . "\\E[?12l\\E[?25h")
+    (:cursor-visible . "\\E[?12;25h")
+    (:insert-line . "\\E[L") (:delete-line . "\\E[M") (:delete-character . "\\E[P")
+    (:enter-insert-mode . "\\E[4h") (:exit-insert-mode . "\\E[4l")
+    (:enter-ca-mode . "\\E[?1049h\\E[22;0;0t") (:exit-ca-mode . "\\E[?1049l\\E[23;0;0t")
+    (:keypad-xmit . "\\E[?1h\\E=") (:keypad-local . "\\E[?1l\\E>")
+    (:init-2string . "\\E[!p\\E[?3;4l\\E[4l\\E>")
+    (:enter-bold-mode . "\\E[1m") (:enter-dim-mode . "\\E[2m")
+    (:enter-italics-mode . "\\E[3m") (:enter-underline-mode . "\\E[4m")
+    (:exit-underline-mode . "\\E[24m") (:enter-blink-mode . "\\E[5m")
+    (:enter-reverse-mode . "\\E[7m") (:enter-secure-mode . "\\E[8m")
+    (:enter-standout-mode . "\\E[7m") (:exit-standout-mode . "\\E[27m")
+    (:exit-attribute-mode . "\\E(B\\E[m")
+    (:enter-alt-charset-mode . "\\E(0") (:exit-alt-charset-mode . "\\E(B")
+    (:key-backspace . "^?") (:key-enter . "\\EOM")
+    (:key-up . "\\EOA") (:key-down . "\\EOB") (:key-right . "\\EOC") (:key-left . "\\EOD")
+    (:key-home . "\\EOH") (:key-end . "\\EOF")
+    (:key-ic . "\\E[2~") (:key-dc . "\\E[3~") (:key-ppage . "\\E[5~") (:key-npage . "\\E[6~")
+    (:key-f1 . "\\EOP") (:key-f2 . "\\EOQ") (:key-f3 . "\\EOR") (:key-f4 . "\\EOS")
+    (:key-f5 . "\\E[15~") (:key-f6 . "\\E[17~") (:key-f7 . "\\E[18~") (:key-f8 . "\\E[19~")
+    (:key-f9 . "\\E[20~") (:key-f10 . "\\E[21~") (:key-f11 . "\\E[23~") (:key-f12 . "\\E[24~")
+    (:key-sr . "\\E[1;2A") (:key-sf . "\\E[1;2B") (:key-sright . "\\E[1;2C")
+    (:key-sleft . "\\E[1;2D") (:key-shome . "\\E[1;2H") (:key-send . "\\E[1;2F")
+    (:key-sic . "\\E[2;2~") (:key-sdc . "\\E[3;2~")
+    (:key-sprevious . "\\E[5;2~") (:key-snext . "\\E[6;2~"))
+  "xterm-256color's capabilities, as many as Heml uses, as infocmp writes
+   them.  The colours are BUILTIN-TERMINFO's.")
+
+(defparameter *multiplexer-capabilities*
+  '((:clear-screen . "\\E[H\\E[J")
+    (:cursor-up . "\\EM")
+    (:cursor-normal . "\\E[34h\\E[?25h") (:cursor-visible . "\\E[34l")
+    (:enter-ca-mode . "\\E[?1049h") (:exit-ca-mode . "\\E[?1049l")
+    (:init-2string . "\\E)0")
+    (:exit-attribute-mode . "\\E[m^O")
+    (:enter-alt-charset-mode . "^N") (:exit-alt-charset-mode . "^O")
+    (:key-home . "\\E[1~") (:key-end . "\\E[4~") (:key-enter . nil))
+  "Where tmux-256color, and screen's, differ from xterm-256color.")
+
+(defparameter *screen-capabilities*
+  '((:enter-italics-mode . nil) (:enter-secure-mode . nil)
+    (:enter-standout-mode . "\\E[3m") (:exit-standout-mode . "\\E[23m")
+    (:key-sr . nil) (:key-sf . nil) (:key-sright . nil) (:key-sleft . nil)
+    (:key-shome . nil) (:key-send . nil) (:key-sic . nil) (:key-sdc . nil)
+    (:key-sprevious . nil) (:key-snext . nil))
+  "Where GNU screen's entry differs from tmux's, as far as Heml looks.")
+
+(defun builtin-terminfo (name)
+  "A terminfo entry for NAME, a $TERM, built here if it is of a family every
+   terminal now imitates (see BUILTIN-TERMINAL-FAMILY); else NIL."
+  (let ((family (and *builtin-terminals* (builtin-terminal-family name))))
+    (when family
+      (let* ((colors (builtin-terminal-colors name family))
+             (caps (append (case family
+                             (:screen (append *screen-capabilities* *multiplexer-capabilities*))
+                             (:tmux *multiplexer-capabilities*))
+                           (list (cons :max-colors colors))
+                           (if (= colors 8)
+                               '((:set-a-foreground . "\\E[3%p1%dm")
+                                 (:set-a-background . "\\E[4%p1%dm"))
+                               '((:set-a-foreground
+                                  . "\\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m")
+                                 (:set-a-background
+                                  . "\\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;5;%p1%d%;m")))
+                           *xterm-capabilities*))
+             (sizes (list (cons #'terminfo-booleans 0) (cons #'terminfo-numbers 0)
+                          (cons #'terminfo-strings 0))))
+        ;; The arrays as long as the capabilities this file defines.
+        (maphash (lambda (key whatsit)
+                   (declare (ignore key))
+                   (let ((size (assoc (car whatsit) sizes)))
+                     (setf (cdr size) (max (cdr size) (1+ (cdr whatsit))))))
+                 *capabilities*)
+        (let ((booleans (make-array (cdr (assoc #'terminfo-booleans sizes))
+                                    :element-type '(member t nil) :initial-element nil))
+              (numbers (make-array (cdr (assoc #'terminfo-numbers sizes))
+                                   :element-type '(signed-byte 32) :initial-element -1))
+              (strings (make-array (cdr (assoc #'terminfo-strings sizes)) :initial-element nil))
+              (seen '()))
+          ;; The first value given for a capability holds: the family's,
+          ;; then xterm's.
+          (loop for (cap . value) in caps
+                unless (member cap seen)
+                  do (push cap seen)
+                     (let ((whatsit (gethash cap *capabilities*)))
+                       (unless whatsit
+                         (error "Terminfo capability ~S doesn't exist." cap))
+                       (cond ((eq (car whatsit) #'terminfo-booleans)
+                              (setf (aref booleans (cdr whatsit)) (and value t)))
+                             ((eq (car whatsit) #'terminfo-numbers)
+                              (setf (aref numbers (cdr whatsit)) (or value -1)))
+                             (t
+                              (setf (aref strings (cdr whatsit))
+                                    (and value (expand-cap-string value)))))))
+          (make-terminfo :names (list name (format nil "built-in ~(~A~)" family))
+                         :booleans booleans :numbers numbers :strings strings))))))
+
 (defun set-terminal (&optional name)
   (setf *terminfo*
         (let ((name (or name (heml-ext:getenv "TERM") "dumb")))
-          (or (load-terminfo name)
+          (or (builtin-terminfo name)
+              (load-terminfo name)
               (error "Failed to load terminfo data for: ~A" name)))))
 
 

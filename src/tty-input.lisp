@@ -55,6 +55,13 @@
     (reg '(#\Esc #\O #\Q) #k"F2")
     (reg '(#\Esc #\O #\R) #k"F3")
     (reg '(#\Esc #\O #\S) #k"F4")
+    ;; Home and End as the families send them -- xterm's in each cursor-key
+    ;; mode, tmux's and screen's, rxvt's -- so that they work whatever $TERM
+    ;; says.  The entry's own, registered next, win where they differ.
+    (dolist (alias '(("[H" "Home") ("OH" "Home") ("[1~" "Home") ("[7~" "Home")
+                     ("[F" "End") ("OF" "End") ("[4~" "End") ("[8~" "End")))
+      (reg (concatenate 'string (string #\Esc) (first alias))
+           (heml-ext:make-key-event (second alias))))
     ;; Terminfo definitions for F1-F12
     (reg heml.terminfo:key-f1 #k"F1")
     (reg heml.terminfo:key-f2 #k"F2")
