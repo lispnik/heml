@@ -356,7 +356,10 @@
                "Returns the value of buffer's \"Current Package\" followed
                 by a colon and two spaces, or a string with one space."
                (declare (ignore window))
-               (let ((package (heml::package-at-point)))
+               ;; The package at this buffer's point, not the current
+               ;; buffer's: another window's modeline read the current one --
+               ;; a terminal's, say, and parsed what it printed as Lisp.
+               (let ((package (tag-package (line-tag (mark-line (buffer-point buffer))))))
                  (if package
                      (format nil "~A:  " package)
                      " "))))

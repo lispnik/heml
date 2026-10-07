@@ -116,9 +116,7 @@
   (let ((term (user-term user)))
     (when term
       (push (multiple-value-list
-             (cells-text term columns
-                         (lambda (column)
-                           (cffi:inc-pointer cells (* column vterm::+cell-size+)))))
+             (cells-text term columns cells vterm::+cell-size+ :positionsp nil))
             (term-pushed term))))
   1)
 
@@ -212,55 +210,79 @@
                         (when (logbitp 3 attrs) (list :italic t)))))
       (or font 0))))
 
-(defun cells-text (term columns cell-at)
-  "The text of a row of COLUMNS cells, each at (funcall CELL-AT column): its
-   characters, its fonts as ((POSITION . FONT) ...), and a vector of where
-   each column's character is in the text.  Blanks in the default font at
-   its end are left out."
-  (let ((text (make-string-output-stream))
-        (fonts '()) (font 0) (length 0) (last-ink 0)
-        ;; A cell styled as the one before it -- most are -- has its font:
-        ;; its attributes and colours, as they are, are compared first.
-        (style nil)
-        (positions (make-array (1+ columns) :initial-element 0)))
-    (dotimes (column columns)
-      (let* ((cell (funcall cell-at column))
-             (first (cffi:mem-aref cell :uint32 0)))
-        (setf (aref positions column) length)
-        (unless (= first #xFFFFFFFF)    ; the right half of a wide character
-          (let* ((attrs (cffi:mem-ref cell :uint32 *cell-attrs-offset*))
-                 (fg (cffi:mem-ref cell :uint32 *cell-fg-offset*))
-                 (bg (cffi:mem-ref cell :uint32 *cell-bg-offset*))
-                 (this (if (and style (= attrs (first style)) (= fg (second style))
-                                (= bg (third style)))
-                           font
-                           (progn (setf style (list attrs fg bg))
-                                  (cell-font term cell)))))
-            (unless (equal this font)
-              (push (cons length this) fonts)
-              (setf font this))
-            (cond ((zerop first) (write-char #\Space text))
-                  (t (write-char (code-char first) text)
-                     ;; Combining characters after it.
-                     (loop for i from 1 below 6
-                           for code = (cffi:mem-aref cell :uint32 i)
-                           until (zerop code)
-                           do (write-char (code-char code) text) (incf length))))
-            (incf length)
-            (unless (and (zerop first) (eql this 0))
-              (setf last-ink length))))))
-    (setf (aref positions columns) length)
-    (let ((string (get-output-stream-string text)))
-      (values (subseq string 0 last-ink)
-              (nreverse (remove-if (lambda (entry) (>= (car entry) last-ink)) fonts))
-              positions))))
+(defun blank-cell-p (cells offset)
+  "Whether the cell OFFSET bytes into CELLS is a blank in the default font:
+   no character, and nothing CELL-FONT would draw it with -- no bold,
+   underline, italic or reverse, and the default colours."
+  (and (zerop (cffi:mem-ref cells :uint32 offset))
+       (zerop (logand (cffi:mem-ref cells :uint32 (+ offset *cell-attrs-offset*)) #b101111))
+       (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-fg-offset*)) #x02)
+       (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-bg-offset*)) #x04)))
+
+(defun cells-text (term columns cells stride &key fetch (positionsp t))
+  "The text of a row of COLUMNS cells, column N's (* N STRIDE) bytes into
+   CELLS -- after (funcall FETCH N), if FETCH is given, which may put it there:
+   its characters, its fonts as ((POSITION . FONT) ...), and a vector of where
+   each column's character is in the text (unless POSITIONSP is false, for a
+   line scrolled off, which has no cursor).  Blanks in the default font at
+   its end are left out.  The cells are read at offsets from CELLS, rather
+   than each through a pointer of its own: a pointer is an object, and a
+   flood of output made millions of them."
+  (flet ((cell-offset (column)
+           (when fetch (funcall fetch column))
+           (* column stride)))
+    (let ((text (make-string-output-stream))
+          (fonts '()) (font 0) (length 0) (last-ink 0)
+          ;; A cell styled as the one before it -- most are -- has its font:
+          ;; its attributes and colours, as they are, are compared first.
+          (styled nil) (style-attrs 0) (style-fg 0) (style-bg 0)
+          (positions (and positionsp (make-array (1+ columns) :initial-element 0)))
+          ;; The blanks at the end -- most of a line of output -- are left
+          ;; out of the text anyway: only looked at once, from the end, and
+          ;; not read again.  They are a column each in POSITIONS.
+          (end (loop for column downfrom (1- columns) to 0
+                     unless (blank-cell-p cells (cell-offset column))
+                       return (1+ column)
+                     finally (return 0))))
+      (dotimes (column end)
+        (let* ((offset (cell-offset column))
+               (first (cffi:mem-ref cells :uint32 offset)))
+          (when positions (setf (aref positions column) length))
+          (unless (= first #xFFFFFFFF)  ; the right half of a wide character
+            (let* ((attrs (cffi:mem-ref cells :uint32 (+ offset *cell-attrs-offset*)))
+                   (fg (cffi:mem-ref cells :uint32 (+ offset *cell-fg-offset*)))
+                   (bg (cffi:mem-ref cells :uint32 (+ offset *cell-bg-offset*)))
+                   (this (if (and styled (= attrs style-attrs) (= fg style-fg) (= bg style-bg))
+                             font
+                             (progn (setf styled t style-attrs attrs style-fg fg style-bg bg)
+                                    (cell-font term (cffi:inc-pointer cells offset))))))
+              (unless (equal this font)
+                (push (cons length this) fonts)
+                (setf font this))
+              (cond ((zerop first) (write-char #\Space text))
+                    (t (write-char (code-char first) text)
+                       ;; Combining characters after it.
+                       (loop for i from 1 below 6
+                             for code = (cffi:mem-ref cells :uint32 (+ offset (* 4 i)))
+                             until (zerop code)
+                             do (write-char (code-char code) text) (incf length))))
+              (incf length)
+              (unless (and (zerop first) (eql this 0))
+                (setf last-ink length))))))
+      (when positions
+        (loop for column from end to columns
+              do (setf (aref positions column) (+ length (- column end)))))
+      (let ((string (get-output-stream-string text)))
+        (values (subseq string 0 last-ink)
+                (nreverse (remove-if (lambda (entry) (>= (car entry) last-ink)) fonts))
+                positions)))))
 
 (defun screen-row-text (term row)
+  ;; Each cell read into the one buffer in turn: a stride of 0.
   (let ((cell (term-cell term)) (screen (term-screen term)))
-    (cells-text term (term-columns term)
-                (lambda (column)
-                  (vterm:vterm-screen-get-cell screen row column cell)
-                  cell))))
+    (cells-text term (term-columns term) cell 0
+                :fetch (lambda (column)
+                         (vterm:vterm-screen-get-cell screen row column cell)))))
 
 
 ;;;; Drawing it in the buffer: the scrollback, then a line for each row of
@@ -308,14 +330,22 @@
         (let ((pushed (reverse (term-pushed term))))
           (setf (term-pushed term) '())
           (when pushed
+            ;; All of them in one region.  A line inserted on its own is
+            ;; numbered halfway between its neighbours, and lines inserted
+            ;; one after another at the same place use the gap up in a few
+            ;; lines: then the whole buffer, scrollback and all, is
+            ;; renumbered.  With a flood of output that was most of the
+            ;; time; inserted as one region, they are renumbered at most once.
             (with-mark ((mark (term-screen-mark term) :left-inserting))
-              (dolist (entry pushed)
-                (destructuring-bind (string fonts positions) entry
-                  (declare (ignore positions))
-                  (let ((line (mark-line mark)))
-                    (insert-string mark string)
-                    (insert-character mark #\Newline)
-                    (setf (getf (line-plist line) 'term-fonts) fonts))))
+              (let ((first (mark-line mark)))
+                (ninsert-region mark (string-to-region
+                                      (with-output-to-string (s)
+                                        (dolist (entry pushed)
+                                          (write-string (first entry) s)
+                                          (write-char #\Newline s)))))
+                (loop for entry in pushed
+                      for line = first then (line-next line)
+                      do (setf (getf (line-plist line) 'term-fonts) (second entry))))
               (move-mark (term-screen-mark term) mark))
             (incf (term-scrollback term) (length pushed))
             ;; The scrollback kept within its limit.
@@ -488,6 +518,12 @@
     ;; What the program draws is not the user's to undo, and recording it
     ;; would take most of the time and keep all of it.
     (setf (buffer-undo-p buffer) nil)
+    ;; Nor is it Lisp: the modeline's package, read from the (in-package
+    ;; ...) above point, had every line the program wrote parsed as Lisp at
+    ;; each redisplay -- an eighth of the time output streamed in.  (By
+    ;; name: the default fields' objects need not be MODELINE-FIELD's.)
+    (setf (buffer-modeline-fields buffer)
+          (remove :package (buffer-modeline-fields buffer) :key #'modeline-field-name))
     (setf (gethash id *terms*) term)
     (change-to-buffer buffer)
     (multiple-value-bind (rows columns) (term-window-size term)
