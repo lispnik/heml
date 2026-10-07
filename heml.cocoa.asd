@@ -23,5 +23,9 @@
               :components
               ((:file "cocoa-package")
                (:file "cocoa-appkit")
+               (:file "cocoa-panels")
+               (:file "cocoa-chrome")
+               (:file "cocoa-settings")
+               (:file "cocoa-palette")
                (:file "cocoa-device")
                (:file "cocoa-main")))))

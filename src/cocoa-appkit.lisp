@@ -36,6 +36,14 @@ whoever is working while it runs.")
 every application shares, or the name of a private one, as the smoke test
 uses so as not to overwrite the user's clipboard.")
 
+(defvar *remember-window-frame* t
+  "Whether the window is put where it was when last closed (its frame is
+   saved by AppKit as \"NSWindow Frame HemlWindow\").  The smoke test
+   leaves it alone.")
+
+(defvar *settings-window* nil
+  "The Settings window, once it has been opened (cocoa-settings.lisp).")
+
 (defvar *remember-font* t
   "Whether the font chosen is kept in the user defaults for next time.")
 
@@ -86,9 +94,25 @@ uses so as not to overwrite the user's clipboard.")
   ;; The current buffer's major mode, for the menus that belong to one.
   (mode nil)
   (shown-mode nil)
-  ;; What the window's title bar says: (NAME FILE MODIFIED PROJECT).
+  ;; What the window's title bar says: (NAME FILE MODIFIED PROJECT ROOT).
   (title nil)
-  (shown-title nil))
+  (shown-title nil)
+  ;; The popup, shown as a panel of its own: a property list, or NIL.
+  (popup nil)
+  (shown-popup nil)
+  ;; Each window's place in its buffer, for its scroll bar and for scrolling
+  ;; by points: ((COLUMN LINE WIDTH HEIGHT POSITION SIZE AT-START AT-END
+  ;; ABOVE BELOW FRINGE) ...), POSITION and SIZE fractions (WINDOW-SCROLLS).
+  (scrolls nil)
+  (shown-scrolls nil)
+  ;; Frames presented, so that the main thread knows when one has come.
+  (frames 0 :type fixnum)
+  ;; The files open, for their tabs: (CURRENT (NAME MODIFIED TITLE) ...).
+  (tabs nil)
+  (shown-tabs nil)
+  ;; The echo area as a palette while it prompts: a property list, or NIL.
+  (palette nil)
+  (shown-palette nil))
 
 (defun make-screen (columns lines)
   (let ((screen (%make-screen columns lines)))
@@ -412,6 +436,7 @@ The window keeps its size and the grid is fitted to it again.  Main thread."
     (install-fonts display)
     (fit-window-to-cell display)
     (save-font-choice)
+    (when *settings-window* (refresh-settings-window))
     (multiple-value-bind (columns lines) (grid-size display)
       (post-to-editor (list :resize columns lines)))
     ;; The edges are where they were in cells, but not in points.
@@ -744,7 +769,12 @@ font has no face for is the upright face slanted."
 
 (defun blink-caret ()
   "From the view's timer, on the main thread: the caret on or off, unless it
-   moved a moment ago."
+   moved a moment ago; and a scroll bar away once it has been shown long
+   enough."
+  (when (scrollers-to-hide-p)
+    (let ((display *display*))
+      (when display
+        (objc:invoke (display-view display) "setNeedsDisplay:" t))))
   (let ((still (/ (- (get-internal-real-time) *caret-moved-at*)
                   internal-time-units-per-second)))
     (when (and *cursor-blink* (eq *cursor-style* :bar) (> still *blink-interval*))
@@ -753,11 +783,58 @@ font has no face for is the upright face slanted."
         (when display
           (objc:invoke (display-view display) "setNeedsDisplay:" t))))))
 
+;;; Scroll bars as the Mac's own overlay ones are: a thin rounded thumb at
+;;; a window's right edge, shown while it scrolls and for a moment after.
+;;;
+(defparameter *scroller-shown-for* 1.2
+  "Seconds a window's scroll bar stays after it last scrolled.")
+
+(defvar *scrolled-at* (make-hash-table :test 'equal)
+  "Each window, by its column and line on the screen, to when it last
+   scrolled and its place then.")
+
+(defun note-scrolls (new old)
+  "The windows whose place in their buffers moved between the frames OLD and
+   NEW scrolled now."
+  (let ((now (get-internal-real-time)))
+    (dolist (entry new)
+      (destructuring-bind (column line width height position size &rest more) entry
+        (declare (ignore width height size more))
+        (let ((before (find-if (lambda (e) (and (eql (first e) column) (eql (second e) line))) old)))
+          (when (and before (/= (fifth before) position))
+            (setf (gethash (cons column line) *scrolled-at*) now)))))))
+
+(defun scroller-age (column line)
+  (let ((at (gethash (cons column line) *scrolled-at*)))
+    (and at (/ (- (get-internal-real-time) at) internal-time-units-per-second))))
+
+(defun scrollers-to-hide-p ()
+  (loop for at being the hash-values of *scrolled-at*
+        thereis (< (/ (- (get-internal-real-time) at) internal-time-units-per-second)
+                   (+ *scroller-shown-for* 1))))
+
+(defun draw-scrollers (display scrolls)
+  (loop for (column line width height position size) in scrolls
+        for age = (scroller-age column line)
+        when (and age (< age *scroller-shown-for*) (< size 1))
+          do (let* ((track-top (+ (cell-y display line) 2))
+                    (track (- (* height (display-char-height display)) 4))
+                    (thumb (max 24 (* size track)))
+                    (top (+ track-top (* position (- track thumb))))
+                    (left (- (cell-x display (+ column width)) 8))
+                    (path (objc:invoke "NSBezierPath" "bezierPathWithRoundedRect:xRadius:yRadius:"
+                                       (vector (df left) (df top) 6d0 (df thumb))
+                                       3d0 3d0)))
+               (objc:invoke (objc:invoke (objc:invoke "NSColor" "labelColor")
+                                         "colorWithAlphaComponent:" 0.35d0)
+                            "set")
+               (objc:invoke path "fill"))))
+
 (defun draw-cursor (display screen key-window-p)
   (let ((x (screen-shown-cursor-x screen))
         (y (screen-shown-cursor-y screen))
         (rows (screen-shown-rows screen)))
-    (when (and x y (< -1 y (length rows)))
+    (when (and x y (< -1 y (length rows)) (not (palette-hides-row-p y)))
       (let* ((text (row-text (svref rows y)))
              (left (cell-x display x))
              (top (cell-y display y))
@@ -804,12 +881,18 @@ underlined, laid out in cells as a row's text is."
   (let ((bounds (objc:invoke (display-view display) "bounds")))
     (fill-rect (background-color display) 0 0 (aref bounds 2) (aref bounds 3)))
   (with-screen-lock (screen)
-    (let ((rows (screen-shown-rows screen)))
+    (let ((rows (screen-shown-rows screen))
+          (key-window-p (objc:invoke-bool (display-window display) "isKeyWindow")))
       (dotimes (line (length rows))
-        (draw-row display (svref rows line) line)))
-    (draw-cursor display screen
-                 (objc:invoke-bool (display-window display) "isKeyWindow"))
-    (draw-marked-text display screen)))
+        (unless (palette-hides-row-p line)
+          (draw-row display (svref rows line) line)))
+      (multiple-value-bind (entry shift) (scroll-shift screen)
+        (cond (entry
+               (draw-shifted display screen entry shift key-window-p))
+              (t
+               (draw-cursor display screen key-window-p))))
+      (draw-scrollers display (screen-shown-scrolls screen))
+      (draw-marked-text display screen))))
 
 (defun present-screen (screen)
   "Make what the editor has drawn what the view shows.  A row's text and
@@ -818,6 +901,7 @@ edges have moved, AppKit is told to ask the view for its cursor rectangles
 again."
   (let ((borders-moved nil))
     (with-screen-lock (screen)
+      (incf (screen-frames screen))
       (setf (screen-shown-rows screen) (map 'simple-vector #'copy-row (screen-rows screen))
             (screen-shown-cursor-x screen) (screen-cursor-x screen)
             (screen-shown-cursor-y screen) (screen-cursor-y screen))
@@ -831,7 +915,20 @@ again."
       (unless (or (null (screen-title screen))
                   (equal (screen-title screen) (screen-shown-title screen)))
         (let ((title (setf (screen-shown-title screen) (screen-title screen))))
-          (on-main-thread (show-title title))))
+          (on-main-thread (show-title title)
+                          (note-sidebar-root (fifth title)))))
+      (unless (or (null (screen-tabs screen))
+                  (equal (screen-tabs screen) (screen-shown-tabs screen)))
+        (let ((tabs (setf (screen-shown-tabs screen) (screen-tabs screen))))
+          (on-main-thread (show-tabs tabs))))
+      (note-scrolls (screen-scrolls screen) (screen-shown-scrolls screen))
+      (setf (screen-shown-scrolls screen) (screen-scrolls screen))
+      (unless (equal (screen-palette screen) (screen-shown-palette screen))
+        (let ((palette (setf (screen-shown-palette screen) (screen-palette screen))))
+          (on-main-thread (show-palette palette))))
+      (unless (equal (screen-popup screen) (screen-shown-popup screen))
+        (let ((popup (setf (screen-shown-popup screen) (screen-popup screen))))
+          (on-main-thread (show-popup-panel popup))))
       ;; Typing, or anything else drawn, shows the caret steadily.
       (note-caret-moved))
     (when borders-moved
@@ -862,7 +959,8 @@ again."
 ;;; the close button while it has unsaved changes, and the project under it.
 ;;;
 (defun show-title (title)
-  (destructuring-bind (name file modified project) title
+  (destructuring-bind (name file modified project &optional root) title
+    (declare (ignore root))
     (let* ((display *display*)
            (window (and display (display-window display))))
       (when window
@@ -1010,7 +1108,218 @@ movement in points, a fraction of a line at a time.")
 (defparameter *lines-per-wheel-step* 3
   "Lines a notch of a mouse wheel scrolls.  A trackpad scrolls by distance.")
 
+;;; Scrolling by points, as a Mac text view scrolls with a trackpad.  The
+;;; editor scrolls by lines; between them the main thread draws the window's
+;;; text moved by the part of a line scrolled so far, with the line coming in
+;;; (each window's scroll entry carries its text) in the strip that opens.
+;;; At either end of the buffer the text is pulled on a rubber band, and
+;;; springs back when the fingers leave; a part of a line left when they do
+;;; settles to the nearest line.  macOS gives the momentum itself, as more
+;;; scroll events after the fingers leave.
+;;;
+(defvar *pixel-scrolling* t
+  "Whether a trackpad scrolls by points, with a bounce at the ends.  NIL
+   scrolls by whole lines, as a mouse wheel does.")
+
+(defparameter *overscroll-limit* 1/4
+  "How far past an end the text can be pulled, as a fraction of its
+   window's height.")
+
+(defvar *pixel-scroll* nil
+  "The window being scrolled by points, as a list: its (COLUMN LINE), the
+   offset in points (positive with the text moved down, toward the lines
+   before), the lines posted and the frame they were posted after, and the
+   cell and modifiers to post more at.  On the main thread.")
+
+(defvar *scroll-touching* nil
+  "Whether fingers are on the trackpad, scrolling.")
+
+(defvar *scroll-event-at* 0)
+
+(defvar *settle-timer* nil)
+
+(defmacro scroll-state (field)
+  `(getf (cdr *pixel-scroll*) ,field))
+
+(defun scrolls-entry (key)
+  (find-if (lambda (entry) (and (eql (first entry) (first key))
+                                (eql (second entry) (second key))))
+           (with-screen-lock (*screen*) (screen-shown-scrolls *screen*))))
+
+(defun scrolls-entry-at (column line)
+  (find-if (lambda (entry)
+             (destructuring-bind (c l width height &rest more) entry
+               (declare (ignore more))
+               (and (<= c column (+ c width -1)) (<= l line (+ l height -1)))))
+           (with-screen-lock (*screen*) (screen-shown-scrolls *screen*))))
+
+(defun pending-lines ()
+  "Lines posted that the frame shown does not have yet."
+  (if (and *pixel-scroll*
+           (eql (scroll-state :posted-after) (with-screen-lock (*screen*) (screen-frames *screen*))))
+      (scroll-state :posted)
+      0))
+
+(defun post-scroll-line (up)
+  "Have the editor scroll the window a line: toward the lines before when UP."
+  (destructuring-bind (column line modifiers) (scroll-state :cell)
+    (let ((frames (with-screen-lock (*screen*) (screen-frames *screen*))))
+      (unless (eql frames (scroll-state :posted-after))
+        (setf (scroll-state :posted-after) frames
+              (scroll-state :posted) 0))
+      (incf (scroll-state :posted) (if up 1 -1))
+      (post-to-editor (list :mouse (if up "Scrollup" "Scrolldown") modifiers column line)))))
+
+(defun scroll-by-points (entry delta)
+  "Move the text of ENTRY's window DELTA points, posting a line to the
+   editor each time a line's height is passed, or, past an end, pulling it
+   on the rubber band."
+  (destructuring-bind (column line width height position size
+                       &optional at-start at-end &rest more)
+      entry
+    (declare (ignore column line width position size more))
+    (let* ((cell (display-char-height *display*))
+           (limit (* *overscroll-limit* height cell))
+           (offset (scroll-state :offset)))
+      (when (or (and at-start (plusp delta) (>= offset 0))
+                (and at-end (minusp delta) (<= offset 0)))
+        (setf delta (* delta (max 0 (- 1 (/ (abs offset) limit))))))
+      (incf offset delta)
+      (loop while (and (not at-start) (>= offset cell))
+            do (post-scroll-line t)
+               (decf offset cell))
+      (loop while (and (not at-end) (<= offset (- cell)))
+            do (post-scroll-line nil)
+               (incf offset cell))
+      (setf (scroll-state :offset) offset))))
+
+(defun pixel-scroll (event)
+  (multiple-value-bind (column line) (event-cell event)
+    ;; Began, stationary, changed or may begin: the fingers are down.
+    (scroll-points-at column line (event-modifiers event)
+                      (objc:invoke event "scrollingDeltaY")
+                      (logtest (objc:invoke event "phase") #x27))))
+
+(defun scroll-points-at (column line modifiers delta touching)
+  "Scroll the window at the cell COLUMN, LINE by DELTA points, positive
+   toward the lines before; TOUCHING when the fingers are still down."
+  (setf *scroll-touching* touching
+        *scroll-event-at* (get-internal-real-time))
+  (let ((entry (scrolls-entry-at column line)))
+    (when entry
+      (let ((key (list (first entry) (second entry))))
+        (unless (equal key (car *pixel-scroll*))
+          (setf *pixel-scroll* (list key :offset 0d0 :posted 0 :posted-after -1)))
+        (setf (scroll-state :cell) (list column line modifiers))
+        (scroll-by-points entry (df delta))
+        (start-settling)
+        (objc:invoke (display-view *display*) "setNeedsDisplay:" t)))))
+
+(defun start-settling ()
+  (unless *settle-timer*
+    (setf *settle-timer*
+          (objc:invoke "NSTimer" "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"
+                       (df 1/60) (display-view *display*) (objc:coerce-to-selector "hemlSettle:")
+                       (cffi:null-pointer) t))))
+
+(defun stop-settling ()
+  (when *settle-timer*
+    (objc:invoke *settle-timer* "invalidate")
+    (setf *settle-timer* nil)))
+
+(defun settle-scroll ()
+  "From the timer, while a window's text is moved by part of a line: once the
+   fingers are off and no momentum is coming, move it toward where it rests,
+   its place before the rubber band, or the nearest line."
+  (let ((entry (and *pixel-scroll* (scrolls-entry (car *pixel-scroll*)))))
+    (cond ((null entry)
+           (setf *pixel-scroll* nil)
+           (stop-settling))
+          ((or *scroll-touching*
+               (< (- (get-internal-real-time) *scroll-event-at*)
+                  (* 0.05 internal-time-units-per-second))))
+          (t
+           (destructuring-bind (column line width height position size
+                                &optional at-start at-end &rest more)
+               entry
+             (declare (ignore column line width height position size more))
+             (let* ((cell (display-char-height *display*))
+                    (offset (scroll-state :offset))
+                    (target (cond ((or (and at-start (plusp offset)) (and at-end (minusp offset))) 0)
+                                  ((> (abs offset) (/ cell 2)) (* (signum offset) cell))
+                                  (t 0)))
+                    (step (* 0.2d0 (- target offset))))
+               (scroll-by-points entry (if (< (abs (- target offset)) 0.5d0) (- target offset) step))
+               (when (and (zerop (scroll-state :offset)) (zerop (pending-lines)))
+                 (stop-settling))
+               (objc:invoke (display-view *display*) "setNeedsDisplay:" t)))))))
+
+(defun scroll-shift (screen)
+  "The scroll entry of the window drawn moved, and by how many points, or
+   NIL.  With the screen locked."
+  (let ((state *pixel-scroll*))
+    (when state
+      (let* ((key (car state))
+             (entry (find-if (lambda (entry) (and (eql (first entry) (first key))
+                                                  (eql (second entry) (second key))))
+                             (screen-shown-scrolls screen)))
+             (shift (and entry
+                         (+ (getf (cdr state) :offset)
+                            (* (if (eql (getf (cdr state) :posted-after) (screen-frames screen))
+                                   (getf (cdr state) :posted)
+                                   0)
+                               (display-char-height *display*))))))
+        (when (and entry (/= shift 0))
+          (values entry shift))))))
+
+(defun draw-shifted (display screen entry shift key-window-p)
+  "ENTRY's window's text drawn again SHIFT points down, within the window,
+   with the line coming in drawn plainly in the strip that opens, and the
+   caret with it when it is there."
+  (destructuring-bind (column line width height position size
+                       &optional at-start at-end above below (fringe 0) &rest more)
+      entry
+    (declare (ignore position size more))
+    (let* ((rows (screen-shown-rows screen))
+           (left (cell-x display column))
+           (top (cell-y display line))
+           (rect (vector (df left) (df top)
+                         (df (* width (display-char-width display)))
+                         (df (* height (display-char-height display)))))
+           (transform (objc:invoke "NSAffineTransform" "transform"))
+           (x (screen-shown-cursor-x screen))
+           (y (screen-shown-cursor-y screen))
+           (caret-inside (and x y (<= line y (+ line height -1)) (<= column x (+ column width)))))
+      (fill-rect (background-color display) (aref rect 0) (aref rect 1) (aref rect 2) (aref rect 3))
+      (objc:invoke "NSGraphicsContext" "saveGraphicsState")
+      (unwind-protect
+           (progn
+             (objc:invoke "NSBezierPath" "clipRect:" rect)
+             (objc:invoke transform "translateXBy:yBy:" 0d0 (df shift))
+             (objc:invoke transform "concat")
+             (loop for row from line below (min (length rows) (+ line height))
+                   do (draw-row display (svref rows row) row))
+             (flet ((incoming (text row)
+                      (when (and text (plusp (length text)))
+                        (let* ((start (+ column fringe))
+                               (string (concatenate 'string (make-string start :initial-element #\Space)
+                                                    (subseq text 0 (min (length text) (- width fringe))))))
+                          (draw-text display string start (length string) row
+                                     (color-name-for 9) nil)))))
+               (cond ((and (plusp shift) (not at-start)) (incoming above (1- line)))
+                     ((and (minusp shift) (not at-end)) (incoming below (+ line height)))))
+             (when caret-inside
+               (draw-cursor display screen key-window-p)))
+        (objc:invoke "NSGraphicsContext" "restoreGraphicsState"))
+      (unless caret-inside
+        (draw-cursor display screen key-window-p)))))
+
 (defun post-scroll (event)
+  (if (and *pixel-scrolling* (objc:invoke-bool event "hasPreciseScrollingDeltas"))
+      (pixel-scroll event)
+      (post-wheel-scroll event)))
+
+(defun post-wheel-scroll (event)
   (let* ((delta (objc:invoke event "scrollingDeltaY"))
          (lines (+ *scroll-remainder*
                    (if (objc:invoke-bool event "hasPreciseScrollingDeltas")
@@ -1084,6 +1393,14 @@ movement in points, a fraction of a line at a time.")
 
 (objc:define-objc-method ("hemlDrain" :void) ((self heml-view))
   (drain-main-thread-queue))
+
+(objc:define-objc-method ("hemlSettle:" :void)
+    ((self heml-view) (timer objc:objc-object-pointer))
+  (declare (ignore timer))
+  (handler-case (settle-scroll)
+    (error (condition)
+      (stop-settling)
+      (log-error "hemlSettle:" condition))))
 
 (objc:define-objc-method ("hemlBlink:" :void)
     ((self heml-view) (timer objc:objc-object-pointer))
@@ -1258,6 +1575,9 @@ consume, and the keys they are.")
 (defun show-font-panel ()
   (let ((manager (objc:invoke "NSFontManager" "sharedFontManager")))
     (objc:invoke manager "setSelectedFont:isMultiple:" (display-font *display*) nil)
+    ;; The editor's view takes the choice whatever window is in front: the
+    ;; Settings window's button opens the panel too.
+    (objc:invoke manager "setTarget:" (display-view *display*))
     (objc:invoke manager "orderFrontFontPanel:" nil)))
 
 (objc:define-objc-method ("changeFont:" :void)
@@ -1290,7 +1610,7 @@ consume, and the keys they are.")
        (list :command "Write File"
              (objc:ns-string-to-string (objc:invoke (objc:invoke panel "URL") "path")))))))
 
-(defun open-settings ()
+(defun open-init-file ()
   "The init file, which is where Heml's settings are: the first that exists
 of those Heml loads, or else ~/.config/heml/init.lisp, made in a directory
 that exists, ready to save."
@@ -1637,12 +1957,17 @@ other modes'.  Main thread."
                  *blink-interval* view (objc:coerce-to-selector "hemlBlink:")
                  (cffi:null-pointer) t)
     (objc:invoke window "center")
+    ;; Where it was when last closed, and reopened after a logout.
+    (when *remember-window-frame*
+      (objc:invoke window "setFrameAutosaveName:" "HemlWindow")
+      (objc:invoke window "setRestorable:" t))
     (setf (display-window display) window
           (display-view display) view
           (display-view-object display) view-object
           (display-delegate display) delegate
           *main-thread-target* view)
     (fit-window-to-cell display)
+    (restore-chrome display)
     display))
 
 (defun use-icon-if-unbundled (app)

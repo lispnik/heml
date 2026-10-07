@@ -35,6 +35,8 @@
 (setf heml.cocoa::*activate* nil
       heml.cocoa::*pasteboard-name* "org.lispnik.heml.smoke"
       heml.cocoa::*remember-font* nil
+      heml.cocoa::*remember-window-frame* nil
+      heml.cocoa::*remember-chrome* nil
       heml.cocoa:*font-size* 13
       heml.cocoa:*font-name* nil)
 
@@ -143,13 +145,14 @@
 
 (defvar *shot* 0)
 
-(defun shot (name)
+(defun shot (name &optional (view-function #'view))
   (let ((path (namestring (merge-pathnames (format nil "~2,'0D-~A.png" (incf *shot*) name)
                                            *out*))))
     (main
-      (let* ((bounds (objc:invoke (view) "bounds"))
-             (rep (objc:invoke (view) "bitmapImageRepForCachingDisplayInRect:" bounds)))
-        (objc:invoke (view) "cacheDisplayInRect:toBitmapImageRep:" bounds rep)
+      (let* ((view (funcall view-function))
+             (bounds (objc:invoke view "bounds"))
+             (rep (objc:invoke view "bitmapImageRepForCachingDisplayInRect:" bounds)))
+        (objc:invoke view "cacheDisplayInRect:toBitmapImageRep:" bounds rep)
         (objc:invoke (objc:invoke rep "representationUsingType:properties:" 4
                                   (objc:invoke "NSDictionary" "dictionary"))
                      "writeToFile:atomically:" path t)))))
@@ -200,16 +203,49 @@
                                        "itemWithTitle:" title)
                           "isHidden")))
 
+(defun popup-rows-as-rows (popup)
+  "The rows of POPUP, a panel's description, as rows of the screen: a
+   chosen row in the chosen font, the others in the popup's, and the parts
+   marked in their own."
+  (loop for (text selected) in (getf popup :rows)
+        for index from 0
+        collect (let* ((row (heml.cocoa::make-row))
+                       (base (if selected heml::*popup-selected-font* heml::*popup-font*))
+                       (marks (loop for (r start end font) in (getf popup :highlights)
+                                    when (= r index) collect (list start end font)))
+                       (runs '())
+                       (at 0))
+                  (dolist (mark (sort marks #'< :key #'first))
+                    (destructuring-bind (start end font) mark
+                      (when (< at start) (push (list* at start base) runs))
+                      (push (list* start end font) runs)
+                      (setf at end)))
+                  (when (< at (length text)) (push (list* at (length text) base) runs))
+                  (setf (heml.cocoa::row-text row) (coerce text 'simple-string)
+                        (heml.cocoa::row-runs row) (nreverse runs))
+                  row)))
+
+(defun screen-rows* ()
+  "The screen's rows, and a popup's as rows too: popups are panels of their
+   own now, and a check finds a popup's text as it did when they were drawn
+   over the editor's."
+  (let* ((screen heml.cocoa::*screen*)
+         (popup (heml.cocoa::with-screen-lock (screen) (heml.cocoa::screen-shown-popup screen)))
+         (rows (heml.cocoa::screen-rows screen)))
+    (if popup
+        (concatenate 'simple-vector rows (popup-rows-as-rows popup))
+        rows)))
+
 (defun row-runs-containing (text)
   "The font runs of the first screen row that shows TEXT, or :NONE."
   (let ((row (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
-                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                      (screen-rows*))))
     (if row (heml.cocoa::row-runs row) :none)))
 
 (defun run-font-at (text offset)
   "The font drawn at OFFSET characters into TEXT, where TEXT is on screen."
   (let ((row (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
-                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                      (screen-rows*))))
     (when row
       (let ((column (+ offset (search text (heml.cocoa::row-text row)))))
         (loop for (start end . font) in (heml.cocoa::row-runs row)
@@ -292,7 +328,7 @@
   (flet ((point-line () (line-text (hi::mark-line (hi::current-point))))
          (row-p (text)
            (find text (map 'list #'heml.cocoa::row-text
-                           (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                           (screen-rows*))
                  :test #'search))
          (starts-p (text) (eql 0 (search text (buffer-text)))))
     (check "the modeline says what the server says it is doing, and how far it is"
@@ -511,7 +547,7 @@
          (file (merge-pathnames "watch.pas" directory)))
     (flet ((row-p (text)
              (find text (map 'list #'heml.cocoa::row-text
-                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                             (screen-rows*))
                    :test #'search))
            (write-to (file text)
              (with-open-file (out file :direction :output :if-exists :supersede)
@@ -618,7 +654,7 @@
     (settle)
     (flet ((click-marker ()
              ;; The marker's own cell: the window need not be at the left.
-             (let* ((rows (heml.cocoa::screen-rows heml.cocoa::*screen*))
+             (let* ((rows (screen-rows*))
                     (row (position-if (lambda (row) (search ";;; --- A ---" (heml.cocoa::row-text row)))
                                       rows))
                     (text (heml.cocoa::row-text (elt rows row)))
@@ -627,7 +663,7 @@
                (mouse :up column row)))
            (row-p (text)
              (find-if (lambda (row) (search text (heml.cocoa::row-text row)))
-                      (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                      (screen-rows*))))
       (check "a section's header is marked in the fringe"
              (wait-until (lambda () (row-p "▼;;; --- A ---")) 10))
       (click-marker)
@@ -675,7 +711,157 @@
                           (and (search "titled.txt" (heml.cocoa::row-text row))
                                (some (lambda (run) (eq (getf (cddr run) :modeline) :active))
                                      (heml.cocoa::row-runs row))))
-                        (heml.cocoa::screen-rows heml.cocoa::*screen*)))))))
+                        (screen-rows*)))))))
+
+(defun first-shown-line ()
+  "The text of the current window's first line."
+  (hi::line-string (hi::mark-line (hi::window-display-start (hi::current-window)))))
+
+(defun scroll-shift ()
+  "How far the window being scrolled by points is drawn moved, or NIL."
+  (main (nth-value 1 (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                       (heml.cocoa::scroll-shift heml.cocoa::*screen*)))))
+
+(defun pixel-scroll-checks ()
+  (note "scrolling by points, with a bounce at the ends")
+  (let ((file (merge-pathnames "pixels.txt" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (dotimes (i 200) (format out "row ~D~%" i)))
+    (post-key #\1 "Control") (post-key #\x "Control") (post-key #\1)
+    (post (list :open (namestring file)))
+    (post-key #\< "Meta")
+    (settle)
+    (wait-until (lambda () (equal "row 0" (first-shown-line))) 5)
+    (let* ((cell (main (heml.cocoa::display-char-height heml.cocoa::*display*)))
+           (column 4)
+           (line (main (second (first (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                                        (heml.cocoa::screen-shown-scrolls heml.cocoa::*screen*)))))))
+      (flet ((scroll (points touching)
+               (main (heml.cocoa::scroll-points-at column (+ line 2) nil points touching))))
+        ;; Pulled down at the start: the text moves, and no line scrolls.
+        (scroll (* 2 cell) t)
+        (scroll (* 2 cell) t)
+        (check "pulled past the start, the text is drawn lower, on a rubber band"
+               (let ((shift (scroll-shift)))
+                 (and shift (< 0 shift (* 4 cell)))))
+        (check "and nothing scrolls"
+               (progn (settle) (equal "row 0" (first-shown-line))))
+        (shot "overscroll")
+        (scroll 0 nil)
+        (check "let go, it springs back"
+               (wait-until (lambda () (null (scroll-shift))) 3))
+        ;; Two lines and a half: two scroll, and the half is drawn.
+        (scroll (* -2.5 cell) t)
+        (check "scrolled by points, the editor scrolls the whole lines"
+               (wait-until (lambda () (equal "row 2" (first-shown-line))) 5))
+        (check "and the part of a line is drawn"
+               (wait-until (lambda () (let ((shift (scroll-shift)))
+                                        (and shift (< (- cell) shift 0))))
+                           2))
+        (shot "pixel-scroll")
+        (scroll 0 nil)
+        (check "let go, it settles on a line"
+               (wait-until (lambda () (and (null (scroll-shift))
+                                           (member (first-shown-line) '("row 2" "row 3")
+                                                   :test #'equal)))
+                           3))))))
+
+(defun palette-checks ()
+  (note "the command palette")
+  (post-key #\> "Meta")
+  (settle)
+  (post-key #\x "Meta")
+  (check "M-x shows the palette"
+         (wait-until (lambda () (main (and heml.cocoa::*palette-panel*
+                                           (objc:invoke-bool heml.cocoa::*palette-panel* "isVisible"))))
+                     5))
+  (post-text "beginning buf")
+  (flet ((palette () (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                       (heml.cocoa::screen-shown-palette heml.cocoa::*screen*))))
+    (check "what is typed finds the commands with its letters in order, the best first"
+           (wait-until (lambda () (equal "Beginning of Buffer" (first (getf (palette) :matches)))) 5))
+    (shot "palette" (lambda () (objc:invoke heml.cocoa::*palette-panel* "contentView")))
+    (post (list :named "Downarrow" '()))
+    (check "Down chooses the next"
+           (wait-until (lambda () (eql 1 (getf (palette) :index))) 5))
+    (post (list :named "Uparrow" '()))
+    (settle)
+    (post (list :named "Return" '()))
+    (check "Return runs the one chosen"
+           (wait-until (lambda () (and (null (palette))
+                                       (equal "row 0" (hi::line-string
+                                                       (hi::mark-line (hi::current-point))))))
+                       5))
+    (check "and the palette is put away"
+           (main (not (objc:invoke-bool heml.cocoa::*palette-panel* "isVisible"))))))
+
+(defun chrome-checks ()
+  (note "the sidebar, the tabs and the scroll bars")
+  ;; Two files, and so two tabs.
+  (let ((one (merge-pathnames "tab-one.txt" *out*))
+        (two (merge-pathnames "tab-two.txt" *out*))
+        (width (main (aref (objc:invoke (window) "frame") 2))))
+    (with-open-file (out one :direction :output :if-exists :supersede)
+      (dotimes (i 300) (format out "line ~D of the first~%" i)))
+    (with-open-file (out two :direction :output :if-exists :supersede)
+      (write-line "the second" out))
+    (post (list :open (namestring one)))
+    (post (list :open (namestring two)))
+    (settle)
+    (flet ((tab-buttons ()
+             (main (and heml.cocoa::*tab-bar*
+                        (heml.cocoa::coerce-ns-array
+                         (objc:invoke (second heml.cocoa::*tab-bar*) "arrangedSubviews"))))))
+      (check "files open have tabs under the title bar, the current one chosen"
+             (wait-until (lambda ()
+                           (let ((titles (main (mapcar (lambda (b) (objc:ns-string-to-string
+                                                                    (objc:invoke b "title")))
+                                                       (tab-buttons)))))
+                             (and (member "tab-one.txt" titles :test #'string=)
+                                  (member "tab-two.txt" titles :test #'string=)
+                                  (main (not (objc:invoke-bool (first heml.cocoa::*tab-bar*)
+                                                               "isHidden"))))))
+                         5))
+      (main (let ((button (find "tab-one.txt" (tab-buttons) :test #'string=
+                                :key (lambda (b) (objc:ns-string-to-string (objc:invoke b "title"))))))
+              (when button
+                (objc:invoke button "performClick:" (cffi:null-pointer)))))
+      (check "and the tabs leave the window as wide as it was"
+             (= width (main (aref (objc:invoke (window) "frame") 2))))
+      (check "and a click on a tab goes to its buffer"
+             (wait-until (lambda ()
+                           (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+                             (and pathname (equal "tab-one.txt" (file-namestring pathname)))))
+                         5)))
+    ;; The scroll bar: the window's place in its buffer moves as it scrolls.
+    (post-key #\v "Control")
+    (post-key #\v "Control")
+    (settle)
+    (check "a window's scroll bar follows where it is in its buffer"
+           (wait-until (lambda ()
+                         (let ((scrolls (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                                          (heml.cocoa::screen-shown-scrolls heml.cocoa::*screen*))))
+                           (some (lambda (entry) (< 0 (fifth entry) 1)) scrolls)))
+                       5))
+    (shot "scroll-bar")
+    ;; The sidebar: the project's files beside the editor.
+    (let ((columns (heml.cocoa::screen-columns heml.cocoa::*screen*)))
+      (main (heml.cocoa::show-sidebar t))
+      (settle)
+      (check "the sidebar shows the project's files"
+             (wait-until (lambda ()
+                           (main (and heml.cocoa::*sidebar*
+                                      (plusp (objc:invoke (third heml.cocoa::*sidebar*) "numberOfRows"))
+                                      (find "Makefile" (heml.cocoa::sidebar-entries heml.cocoa::*sidebar-root*)
+                                            :test #'search))))
+                         5))
+      (check "and the editor is narrower beside it"
+             (wait-until (lambda () (< (heml.cocoa::screen-columns heml.cocoa::*screen*) columns)) 5))
+      (shot "sidebar")
+      (main (heml.cocoa::show-sidebar nil))
+      (settle)
+      (check "hidden, the editor has its width again"
+             (wait-until (lambda () (= (heml.cocoa::screen-columns heml.cocoa::*screen*) columns)) 5)))))
 
 (defvar *corpus-result* nil)
 
@@ -743,7 +929,7 @@
   (note "a terminal")
   (flet ((row-p (text)
            (find text (map 'list #'heml.cocoa::row-text
-                           (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                           (screen-rows*))
                  :test #'search)))
     (extended-command "Term")
     (check "M-x Term runs a shell in a terminal"
@@ -785,7 +971,7 @@
              (uiop:run-program (list "/bin/sh" "-c" command) :directory (namestring repo)))
            (row-p (text)
              (find text (map 'list #'heml.cocoa::row-text
-                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                             (screen-rows*))
                    :test #'search)))
       (sh "git init -q -b main && git config user.email t@example.com && git config user.name Test")
       (sh "printf 'one\\ntwo\\nthree\\nfour\\nfive\\n' > notes.txt && git add notes.txt && git commit -q -m 'First commit'")
@@ -821,7 +1007,7 @@
     (settle)
     (flet ((row-p (text)
              (find text (map 'list #'heml.cocoa::row-text
-                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                             (screen-rows*))
                    :test #'search))
            (point-line () (line-text (hi::mark-line (hi::current-point))))
            (buffer-named (name) (hi::getstring name hi::*buffer-names*)))
@@ -950,7 +1136,7 @@
         (check "C-c C-d says what each of them says"
                (wait-until (lambda ()
                              (let ((rows (map 'list #'heml.cocoa::row-text
-                                              (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                                              (screen-rows*))))
                                (and (find " fake hover text" rows :test #'search)
                                     (find " second hover" rows :test #'search))))
                            10))
@@ -972,7 +1158,7 @@
                (wait-until (lambda ()
                              (find "(no server)"
                                    (map 'list #'heml.cocoa::row-text
-                                        (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                        (screen-rows*))
                                    :test #'search))
                            10))))
     (setf heml::*language-servers* servers)))
@@ -1450,7 +1636,7 @@ gamma
              (let* ((bare (string-trim " " text))
                     (row (find-if (lambda (row)
                                     (string= bare (string-trim " " (heml.cocoa::row-text row))))
-                                  (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                                  (screen-rows*))))
                (when row
                  (let ((column (search bare (heml.cocoa::row-text row))))
                    (loop for (start end . font) in (heml.cocoa::row-runs row)
@@ -1460,6 +1646,8 @@ gamma
                            (and (equal heml::*popup-selected-font* (popup-row-font " zebraone "))
                                 (equal heml::*popup-font* (popup-row-font " zebratwo "))))
                          10))
+      ;; The panel the popup is in, as it is drawn.
+      (shot "completion-panel" (lambda () (objc:invoke heml.cocoa::*popup-panel* "contentView")))
       (shot "completion")
       (post-text "rat")
       (settle)
@@ -1496,7 +1684,7 @@ gamma
                            (find-if (lambda (row)
                                       (let ((text (heml.cocoa::row-text row)))
                                         (and (search " mapcar " text) (search "function" text))))
-                                    (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                                    (screen-rows*)))
                          10))
       (post (list :named "Escape" '()))
       (settle)
@@ -1505,7 +1693,7 @@ gamma
       (check "in Lisp, a space after an operator shows its arguments over the call"
              (wait-until (lambda ()
                            (find "(mapcar function list" (map 'list #'heml.cocoa::row-text
-                                                               (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                                               (screen-rows*))
                                  :test #'search))
                          10))
       (post-key #\a "Control")
@@ -1563,14 +1751,14 @@ gamma
     (check "C-c C-d says what is wrong there, and what the server says of it, in a popup"
            (wait-until (lambda ()
                          (let ((rows (map 'list #'heml.cocoa::row-text
-                                          (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                                          (screen-rows*))))
                            (and (find " fake error" rows :test #'search)
                                 (find " fake hover text" rows :test #'search))))
                        10))
     (check "the server was given the setting it asked for"
            (find " config: hello from settings"
                  (map 'list #'heml.cocoa::row-text
-                      (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                      (screen-rows*))
                  :test #'search))
     (post (list :named "Escape" '()))
     (settle)
@@ -1599,7 +1787,7 @@ gamma
                          (find-if (lambda (row)
                                     (let ((text (heml.cocoa::row-text row)))
                                       (and (search " fake_function " text) (search "function" text :start2 16))))
-                                  (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                                  (screen-rows*)))
                        10))
     (post (list :named "Return" '()))
     (settle)
@@ -1638,7 +1826,7 @@ gamma
     (check "after edits, the server has the text the buffer has"
            (wait-until (lambda ()
                          (let ((rows (map 'list #'heml.cocoa::row-text
-                                          (heml.cocoa::screen-rows heml.cocoa::*screen*)))
+                                          (screen-rows*)))
                                (lines (uiop:split-string (buffer-text) :separator (string #\Newline))))
                            (and (find (format nil " first: ~A" (first lines)) rows :test #'search)
                                 (find (format nil " length: ~D" (length (buffer-text))) rows
@@ -1658,7 +1846,7 @@ gamma
     ;; its own, which asks for its edit to be made.
     (flet ((popup-row-p (text)
              (find text (map 'list #'heml.cocoa::row-text
-                             (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                             (screen-rows*))
                    :test #'search)))
       (post-key #\< "Meta")
       (post-key #\n "Control")
@@ -1680,7 +1868,7 @@ gamma
              ;; The font TEXT is drawn in, in the row showing the signature.
              (let ((row (find-if (lambda (row) (search " fake_function(int a, int b) "
                                                        (heml.cocoa::row-text row)))
-                                 (heml.cocoa::screen-rows heml.cocoa::*screen*))))
+                                 (screen-rows*))))
                (when row
                  (let ((column (search text (heml.cocoa::row-text row))))
                    (loop for (start end . font) in (heml.cocoa::row-runs row)
@@ -1712,7 +1900,7 @@ gamma
                 (search "thing here" (point-line))))
     (check "the modeline counts the errors"
            (find "(1 error)" (map 'list #'heml.cocoa::row-text
-                                  (heml.cocoa::screen-rows heml.cocoa::*screen*))
+                                  (screen-rows*))
                  :test #'search))
     (post-key #\c "Control") (post-key #\s "Control")
     (post-key #\a "Control") (post-key #\k "Control")
@@ -1758,6 +1946,9 @@ gamma
   (highlight-checks)
   (section-fold-checks)
   (title-bar-checks)
+  (chrome-checks)
+  (pixel-scroll-checks)
+  (palette-checks)
   (terminal-checks)
 
   (note "projects")
@@ -2015,7 +2206,7 @@ gamma
                    (+ 1 (hi::device-hunk-column left) (hi::device-hunk-width left)))))
     (check "a bar divides them"
            (let ((text (heml.cocoa::row-text
-                        (svref (heml.cocoa::screen-rows heml.cocoa::*screen*) 0))))
+                        (svref (screen-rows*) 0))))
              (char= #\│ (char text (hi::device-hunk-width left)))))
     (shot "side-by-side")
     (mouse :down 2 0) (mouse :up 2 0)
@@ -2111,6 +2302,8 @@ gamma
   (note "dired")
   ;; A directory of its own: flagging a file must not risk a real one.
   (let ((directory (merge-pathnames "dired/" *out*)))
+    ;; Nothing a run before left there.
+    (uiop:delete-directory-tree directory :validate t :if-does-not-exist :ignore)
     (ensure-directories-exist (merge-pathnames "a-directory/" directory))
     (with-open-file (out (merge-pathnames "a-file.txt" directory)
                          :direction :output :if-exists :supersede)
@@ -2386,7 +2579,33 @@ gamma
     (sb-posix:unsetenv "XDG_CONFIG_HOME")
     (choose-menu-item "Heml" "Settings…")
     (settle)
-    (check "Settings… opens the init file, ~/.config/heml/init.lisp"
+    (check "Settings… opens the Settings window"
+           (wait-until (lambda ()
+                         (main (and heml.cocoa::*settings-window*
+                                    (objc:invoke-bool heml.cocoa::*settings-window* "isVisible"))))
+                       5))
+    (flet ((control (key)
+             (cdr (assoc key heml.cocoa::*settings-controls* :test #'equal))))
+      ;; A switch turned off: the editor has it at once, and the init file
+      ;; keeps it.
+      (main (objc:invoke (control "Signature Help") "performClick:" (cffi:null-pointer)))
+      (check "a check box there sets its variable"
+             (wait-until (lambda () (null (hi::variable-value 'heml::signature-help :global))) 5))
+      (check "and the init file keeps it, in the section the window writes"
+             (wait-until (lambda ()
+                           (let ((file (merge-pathnames ".config/heml/init.lisp" home)))
+                             (and (probe-file file)
+                                  (let ((text (uiop:read-file-string file)))
+                                    (and (search heml.cocoa::+settings-start+ text)
+                                         (search "\"Signature Help\")" text)
+                                         (search "NIL" text))))))
+                       5))
+      (main (objc:invoke (control "Signature Help") "performClick:" (cffi:null-pointer)))
+      (wait-until (lambda () (hi::variable-value 'heml::signature-help :global)) 5)
+      (main (objc:invoke heml.cocoa::*settings-window* "orderOut:" (cffi:null-pointer))))
+    (main (heml.cocoa::open-init-file))
+    (settle)
+    (check "Edit init.lisp… opens the init file, ~/.config/heml/init.lisp"
            (wait-until (lambda ()
                          (equal (hi::buffer-pathname (hi::current-buffer))
                                 (merge-pathnames ".config/heml/init.lisp" home)))

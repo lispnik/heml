@@ -117,6 +117,10 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
            ;; when it reads the key that says so.
            (setf *menu-commands* (append *menu-commands* (list (rest item))))
            (queue-key-event (heml-ext:make-key-event "Menucommand" 0)))
+          ((eq (car item) :call)
+           ;; A function for the editor's thread, from the main thread's
+           ;; windows: a setting changed.
+           (funcall (second item)))
           ((eq (car item) :open)
            ;; As a file named on the command line is visited.
            (hi::process-command-line-argument (second item)))
@@ -236,6 +240,7 @@ that, and should not also reach the editor as a key."
 (defun install-mac-bindings ()
   (flet ((key (name &rest modifiers)
            (heml-ext:make-key-event name (modifier-bits modifiers))))
+    (install-palette-bindings #'key)
     (hi::bind-key "Mouse Set Point" (key "Leftdown"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup"))
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
@@ -253,7 +258,9 @@ that, and should not also reach the editor as a key."
   ;; The modelines and a popup's choice in the accent colour the user chose
   ;; in System Settings, as the Mac's own selections are.
   (setf hi::*modeline-font* '(:fg :accent-text :bg :accent :bold t)
-        heml::*popup-selected-font* '(:fg :accent-text :bg :accent :bold t))
+        heml::*popup-selected-font* '(:fg :accent-text :bg :accent :bold t)
+        ;; Popups are panels of their own (cocoa-panels.lisp).
+        hi::*device-draws-popups* t)
   (setf heml::*active-region-highlight-font* '(:bg :selection)
         heml::*interprogram-cut-function*
         (lambda (text) (on-main-thread (write-pasteboard text)))
@@ -434,13 +441,115 @@ another window is on its right."
               (device-dirty device) t)))))
 
 (defun buffer-title (buffer)
-  "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT)."
-  (let ((pathname (hi::buffer-pathname buffer)))
+  "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT
+   ROOT), ROOT its project's directory."
+  (let ((pathname (hi::buffer-pathname buffer))
+        (root (ignore-errors (heml::buffer-project-root buffer))))
     (list (if pathname (file-namestring pathname) (hi::buffer-name buffer))
           (and pathname (namestring pathname))
           (and pathname (hi::buffer-modified buffer) t)
-          (let ((root (ignore-errors (heml::buffer-project-root buffer))))
-            (and root (ignore-errors (heml::project-name root)))))))
+          (and root (ignore-errors (heml::project-name root)))
+          root)))
+
+(defun buffer-tabs (current)
+  "The files open, for their tabs: (CURRENT-NAME (NAME MODIFIED TITLE) ...),
+   NAME the buffer's and TITLE its file's."
+  (cons (hi::buffer-name current)
+        (loop for buffer in hi::*buffer-list*
+              for pathname = (hi::buffer-pathname buffer)
+              when pathname
+                collect (list (hi::buffer-name buffer)
+                              (and (hi::buffer-modified buffer) t)
+                              (file-namestring pathname)))))
+
+(hi::defcommand "Cocoa Select Buffer" (p &optional name)
+  "Go to the buffer NAME, as a tab's click does."
+  "Go to the buffer NAME."
+  (declare (ignore p))
+  (let ((buffer (and name (hi::getstring name hi::*buffer-names*))))
+    (when buffer
+      (hi::change-to-buffer buffer))))
+
+(defun shown-text (text width &optional last)
+  "TEXT as WIDTH cells show it, tabs spread out: its first row, or its last
+   when LAST, for a line that wraps."
+  (let ((text (with-output-to-string (out)
+                (loop with column = 0
+                      for character across text
+                      do (cond ((char= character #\Tab)
+                                (loop repeat (- 8 (mod column 8))
+                                      do (write-char #\Space out) (incf column)))
+                               (t (write-char character out) (incf column)))))))
+    (cond ((<= (length text) width) text)
+          (last (subseq text (* width (floor (1- (length text)) width))))
+          (t (subseq text 0 width)))))
+
+(defun window-incoming-lines (window width)
+  "The text of the rows just above WINDOW's first and below its last, which
+   scrolling by points shows part of before the editor scrolls."
+  (let* ((start (hi::window-display-start window))
+         (line (hi::mark-line start))
+         (above (if (plusp (hi::mark-charpos start))
+                    (shown-text (subseq (hi::line-string line) 0 (hi::mark-charpos start)) width t)
+                    (let ((previous (loop for l = (hi::line-previous line) then (hi::line-previous l)
+                                          while (and l (hi::line-hidden-p l))
+                                          finally (return l))))
+                      (and previous (shown-text (hi::line-string previous) width t)))))
+         (last (loop with found = nil
+                     for cell = (cdr (hi::window-first-line window)) then (cdr cell)
+                     until (or (atom cell) (eq cell hi::the-sentinel))
+                     do (let ((shown (hi::dis-line-line (car cell))))
+                          (when shown (setf found shown)))
+                     finally (return found)))
+         (next (and last (hi::next-shown-line last))))
+    (values above (and next (shown-text (hi::line-string next) width)))))
+
+(defun window-scrolls ()
+  "Each window's place in its buffer: (COLUMN LINE WIDTH HEIGHT POSITION
+   SIZE AT-START AT-END ABOVE BELOW FRINGE), its text's cells; how far down,
+   and how much, of its buffer it shows, as fractions, for its scroll bar;
+   whether it shows the buffer's start and its end, where scrolling by points
+   pulls on a rubber band; the text of the rows that would come in above and
+   below; and its fringe's width.  A line's number is an ordering, spaced
+   LINE-INCREMENT apart, which is near enough here and costs nothing."
+  (loop for window in hi::*window-list*
+        for buffer = (hi::window-buffer window)
+        unless (or (eq window hi::*echo-area-window*) (null buffer))
+          collect (let* ((hunk (hi::window-hunk window))
+                         (start (hi::line-number (hi::mark-line (hi::buffer-start-mark buffer))))
+                         (end (hi::line-number (hi::mark-line (hi::buffer-end-mark buffer))))
+                         (first (hi::line-number (hi::mark-line (hi::window-display-start window))))
+                         (span (max 1 (- end start)))
+                         (height (hi::device-hunk-text-height hunk))
+                         (lines (1+ (/ span hi::line-increment)))
+                         (fringe (hi::window-fringe-width window)))
+                    (multiple-value-bind (above below)
+                        (window-incoming-lines window (- (hi::device-hunk-width hunk) fringe))
+                    (list (hi::device-hunk-column hunk) (hunk-top-line hunk)
+                          (hi::device-hunk-width hunk) height
+                          ;; The last screenful is the end of the track.
+                          (float (max 0 (min 1 (/ (- first start)
+                                                  (max 1 (- span (* (1- height) hi::line-increment)))))))
+                          (float (min 1 (/ height lines)))
+                          (hi::mark= (hi::window-display-start window) (hi::buffer-start-mark buffer))
+                          (hi::%displayed-p (hi::buffer-end-mark buffer) window)
+                          above below fringe)))))
+
+(defun popup-descriptor ()
+  "*POPUP*, as the panel shows it: where its first row is on the screen, its
+   rows' text and whether each is the one chosen, the parts marked, and each
+   row's kind."
+  (let ((popup hi::*popup*))
+    (when popup
+      (let* ((window (hi::popup-window popup))
+             (hunk (hi::window-hunk window)))
+        (list :column (+ (hi::device-hunk-column hunk) (max 0 (hi::popup-x popup)))
+              :line (+ (hunk-top-line hunk) (hi::popup-y popup))
+              :rows (loop for (text . font) in (hi::popup-rows popup)
+                          collect (list text (equal font heml::*popup-selected-font*)))
+              :highlights (loop for (row start end font) in (hi::popup-highlights popup)
+                                collect (list row start end font))
+              :notes (copy-list (hi::popup-notes popup)))))))
 
 (defmethod hi::device-force-output ((device cocoa-device))
   (when (device-dirty device)
@@ -451,7 +560,11 @@ another window is on its right."
     (let ((buffer (hi::current-buffer)))
       (unless (eq buffer hi::*echo-area-buffer*)
         (setf (screen-mode *screen*) (hi::buffer-major-mode buffer)
-              (screen-title *screen*) (buffer-title buffer))))
+              (screen-title *screen*) (buffer-title buffer)
+              (screen-tabs *screen*) (buffer-tabs buffer))))
+    (setf (screen-popup *screen*) (popup-descriptor)
+          (screen-scrolls *screen*) (window-scrolls)
+          (screen-palette *screen*) (palette-descriptor))
     (present-screen *screen*)
     (request-redraw)))
 

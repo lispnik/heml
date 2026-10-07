@@ -86,7 +86,12 @@
                                     (cond (window (- height rows))
                                           (under (1+ y))
                                           (t (- y rows)))
-                                    (popup-rows items selected first width name-width))))))))))
+                                    (popup-rows items selected first width name-width)))
+              ;; Each row's kind, for a device that marks it with an icon.
+              (setf (hi::popup-notes hi::*popup*)
+                    (loop for item in (nthcdr first items)
+                          repeat rows
+                          collect (candidate-note item))))))))))
 
 (defun popup-choose (candidates start &key window describe
                                           (accept (list #k"return" #k"tab" #k"control-i")))

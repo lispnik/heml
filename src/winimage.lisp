@@ -32,10 +32,15 @@
   window                                ; the window it is over
   x y                                   ; its first row's column and line
   rows                                  ; ((TEXT . FONT) ...), from the top
-  highlights)                           ; ((ROW START END FONT) ...): parts of rows in another font
+  highlights                            ; ((ROW START END FONT) ...): parts of rows in another font
+  notes)                                ; each row's completion's kind, a string or NIL
 
 (defvar *popup* nil
   "The popup shown, or NIL.")
+
+(defvar *device-draws-popups* nil
+  "True when the device shows *POPUP* itself, as a window of its own, and it
+   is not laid over the text (Cocoa's panels).")
 
 ;;; An annotation is text shown after a line's end that is not the
 ;;; buffer's: what a language server says of the line.  Each function in
@@ -229,5 +234,5 @@
              (move-to-position (window-display-end window)
                                (dis-line-end dis-line)
                                (dis-line-line dis-line)))))
-    (when (and *popup* (eq (popup-window *popup*) window))
+    (when (and *popup* (eq (popup-window *popup*) window) (not *device-draws-popups*))
       (overlay-popup window *popup*))))
