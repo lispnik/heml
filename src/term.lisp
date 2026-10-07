@@ -86,10 +86,10 @@
 ;;; the next refresh.  Lines scrolled are damage too: with no moverect
 ;;; callback, libvterm damages where they went.
 (cffi:defcallback term-damage :int ((rows :uint64) (columns :uint64) (user :pointer))
-  (declare (ignore columns))
   (let ((term (user-term user)))
     (when term
-      (mark-term-rows term (ldb (byte 32 0) rows) (ldb (byte 32 32) rows))))
+      (multiple-value-bind (start end) (vterm:unpack-rect rows columns)
+        (mark-term-rows term start end))))
   1)
 
 (defun mark-term-rows (term start end)
@@ -116,7 +116,7 @@
   (let ((term (user-term user)))
     (when term
       (push (multiple-value-list
-             (cells-text term columns cells vterm::+cell-size+ :positionsp nil))
+             (cells-text term columns cells vterm:+cell-size+ :positionsp nil))
             (term-pushed term))))
   1)
 
@@ -124,8 +124,9 @@
 (cffi:defcallback term-settermprop :int ((prop :int) (value :pointer) (user :pointer))
   (let ((term (user-term user)))
     (when (and term (= prop vterm:+prop-title+))
-      (let* ((pointer (cffi:mem-ref value :pointer))
-             (packed (cffi:mem-ref value :uint32 (cffi:foreign-type-size :pointer)))
+      ;; A string property's VTermValue is its VTermStringFragment.
+      (let* ((pointer (vterm:vsf-str value))
+             (packed (vterm:vsf-packed value))
              (fragment (if (cffi:null-pointer-p pointer)
                            ""
                            (cffi:foreign-string-to-lisp pointer :count (vterm:vsf-len packed)
@@ -145,15 +146,9 @@
       (let ((callbacks (cffi:foreign-alloc '(:struct vterm:vterm-screen-callbacks))))
         (dotimes (i 9)
           (setf (cffi:mem-aref callbacks :pointer i) (cffi:null-pointer)))
-        (setf (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
-                                       'vterm::damage)
-              (cffi:callback term-damage)
-              (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
-                                       'vterm::settermprop)
-              (cffi:callback term-settermprop)
-              (cffi:foreign-slot-value callbacks '(:struct vterm:vterm-screen-callbacks)
-                                       'vterm::sb-pushline)
-              (cffi:callback term-pushline))
+        (setf (vterm:vscb-damage callbacks) (cffi:callback term-damage)
+              (vterm:vscb-settermprop callbacks) (cffi:callback term-settermprop)
+              (vterm:vscb-sb-pushline callbacks) (cffi:callback term-pushline))
         (setf *term-callbacks* callbacks))))
 
 
@@ -161,35 +156,35 @@
 
 (defconstant +cell-chars+ 0)
 (defparameter *cell-width-offset*
-  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm::width))
+  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm:width))
 (defparameter *cell-attrs-offset*
-  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm::attrs))
+  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm:attrs))
 (defparameter *cell-fg-offset*
-  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm::fg))
+  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm:fg))
 (defparameter *cell-bg-offset*
-  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm::bg))
+  (cffi:foreign-slot-offset '(:struct vterm:vterm-screen-cell) 'vterm:bg))
 
 (defun term-color (term color foreground)
   "A VTermColor at COLOR as a font's colour: NIL for the terminal's default,
    an index among xterm's 256 (9, which Heml's palette has for its text's
    colour, as its red), or (RED GREEN BLUE)."
-  (let ((type (cffi:mem-aref color :uint8 0)))
-    (cond ((logtest type (if foreground #x02 #x04)) nil)
-          ((logtest type #x01)
-           (let ((index (cffi:mem-aref color :uint8 1)))
-             ;; Heml's palette is xterm's first nine but for 9, which is
-             ;; its text's own colour; past it, xterm's index, which each
-             ;; backend knows.
-             (if (/= index 9)
-                 index
-                 (let ((rgb (term-color-buffer term)))
-                   (dotimes (i 4)
-                     (setf (cffi:mem-aref rgb :uint8 i) (cffi:mem-aref color :uint8 i)))
-                   (vterm:vterm-screen-convert-color-to-rgb (term-screen term) rgb)
-                   (list (cffi:mem-aref rgb :uint8 1) (cffi:mem-aref rgb :uint8 2)
-                         (cffi:mem-aref rgb :uint8 3))))))
-          (t (list (cffi:mem-aref color :uint8 1) (cffi:mem-aref color :uint8 2)
-                   (cffi:mem-aref color :uint8 3))))))
+  (cond ((if foreground (vterm:color-default-fg-p color) (vterm:color-default-bg-p color))
+         nil)
+        ((vterm:color-indexed-p color)
+         (let ((index (vterm:vterm-color-index color)))
+           ;; Heml's palette is xterm's first nine but for 9, which is its
+           ;; text's own colour; past it, xterm's index, which each backend
+           ;; knows.
+           (if (/= index 9)
+               index
+               (let ((rgb (term-color-buffer term)))
+                 (dotimes (i 4)
+                   (setf (cffi:mem-aref rgb :uint8 i) (cffi:mem-aref color :uint8 i)))
+                 (vterm:vterm-screen-convert-color-to-rgb (term-screen term) rgb)
+                 (list (vterm:vterm-color-red rgb) (vterm:vterm-color-green rgb)
+                       (vterm:vterm-color-blue rgb))))))
+        (t (list (vterm:vterm-color-red color) (vterm:vterm-color-green color)
+                 (vterm:vterm-color-blue color)))))
 
 (defun term-color-buffer (term)
   (or (term-rgb term)
@@ -201,23 +196,30 @@
   (let* ((attrs (cffi:mem-ref cell :uint32 *cell-attrs-offset*))
          (fg (term-color term (cffi:inc-pointer cell *cell-fg-offset*) t))
          (bg (term-color term (cffi:inc-pointer cell *cell-bg-offset*) nil)))
-    (when (logbitp 5 attrs)             ; reverse
+    (when (vterm:attrs-reverse-p attrs)
       (rotatef fg bg)
       (setf fg (or fg 0) bg (or bg 7)))
     (let ((font (append (when fg (list :fg fg)) (when bg (list :bg bg))
-                        (when (logbitp 0 attrs) (list :bold t))
-                        (when (logtest attrs #b110) (list :underline t))
-                        (when (logbitp 3 attrs) (list :italic t)))))
+                        (when (vterm:attrs-bold-p attrs) (list :bold t))
+                        (when (/= (vterm:attrs-underline attrs) vterm:+underline-off+)
+                          (list :underline t))
+                        (when (vterm:attrs-italic-p attrs) (list :italic t)))))
       (or font 0))))
 
 (defun blank-cell-p (cells offset)
   "Whether the cell OFFSET bytes into CELLS is a blank in the default font:
    no character, and nothing CELL-FONT would draw it with -- no bold,
    underline, italic or reverse, and the default colours."
-  (and (zerop (cffi:mem-ref cells :uint32 offset))
-       (zerop (logand (cffi:mem-ref cells :uint32 (+ offset *cell-attrs-offset*)) #b101111))
-       (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-fg-offset*)) #x02)
-       (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-bg-offset*)) #x04)))
+  (let ((attrs (cffi:mem-ref cells :uint32 (+ offset *cell-attrs-offset*))))
+    (and (zerop (cffi:mem-ref cells :uint32 offset))
+         (not (or (vterm:attrs-bold-p attrs) (vterm:attrs-italic-p attrs)
+                  (vterm:attrs-reverse-p attrs)
+                  (/= (vterm:attrs-underline attrs) vterm:+underline-off+)))
+         ;; The colours' type bytes, read in place: no pointer is made.
+         (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-fg-offset*))
+                  vterm:+color-default-fg+)
+         (logtest (cffi:mem-ref cells :uint8 (+ offset *cell-bg-offset*))
+                  vterm:+color-default-bg+))))
 
 (defun cells-text (term columns cells stride &key fetch (positionsp t))
   "The text of a row of COLUMNS cells, column N's (* N STRIDE) bytes into
@@ -424,8 +426,7 @@
 (defun term-cursor (term)
   (cffi:with-foreign-object (position '(:struct vterm:vterm-pos))
     (vterm:vterm-state-get-cursorpos (term-state term) position)
-    (values (cffi:foreign-slot-value position '(:struct vterm:vterm-pos) 'vterm::row)
-            (cffi:foreign-slot-value position '(:struct vterm:vterm-pos) 'vterm::col))))
+    (values (vterm:vterm-pos-row position) (vterm:vterm-pos-col position))))
 
 (defparameter *term-refresh-interval* 1/60
   "The least time between two readings of a terminal's screen: output in a
