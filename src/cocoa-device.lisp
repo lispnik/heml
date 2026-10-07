@@ -365,11 +365,15 @@ default font and clipped to LENGTH."
                    (subseq (hi::dis-line-chars dis-line) 0 length)
                    (font-runs dis-line length))))
 
-(defun store-modeline (screen line column width dis-line)
+(defun store-modeline (screen line column width dis-line kind)
   "A modeline fills its window's width: its last run, which carries the
-modeline's colours, is carried to the edge."
+modeline's colours, is carried to the edge.  Each run says it is a
+modeline's, and KIND's -- :ACTIVE, :INACTIVE or the echo area's :STATUS --
+for the view, which draws it as a status bar."
   (let* ((length (min width (hi::dis-line-length dis-line)))
-         (runs (font-runs dis-line length)))
+         (runs (loop for (start end . font) in (font-runs dis-line length)
+                     collect (list* start end :modeline kind
+                                    (if (consp font) font (list :fg font))))))
     (when runs
       (setf (second (car (last runs))) width))
     (store-segment screen line column width
@@ -397,7 +401,10 @@ another window is on its right."
             (store-dis-line screen (+ top position) left width dis-line))))
       (when (hi::window-modeline-buffer window)
         (store-modeline screen (+ top height) left width
-                        (hi::window-modeline-dis-line window)))
+                        (hi::window-modeline-dis-line window)
+                        (cond ((eq window hi::*echo-area-window*) :status)
+                              ((eq window hi::*current-window*) :active)
+                              (t :inactive))))
       (when (< (+ left width) (screen-columns screen))
         (dotimes (i (hi::device-hunk-height hunk))
           (store-segment screen (+ top i) (+ left width) 1 "│" '()))))
@@ -426,6 +433,15 @@ another window is on its right."
               (screen-cursor-y screen) line
               (device-dirty device) t)))))
 
+(defun buffer-title (buffer)
+  "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT)."
+  (let ((pathname (hi::buffer-pathname buffer)))
+    (list (if pathname (file-namestring pathname) (hi::buffer-name buffer))
+          (and pathname (namestring pathname))
+          (and pathname (hi::buffer-modified buffer) t)
+          (let ((root (ignore-errors (heml::buffer-project-root buffer))))
+            (and root (ignore-errors (heml::project-name root)))))))
+
 (defmethod hi::device-force-output ((device cocoa-device))
   (when (device-dirty device)
     (setf (device-dirty device) nil)
@@ -434,7 +450,8 @@ another window is on its right."
     ;; were, rather than hiding a mode's menu while it asks.
     (let ((buffer (hi::current-buffer)))
       (unless (eq buffer hi::*echo-area-buffer*)
-        (setf (screen-mode *screen*) (hi::buffer-major-mode buffer))))
+        (setf (screen-mode *screen*) (hi::buffer-major-mode buffer)
+              (screen-title *screen*) (buffer-title buffer))))
     (present-screen *screen*)
     (request-redraw)))
 

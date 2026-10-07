@@ -85,7 +85,10 @@ uses so as not to overwrite the user's clipboard.")
   (shown-borders '())
   ;; The current buffer's major mode, for the menus that belong to one.
   (mode nil)
-  (shown-mode nil))
+  (shown-mode nil)
+  ;; What the window's title bar says: (NAME FILE MODIFIED PROJECT).
+  (title nil)
+  (shown-title nil))
 
 (defun make-screen (columns lines)
   (let ((screen (%make-screen columns lines)))
@@ -559,7 +562,7 @@ font has no face for is the upright face slanted."
                        ;; The bar between windows side by side: a line the
                        ;; full height of the cell, which a glyph is not.
                        ((char= character #\│)
-                        (fill-rect (foreground-color display)
+                        (fill-rect (ns-color display "separatorColor")
                                    (+ (cell-x display i)
                                       (floor (display-char-width display) 2))
                                    (cell-y display line)
@@ -580,7 +583,114 @@ font has no face for is the upright face slanted."
   (and (< (1+ index) (length string))
        (char= (char string (1+ index)) hi::wide-character-filler)))
 
+(defun shape-path (shape x y w h)
+  "An NSBezierPath of SHAPE in the cell at X and Y, W by H, or NIL."
+  (flet ((polygon (&rest points)
+           (let ((path (objc:invoke "NSBezierPath" "bezierPath")))
+             (loop for (px py) on points by #'cddr
+                   for first = t then nil
+                   do (objc:invoke path (if first "moveToPoint:" "lineToPoint:")
+                                   (vector (df (+ x (* px w))) (df (+ y (* py h))))))
+             (objc:invoke path "closePath")
+             path))
+         (rect (rx ry rw rh)
+           (objc:invoke "NSBezierPath" "bezierPathWithRect:"
+                        (vector (df (+ x (* rx w))) (df (+ y (* ry h)))
+                                (df (* rw w)) (df (* rh h))))))
+    (case shape
+      ;; A fold's open and closed triangles, the cell's width.
+      (:fold-open (polygon 0.1 0.32 0.9 0.32 0.5 0.74))
+      (:fold-closed (polygon 0.22 0.14 0.22 0.86 0.9 0.5))
+      ;; A breakpoint: a tag pointing at the line, as Xcode draws one.
+      (:breakpoint (polygon 0.0 0.18 0.62 0.18 1.0 0.5 0.62 0.82 0.0 0.82))
+      ;; Where the program stopped: an arrow.
+      (:arrow (polygon 0.0 0.34 0.48 0.34 0.48 0.14 1.0 0.5 0.48 0.86 0.48 0.66 0.0 0.66))
+      ;; Git: lines added or changed, and lines taken out below or above.
+      (:bar (rect 0.3 0.0 0.3 1.0))
+      (:edge-below (rect 0.0 0.88 1.0 0.12))
+      (:edge-above (rect 0.0 0.0 1.0 0.12)))))
+
+(defun draw-shape (display shape color-name column line)
+  (let ((path (shape-path shape (cell-x display column) (cell-y display line)
+                          (display-char-width display) (display-char-height display))))
+    (when path
+      (objc:invoke (ns-color display color-name) "set")
+      (objc:invoke path "fill"))))
+
+;;; A modeline is a status bar: the system's own font, small, on the
+;;; window's background with a hairline above it, the current window's
+;;; tinted with the accent colour and the others plain, and the echo area's
+;;; quieter still.
+;;;
+(defun modeline-attributes (display kind)
+  (let ((key (list :modeline kind)))
+    (or (gethash key (display-attributes display))
+        (setf (gethash key (display-attributes display))
+              (let ((dictionary (objc:alloc-init-object "NSMutableDictionary"))
+                    (style (objc:alloc-init-object "NSMutableParagraphStyle")))
+                (objc:invoke style "setLineBreakMode:" 4) ; truncating its tail
+                (objc:invoke dictionary "setObject:forKey:"
+                             (objc:invoke "NSFont" "systemFontOfSize:weight:"
+                                          (df (max 9 (- *font-size* 2)))
+                                          (if (eq kind :active) 0.23d0 0d0))
+                             "NSFont")
+                (objc:invoke dictionary "setObject:forKey:"
+                             (ns-color display (if (eq kind :active)
+                                                   "labelColor"
+                                                   "secondaryLabelColor"))
+                             "NSColor")
+                (objc:invoke dictionary "setObject:forKey:" style "NSParagraphStyle")
+                dictionary)))))
+
+(defun modeline-background (display kind)
+  (let ((key (list :modeline-background kind)))
+    (or (gethash key (display-colors display))
+        (setf (gethash key (display-colors display))
+              (objc:retain
+               (if (eq kind :active)
+                   (objc:invoke (objc:invoke "NSColor" "controlAccentColor")
+                                "colorWithAlphaComponent:" 0.22d0)
+                   (objc:invoke "NSColor" "windowBackgroundColor")))))))
+
+(defun status-text (text start end)
+  "TEXT from START to END as a status bar shows it: without the spaces at
+   its end, and no more than three between fields."
+  (let ((string (string-right-trim " " (subseq text start (min end (length text))))))
+    (with-output-to-string (out)
+      (let ((spaces 0))
+        (loop for c across string
+              do (if (char= c #\Space)
+                     (when (< (incf spaces) 4) (write-char c out))
+                     (progn (setf spaces 0) (write-char c out))))))))
+
+(defun draw-modeline (display text start end line kind)
+  (let* ((x (cell-x display start))
+         (y (cell-y display line))
+         (width (* (- end start) (display-char-width display)))
+         (height (display-char-height display))
+         (attributes (modeline-attributes display kind))
+         (font (objc:invoke attributes "objectForKey:" "NSFont"))
+         (font-height (- (objc:invoke font "ascender") (objc:invoke font "descender")))
+         (padding 6))
+    (fill-rect (ns-color display "windowBackgroundColor") x y width height)
+    (when (eq kind :active)
+      (fill-rect (modeline-background display kind) x y width height))
+    (fill-rect (ns-color display "separatorColor") x y width 1)
+    (objc:invoke (objc:string-to-ns-string (status-text text start end))
+                 "drawInRect:withAttributes:"
+                 (vector (df (+ x padding)) (df (+ y (/ (- height font-height) 2)))
+                         (df (max 0 (- width (* 2 padding)))) (df font-height))
+                 attributes)))
+
 (defun draw-segment (display text start end line font)
+  (when (and (consp font) (getf font :modeline))
+    (return-from draw-segment
+      (draw-modeline display text start end line (getf font :modeline))))
+  (when (and (consp font) (getf font :shape))
+    (return-from draw-segment
+      (loop for column from start below end
+            do (draw-shape display (getf font :shape)
+                           (color-name-for (or (getf font :fg) 8)) column line))))
   (multiple-value-bind (fg bg bold italic underline) (font-style font)
     (when bg
       (fill-rect (palette-color display bg)
@@ -610,6 +720,39 @@ font has no face for is the upright face slanted."
     (when (< position (length text))
       (draw-segment display text position (length text) line nil))))
 
+(defvar *cursor-style* :bar
+  "How the caret is drawn: :BAR, a thin line before the character, in the
+   accent colour, as a Mac text view draws it; or :BLOCK, the character in
+   reverse, as a terminal does.")
+
+(defvar *cursor-blink* t
+  "Whether the caret blinks while nothing is typed, as a Mac text view's
+   does.")
+
+(defparameter *blink-interval* 0.53d0
+  "Seconds the caret is shown, and then hidden, as it blinks.")
+
+(defvar *caret-shown* t)
+
+(defvar *caret-moved-at* 0
+  "When the caret last moved, or a key was typed: it is shown steadily for
+   a while after.")
+
+(defun note-caret-moved ()
+  (setf *caret-moved-at* (get-internal-real-time)
+        *caret-shown* t))
+
+(defun blink-caret ()
+  "From the view's timer, on the main thread: the caret on or off, unless it
+   moved a moment ago."
+  (let ((still (/ (- (get-internal-real-time) *caret-moved-at*)
+                  internal-time-units-per-second)))
+    (when (and *cursor-blink* (eq *cursor-style* :bar) (> still *blink-interval*))
+      (setf *caret-shown* (not *caret-shown*))
+      (let ((display *display*))
+        (when display
+          (objc:invoke (display-view display) "setNeedsDisplay:" t))))))
+
 (defun draw-cursor (display screen key-window-p)
   (let ((x (screen-shown-cursor-x screen))
         (y (screen-shown-cursor-y screen))
@@ -621,7 +764,14 @@ font has no face for is the upright face slanted."
              (width (* (if (wide-at-p text x) 2 1) (display-char-width display)))
              (height (display-char-height display))
              (color (foreground-color display)))
-        (cond (key-window-p
+        (cond ((eq *cursor-style* :bar)
+               ;; Before the character, the height of the line; steady and
+               ;; grey in a window that is not the key one.
+               (cond ((not key-window-p)
+                      (fill-rect (ns-color display "tertiaryLabelColor") left top 2 height))
+                     (*caret-shown*
+                      (fill-rect (ns-color display "controlAccentColor") left top 2 height))))
+              (key-window-p
                (fill-rect color left top width height)
                (when (< x (length text))
                  (draw-text display text x (1+ x) y "textBackgroundColor" nil)))
@@ -677,7 +827,13 @@ again."
       (unless (or (null (screen-mode screen))
                   (equal (screen-mode screen) (screen-shown-mode screen)))
         (let ((mode (setf (screen-shown-mode screen) (screen-mode screen))))
-          (on-main-thread (show-mode-menus mode)))))
+          (on-main-thread (show-mode-menus mode))))
+      (unless (or (null (screen-title screen))
+                  (equal (screen-title screen) (screen-shown-title screen)))
+        (let ((title (setf (screen-shown-title screen) (screen-title screen))))
+          (on-main-thread (show-title title))))
+      ;; Typing, or anything else drawn, shows the caret steadily.
+      (note-caret-moved))
     (when borders-moved
       (on-main-thread
         (let ((display *display*))
@@ -700,6 +856,25 @@ again."
     (let ((display *display*))
       (when display
         (objc:invoke (display-window display) "setTitle:" title)))))
+
+;;; The title bar as a Mac document window's: the buffer's name, its file's
+;;; icon (Command-click on the title shows the folder it is in), a dot in
+;;; the close button while it has unsaved changes, and the project under it.
+;;;
+(defun show-title (title)
+  (destructuring-bind (name file modified project) title
+    (let* ((display *display*)
+           (window (and display (display-window display))))
+      (when window
+        (objc:invoke window "setTitle:" name)
+        (when (objc:invoke-bool window "respondsToSelector:"
+                                (objc:coerce-to-selector "setSubtitle:"))
+          (objc:invoke window "setSubtitle:" (or project "")))
+        (objc:invoke window "setRepresentedURL:"
+                     (if file
+                         (objc:invoke "NSURL" "fileURLWithPath:" file)
+                         (cffi:null-pointer)))
+        (objc:invoke window "setDocumentEdited:" (and modified t))))))
 
 
 ;;;; The grid size
@@ -910,6 +1085,12 @@ movement in points, a fraction of a line at a time.")
 (objc:define-objc-method ("hemlDrain" :void) ((self heml-view))
   (drain-main-thread-queue))
 
+(objc:define-objc-method ("hemlBlink:" :void)
+    ((self heml-view) (timer objc:objc-object-pointer))
+  (declare (ignore timer))
+  (handler-case (blink-caret)
+    (error (condition) (log-error "hemlBlink:" condition))))
+
 (objc:define-objc-method ("drawRect:" :void)
     ((self heml-view) (dirty cocoa:ns-rect))
   (declare (ignore dirty))
@@ -929,6 +1110,7 @@ movement in points, a fraction of a line at a time.")
   (handler-case
       (multiple-value-bind (descriptors direct) (event-descriptors event)
         (objc:invoke "NSCursor" "setHiddenUntilMouseMoves:" t)
+        (note-caret-moved)
         (if (and direct (null (display-marked-text *display*)))
             (dolist (descriptor descriptors)
               (post-to-editor descriptor))
@@ -1450,6 +1632,10 @@ other modes'.  Main thread."
                  "NSSystemColorsDidChangeNotification" nil)
     (objc:invoke window "setDelegate:" (objc:objc-object-pointer delegate))
     (objc:invoke window "makeFirstResponder:" view)
+    ;; The caret's blink.
+    (objc:invoke "NSTimer" "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"
+                 *blink-interval* view (objc:coerce-to-selector "hemlBlink:")
+                 (cffi:null-pointer) t)
     (objc:invoke window "center")
     (setf (display-window display) window
           (display-view display) view

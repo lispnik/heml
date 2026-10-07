@@ -135,13 +135,8 @@ this quit, and the person quits again once Heml has finished."
            (post-to-editor :quit)
            nil)))
 
-;;; The editor's title follows the current buffer.
-;;;
-(defun update-title (buffer)
-  (when (and hi::*in-the-editor* *display*)
-    (set-title (format nil "~A — Heml" (hi::buffer-name buffer)))))
-
-(hi::add-hook heml::set-buffer-hook 'update-title)
+;;; The window's title follows the current buffer, from each frame
+;;; (buffer-title, cocoa-device.lisp).
 
 
 ;;;; Heml.app

@@ -642,6 +642,41 @@
       (check "and a second click opens it"
              (wait-until (lambda () (row-p "(a1)")) 5)))))
 
+(defun title-bar-checks ()
+  (note "the title bar, as a document window's")
+  (let ((file (merge-pathnames "titled.txt" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (write-line "a titled file" out))
+    (post (list :open (namestring file)))
+    (settle)
+    (flet ((window-state ()
+             (main (let ((window (window)))
+                     (list (objc:ns-string-to-string (objc:invoke window "title"))
+                           (let ((url (objc:invoke window "representedURL")))
+                             (and (not (cffi:null-pointer-p url))
+                                  (objc:ns-string-to-string (objc:invoke url "path"))))
+                           (objc:invoke-bool window "isDocumentEdited"))))))
+      (check "the window's title is the file's name, and it stands for the file"
+             (wait-until (lambda ()
+                           (destructuring-bind (title path edited) (window-state)
+                             (and (equal title "titled.txt")
+                                  (equal path (namestring (truename file)))
+                                  (not edited))))
+                         5))
+      (post-text "x")
+      (settle)
+      (check "and a change marks it edited, a dot in its close button"
+             (wait-until (lambda () (third (window-state))) 5))
+      (setf (hi::buffer-modified (hi::current-buffer)) nil)
+      (check "the current window's modeline is a status bar, the active one"
+             (let ((font (run-font-at "titled.txt" 0)))
+               (declare (ignore font))
+               (find-if (lambda (row)
+                          (and (search "titled.txt" (heml.cocoa::row-text row))
+                               (some (lambda (run) (eq (getf (cddr run) :modeline) :active))
+                                     (heml.cocoa::row-runs row))))
+                        (heml.cocoa::screen-rows heml.cocoa::*screen*)))))))
+
 (defvar *corpus-result* nil)
 
 (defun lisp-edit-checks ()
@@ -1722,6 +1757,7 @@ gamma
   (lisp-edit-checks)
   (highlight-checks)
   (section-fold-checks)
+  (title-bar-checks)
   (terminal-checks)
 
   (note "projects")

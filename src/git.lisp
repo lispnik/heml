@@ -1101,8 +1101,9 @@
               (ignore-errors (compare-git-buffer buffer file)))))))))
 
 (defparameter *git-mark-fonts*
-  '((:added "▎" (:fg 2)) (:changed "▎" (:fg 4))
-    (:deleted "▁" (:fg 1)) (:deleted-before "▔" (:fg 1))))
+  ;; :SHAPE is what a graphical display draws instead of the character.
+  '((:added "▎" (:fg 2 :shape :bar)) (:changed "▎" (:fg 4 :shape :bar))
+    (:deleted "▁" (:fg 1 :shape :edge-below)) (:deleted-before "▔" (:fg 1 :shape :edge-above))))
 
 (defun git-line-fringe (line)
   (let* ((buffer (line-buffer line))

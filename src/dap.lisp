@@ -426,8 +426,12 @@
                  :test #'equal))
     (dap-send-breakpoints session file)))
 
-(defparameter *breakpoint-font* '(:fg 1 :bold t))
+(defparameter *breakpoint-font* '(:fg 1 :bold t :shape :breakpoint)
+  "A breakpoint's mark in the fringe: a tag, as Xcode marks one, where a
+   display can draw it, and otherwise a dot.")
 (defparameter *stopped-font* '(:fg 2 :bold t))
+(defparameter *stopped-arrow-font* '(:fg 2 :bold t :shape :arrow)
+  "The mark beside the line the program stopped at.")
 
 (defun dap-stopped-place ()
   "The file and line, from 1, of the selected frame, or NIL."
@@ -447,7 +451,7 @@
          (when (and file (buffer-pathname buffer)
                     (equal (namestring (buffer-pathname buffer)) file)
                     (eql number (mark-line-number (mark line 0))))
-           (list (list 1 "▶" *stopped-font*))))))))
+           (list (list 1 "▶" *stopped-arrow-font*))))))))
 
 (pushnew 'dap-line-fringe hi:*line-fringe-functions*)
 

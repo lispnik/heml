@@ -459,10 +459,10 @@
 (defparameter *fold-marker-closed* "►"
   "Drawn in the fringe beside a line with a fold under it.")
 
-(defparameter *fold-marker-font* '(:fg 8)
+(defparameter *fold-marker-font* '(:fg 8 :shape :fold-open)
   "The font of an open section's marker.")
 
-(defparameter *fold-marker-closed-font* '(:fg 6 :bold t)
+(defparameter *fold-marker-closed-font* '(:fg 6 :bold t :shape :fold-closed)
   "The font of a fold's marker.")
 
 (defun buffer-has-folds-p (buffer)
