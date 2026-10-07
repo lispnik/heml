@@ -16,72 +16,65 @@
 
 
 
-;;;; Open parens.
+;;;; Parens.
 
 (defhvar "Highlight Open Parens"
-  "When non-nil, causes open parens to be displayed in a different font when
-   the cursor is directly to the right of the corresponding close paren."
+  "When non-nil, the paren point is on -- just after a close paren, or else
+   before an open one -- is drawn with its partner in *PAREN-MATCH-FONT*, or
+   alone in *PAREN-MISMATCH-FONT* when it has none, as the Lisp Listener
+   tints them."
   :value nil)
 
 (defhvar "Open Paren Finder Function"
-  "Should be a function that takes a mark for input and returns either NIL
-   if the mark is not after a close paren, or two (temporary) marks
-   surrounding the corresponding open paren."
+  "A function of a mark that returns the parens to highlight, as ((MARK .
+   KIND) ...), each MARK before its paren and KIND :MATCH or :MISMATCH; or
+   NIL."
   :value 'lisp-open-paren-finder-function)
 
+(defvar *paren-match-font* '(:bold t :underline t)
+  "What a paren and its partner are drawn in, over their colour.")
 
-(defvar *open-paren-font-marks* nil
-  "The pair of font-marks surrounding the currently highlighted open-
-   paren or nil if there isn't one.")
+(defvar *paren-mismatch-font* '(:fg 7 :bg 1 :bold t)
+  "What a paren with no partner is drawn in.")
 
-(defvar *open-paren-highlight-font* 2
-  "The index into the font-map for the open paren highlighting font.")
+(defvar *paren-highlights* '()
+  "The parens highlighted now, as ((LINE CHARPOS FONT) ...).")
 
+;;; They are decorations, drawn over the syntax colours: font marks ended the
+;;; colour after the paren, and only the open one was shown.
+;;;
+(defun paren-decorations (line)
+  (loop for (paren-line charpos font) in *paren-highlights*
+        when (eq paren-line line)
+          collect (list charpos (1+ charpos) font)))
 
-;;; MAYBE-HIGHLIGHT-OPEN-PARENS is a redisplay hook that matches parens by
-;;; highlighting the corresponding open-paren after a close-paren is
-;;; typed.
+(pushnew 'paren-decorations hi:*line-decoration-functions*)
+
+;;; MAYBE-HIGHLIGHT-OPEN-PARENS is a redisplay hook: the lines of the parens
+;;; highlighted before and now are coloured again when they changed.
 ;;;
 (defun maybe-highlight-open-parens (window)
   (declare (ignore window))
-  (when (value highlight-open-parens)
-    (if (and (value highlight-active-region)
-             (region-active-p))
-        (kill-open-paren-font-marks)
-        (multiple-value-bind
-            (start end)
-            (funcall (value open-paren-finder-function)
-                     (current-point))
-          (if (and start end)
-              (set-open-paren-font-marks start end)
-              (kill-open-paren-font-marks))))))
+  (let ((new (when (and (value highlight-open-parens)
+                        (not (and (value highlight-active-region) (region-active-p))))
+               (loop for (mark . kind) in (funcall (value open-paren-finder-function)
+                                                   (current-point))
+                     collect (list (mark-line mark) (mark-charpos mark)
+                                   (if (eq kind :match)
+                                       *paren-match-font*
+                                       *paren-mismatch-font*))))))
+    (unless (equal new *paren-highlights*)
+      (dolist (entry *paren-highlights*)
+        (hi::line-decorations-changed (first entry)))
+      (setf *paren-highlights* new)
+      (dolist (entry new)
+        (hi::line-decorations-changed (first entry))))))
 ;;;
 (add-hook redisplay-hook 'maybe-highlight-open-parens)
 
-(defun set-open-paren-font-marks (start end)
-  (if *open-paren-font-marks*
-      (flet ((maybe-move (dst src)
-               (unless (mark= dst src)
-                 (move-font-mark dst src))))
-        (declare (inline maybe-move))
-        (maybe-move (region-start *open-paren-font-marks*) start)
-        (maybe-move (region-end *open-paren-font-marks*) end))
-      (let ((line (mark-line start)))
-        (setf *open-paren-font-marks*
-              (region
-               (font-mark line (mark-charpos start)
-                          *open-paren-highlight-font*)
-               (font-mark line (mark-charpos end) 0))))))
-
-(defun kill-open-paren-font-marks ()
-  (when *open-paren-font-marks*
-    (delete-font-mark (region-start *open-paren-font-marks*))
-    (delete-font-mark (region-end *open-paren-font-marks*))
-    (setf *open-paren-font-marks* nil)))
 
 
 
-
 ;;;; Active regions.
 
 (defvar *active-region-font-marks* nil)

@@ -264,6 +264,17 @@
           (heml::lisp-delete-next-character-command p)
           (heml::delete-next-character-command p))))
 
+(defcommand "Linedit New Line" (p)
+  "Start a new line of what is being typed, without reading it: indented by
+   the Lisp it is in, as the Lisp Listener's Option-Return does, since Return
+   reads a complete form and a form's parens close themselves as it is typed."
+  "Start a new line of what is being typed."
+  (declare (ignore p))
+  (if (find "Lisp" (buffer-modes (current-buffer)) :test #'string=)
+      (let ((heml::*first-line-column* (length (editor-prompt (current-device)))))
+        (heml::run-sexp-command 'sexp-edit:newline-and-indent))
+      (heml::insert-character (current-point) #\Newline)))
+
 (defcommand "Linedit Clear Screen" (p) "" ""
   (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen)))
 
@@ -272,6 +283,8 @@
   (bind-key "Finish Linedit" #k"control-m" :buffer buffer)
   (bind-key "Finish Linedit" #k"control-j" :buffer buffer)
   (bind-key "Linedit Delete Or Eof" #k"control-d" :buffer buffer)
+  (bind-key "Linedit New Line" #k"meta-return" :buffer buffer)
+  (bind-key "Linedit New Line" #k"meta-control-m" :buffer buffer)
   (bind-key "Linedit Clear Screen" #k"control-l" :buffer buffer)
   (bind-key "Linedit Previous History Entry" #k"control-p" :buffer buffer)
   (bind-key "Linedit Next History Entry" #k"control-n" :buffer buffer)
@@ -600,7 +613,9 @@
           (setaf font))
         (cond
           ((member c '(#\newline #\return))
-           (tty-write-cmd (heml.terminfo:tputs heml.terminfo:cursor-down))
+           ;; The start of the next row: down alone kept the column, and
+           ;; did not scroll at the foot of the screen.
+           (device-write-string (coerce '(#\Return #\Newline) 'string))
            (setf col 0))
           ((< (char-code c) 32)
            (device-write-string (string #\?))

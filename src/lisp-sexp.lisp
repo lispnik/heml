@@ -65,10 +65,16 @@
   (let ((sexp-edit:*indent-first-column* 0))
     (sexp-edit:text-column (line-string (mark-line mark)) (mark-charpos mark))))
 
+(defvar *first-line-column* 0
+  "Columns shown before the buffer's first line that are not in it: a
+   prompt, which heml:repl's line editor draws in front of what is typed.")
+
 (defmacro with-sexp-settings ((start) &body body)
   "Run BODY with sexp-edit's settings as the current buffer's: the column
    START is in, the tab width, the package to look operators up in."
-  `(let* ((sexp-edit:*indent-first-column* (mark-text-column ,start))
+  `(let* ((sexp-edit:*indent-first-column*
+            (+ (mark-text-column ,start)
+               (if (line-previous (mark-line ,start)) 0 *first-line-column*)))
           (sexp-edit:*tab-width* (value spaces-per-tab))
           (sexp-edit:*local-definers* (value lisp-indentation-local-definers))
           (sexp-edit:*indent-package*
@@ -249,6 +255,33 @@
     (with-mark ((m point))
       (unless (form-offset m 1) (editor-error))
       (lisp-indent-region (region point m) "Indent Form"))))
+
+
+;;;; The parens point is on.
+
+(defun lisp-open-paren-finder-function (mark)
+  "The paren MARK is on and its partner, as sexp-edit's PAREN-PAIR-AT finds
+   them, which the Lisp Listener's tint follows too: ((MARK . KIND) ...)."
+  (let ((char-before (previous-character mark))
+        (char-after (next-character mark)))
+    ;; Most of the time point is on no paren: nothing to scan.
+    (when (or (eql char-before #\)) (eql char-after #\())
+      (let* ((start (sexp-window-start mark))
+             (end (sexp-window-end start mark)))
+        (unwind-protect
+             (multiple-value-bind (paren partner)
+                 (sexp-edit:paren-pair-at (region-to-string (region start end))
+                                          (count-characters (region start mark)))
+               (flet ((at (offset)
+                        (let ((m (copy-mark start :temporary)))
+                          (character-offset m offset)
+                          m)))
+                 (cond ((and paren partner)
+                        (list (cons (at paren) :match) (cons (at partner) :match)))
+                       (paren
+                        (list (cons (at paren) :mismatch))))))
+          (delete-mark start)
+          (delete-mark end))))))
 
 
 ;;;; Balanced insertion and deletion.

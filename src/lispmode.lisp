@@ -1313,8 +1313,8 @@
   :mode "Lisp")
 ;;;
 (defhvar "Highlight Open Parens"
-  "When non-nil, causes open parens to be displayed in a different font when
-   the cursor is directly to the right of the corresponding close paren."
+  "When non-nil, the paren point is on and its partner are drawn so, and a
+   paren with no partner as wrong, as the Lisp Listener tints them."
   :value t
   :mode "Lisp")
 
@@ -1326,14 +1326,7 @@
   :mode "Lisp"
   :value 'lisp-open-paren-finder-function)
 
-(defun lisp-open-paren-finder-function (mark)
-  (when (eq (character-attribute :lisp-syntax (previous-character mark))
-            :close-paren)
-    (with-mark ((mark mark))
-      (pre-command-parse-check mark)
-      (if (not (and (valid-spot mark nil) (list-offset mark -1)))
-          (values nil nil)
-          (values mark (mark-after (copy-mark mark)))))))
+;;; LISP-OPEN-PAREN-FINDER-FUNCTION is in lisp-sexp.lisp, from sexp-edit.
 
 
 

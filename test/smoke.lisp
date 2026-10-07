@@ -635,6 +635,29 @@
     (settle)
     (check "C-) slurps the next form into the list"
            (wait-until (lambda () (search "(list (a b))" (buffer-text))) 5))
+    ;; The paren point is on and its partner, drawn over their colours, as
+    ;; the Lisp Listener tints them; a paren with none, as wrong.
+    (post-key #\e "Control")
+    (post-text (format nil "~%(foo (bar))"))
+    (settle)
+    (flet ((underlined-p (text offset)
+             (let ((font (run-font-at text offset)))
+               (and (consp font) (getf font :underline)))))
+      (check "the paren point is after and its partner are highlighted"
+             (wait-until (lambda () (and (underlined-p "(foo (bar))" 0)
+                                         (underlined-p "(foo (bar))" 10)
+                                         (not (underlined-p "(foo (bar))" 5))))
+                         5)))
+    (post-key #\e "Control")
+    (post-text (format nil "~%zz "))
+    (post-key #\q "Control")
+    (post-text ")")
+    (settle)
+    (check "and a paren with no partner as wrong"
+           (wait-until (lambda ()
+                         (let ((font (run-font-at "zz )" 3)))
+                           (and (consp font) (eql (getf font :bg) 1))))
+                       5))
     ;; Every case of sexp-edit's corpus, through Heml's buffers.
     (setf *corpus-result* nil)
     (extended-command "Editor Evaluate Expression")

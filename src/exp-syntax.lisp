@@ -396,7 +396,8 @@ a buffer in another mode must not be coloured as Lisp on that account."
                       (initial-syntax-state)))
          (font-marks (sy-font-marks sy)))
     (cond ((and (eq (sy-signature sy) (line-signature line))
-                (equal (sy-from-state sy) prev-to))
+                (equal (sy-from-state sy) prev-to)
+                (line-decorated-p line))
            ;; no work
            sy)
           (t
@@ -405,14 +406,20 @@ a buffer in another mode must not be coloured as Lisp on that account."
              (hi::delete-font-mark fm))
            (setf font-marks nil)
            ;; now do the highlighting
+           (note-line-decorated line)
            (let ((state prev-to)
-                 (last-font 0))
-             ;;(print `(:begin ,state) *trace-output*)
+                 (last-font 0)
+                 (decorations (line-decorations line)))
              (loop for p from 0 below (line-length line) do
                   (let ((ch (line-character line p)))
                     (setf state (step** state ch))
                     (let ((font (state-font state)))
-                      (unless (eq font last-font)
+                      ;; What is drawn over the text: a server's errors,
+                      ;; the parens point is on.
+                      (loop for (start end overlay) in decorations
+                            when (and (<= start p) (< p end))
+                              do (setf font (overlay-font font overlay)))
+                      (unless (equal font last-font)
                         (push (hi::font-mark line p font) font-marks)
                         (setf last-font font)))))
              (setf state (step** state #\newline))
@@ -611,6 +618,39 @@ changed kept the colours of the mode before, and they hid its links."
   (loop for function in *line-decoration-functions*
         append (funcall function line)))
 
+(defun line-decorations-changed (line)
+  "Say that what the decoration functions return for LINE has changed, so
+   that it is coloured again when next drawn: for a change to a line or two,
+   where incrementing *DECORATION-TICK* would colour every line again."
+  (remf (line-plist line) 'decoration-tick)
+  (let ((buffer (line-buffer line)))
+    (when buffer
+      (setf (buffer-tag-line-number buffer)
+            (min (buffer-tag-line-number buffer) (line-number line))))))
+
+(defun line-decorated-p (line)
+  "Whether LINE's colours were made with the decorations as they are."
+  (eql (getf (line-plist line) 'decoration-tick) *decoration-tick*))
+
+(defun note-line-decorated (line)
+  (setf (getf (line-plist line) 'decoration-tick) *decoration-tick*))
+
+(defun overlay-font (font overlay)
+  "OVERLAY drawn over FONT: its keys win, and FONT's colour shows through
+   where it has none."
+  (flet ((as-plist (font)
+           (cond ((null font) '())
+                 ((integerp font) (if (zerop font) '() (list :fg font)))
+                 (t font))))
+    (if (integerp overlay)
+        overlay
+        (let ((merged (copy-list (as-plist font))))
+          (loop for (key value) on (as-plist overlay) by #'cddr
+                do (setf (getf merged key) value))
+          (if (and (= (length merged) 2) (eq (first merged) :fg))
+              (second merged)
+              (or merged 0))))))
+
 (defun highlight-links (line)
   "Show LINE's links, unless the line has colours of its own."
   (let ((old (getf (line-plist line) 'link-marks)))
@@ -654,7 +694,12 @@ changed kept the colours of the mode before, and they hid its links."
                 (let ((validp (< (line-number line) level)))
                   (finding line such-that (or validp (null prev)))))))
     (unless (line-previous start-line)
-      (let ((tag (make-tag :syntax-info (empty-syntax-info))))
+      ;; The tag it has, so that the marks its syntax info made are deleted
+      ;; as it is computed again: a new one each time left them on the line.
+      (let ((tag (or (%line-tag start-line)
+                     (make-tag :syntax-info (empty-syntax-info)))))
+        (unless (tag-syntax-info tag)
+          (setf (tag-syntax-info tag) (empty-syntax-info)))
         (setf (%line-tag start-line) tag)
         (setf (tag-syntax-info tag) (recompute-syntax-marks start-line tag))
         ;; The first line's (in-package ...) counts too.

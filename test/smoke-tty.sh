@@ -1105,6 +1105,19 @@ type_text ' 3'
 send Enter
 expect_re '^6$' "and Backspace after a list goes inside it"
 
+# Meta-Return starts a new line without reading the form, indented past
+# the prompt as the Lisp Listener's Option-Return indents.
+ready
+type_text '(defun twice (x)'
+send M-Enter
+type_text '(* x 2)'
+expect_re '^           (\* x 2))' "M-Return at heml:repl starts an indented line, unread"
+send Enter
+ready
+type_text '(twice 21)'
+send Enter
+expect_re '^42$' "and Return reads the form once it is complete"
+
 ready
 send C-a C-k
 # A parenthesis on its own: C-q puts in just the character.
