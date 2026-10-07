@@ -795,6 +795,119 @@
     (check "and the palette is put away"
            (main (not (objc:invoke-bool heml.cocoa::*palette-panel* "isVisible"))))))
 
+(defun find-bar-checks ()
+  (note "the find bar")
+  (let ((file (merge-pathnames "find.txt" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out "an apple a day~%no fruit here~%Apple pie and apple tart~%"))
+    (post (list :open (namestring file)))
+    (post-key #\< "Meta")
+    (settle)
+    (labels ((status ()
+               (main (objc:ns-string-to-string
+                      (objc:invoke (third heml.cocoa::*find-bar*) "stringValue"))))
+             (search-for (string)
+               (main (let ((field (heml.cocoa::find-field)))
+                       (objc:invoke field "setStringValue:" string)
+                       (objc:invoke field "sendAction:to:" (objc:invoke field "action")
+                                    (objc:invoke field "target")))))
+             (point-at ()
+               (let ((point (hi::current-point)))
+                 (list (hi::line-string (hi::mark-line point)) (hi::mark-charpos point))))
+             (status-is (text)
+               (wait-until (lambda () (equal text (status))) 5)))
+      (main (heml.cocoa::show-find-bar))
+      (check "⌘F shows the find bar under the title bar"
+             (wait-until (lambda () (main (and heml.cocoa::*find-bar*
+                                               (not (objc:invoke-bool (first heml.cocoa::*find-bar*)
+                                                                      "isHidden")))))
+                         5))
+      (search-for "apple")
+      (check "typing finds the first match, ignoring case, and counts them"
+             (and (status-is "1 of 3")
+                  (equal '("an apple a day" 3) (point-at))))
+      (check "and the matches in sight are highlighted"
+             (wait-until (lambda () (equal "apple" (first (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                                                            (heml.cocoa::screen-shown-find heml.cocoa::*screen*)))))
+                         5))
+      (shot "find-bar")
+      (main (heml.cocoa::find-bar-next))
+      (main (heml.cocoa::find-bar-next))
+      (check "⌘G goes to the next match"
+             (and (status-is "3 of 3")
+                  (equal '("Apple pie and apple tart" 14) (point-at))))
+      (main (heml.cocoa::find-bar-next))
+      (check "and wraps around to the first"
+             (status-is "1 of 3"))
+      (main (heml.cocoa::find-bar-previous))
+      (check "⇧⌘G goes to the one before"
+             (and (status-is "3 of 3")
+                  (equal '("Apple pie and apple tart" 14) (point-at))))
+      (search-for "zebra")
+      (check "what is not there says so"
+             (status-is "Not found"))
+      (search-for "fruit")
+      (status-is "1 of 1")
+      (main (heml.cocoa::hide-find-bar))
+      (check "Done puts the bar away, the highlights with it"
+             (wait-until (lambda ()
+                           (and (main (objc:invoke-bool (first heml.cocoa::*find-bar*) "isHidden"))
+                                (null (heml.cocoa::with-screen-lock (heml.cocoa::*screen*)
+                                        (heml.cocoa::screen-shown-find heml.cocoa::*screen*)))))
+                         5))
+      (check "and leaves point at the match"
+             (equal '("no fruit here" 3) (point-at)))
+      (post-key #\< "Meta")
+      (settle)
+      (main (heml.cocoa::find-bar-next))
+      (check "with it closed, ⌘G still finds what it looked for last"
+             (wait-until (lambda () (equal '("no fruit here" 3) (point-at))) 5)))))
+
+(defun tab-scroll-checks ()
+  (note "many tabs")
+  (let ((width (main (aref (objc:invoke (window) "frame") 2)))
+        (last nil))
+    (dotimes (i 14)
+      (let ((file (merge-pathnames (format nil "a-tab-with-a-long-name-~2,'0D.txt" i) *out*)))
+        (with-open-file (out file :direction :output :if-exists :supersede)
+          (write-line "x" out))
+        (post (list :open (namestring file)))
+        (setf last file)))
+    (settle)
+    (flet ((geometry ()
+             ;; The stack's width, what its scroll view shows, and where the
+             ;; current tab is.
+             (main (let* ((stack (second heml.cocoa::*tab-bar*))
+                          (clip (objc:invoke stack "superview"))
+                          (visible (objc:invoke clip "bounds"))
+                          (current (find-if (lambda (button) (= 1 (objc:invoke button "state")))
+                                            (heml.cocoa::coerce-ns-array
+                                             (objc:invoke stack "arrangedSubviews")))))
+                     (list (aref (objc:invoke stack "frame") 2)
+                           (aref visible 0) (aref visible 2)
+                           (and current (objc:invoke current "frame")))))))
+      (check "tabs that do not fit are scrolled, the window as wide as it was"
+             (wait-until (lambda ()
+                           (destructuring-bind (stack-width x shown frame) (geometry)
+                             (declare (ignore x frame))
+                             (and (> stack-width shown)
+                                  (= width (main (aref (objc:invoke (window) "frame") 2))))))
+                         5))
+      (check "and the current one is scrolled into sight"
+             (wait-until (lambda ()
+                           (destructuring-bind (stack-width x shown frame) (geometry)
+                             (declare (ignore stack-width))
+                             (and frame (<= x (aref frame 0))
+                                  (<= (+ (aref frame 0) (aref frame 2)) (+ x shown 1)))))
+                         5))
+      (shot "many-tabs" (lambda () (objc:invoke (first heml.cocoa::*tab-bar*) "view"))))
+    ;; Back to as few as before.
+    (dotimes (i 14)
+      (declare (ignorable last))
+      (post-key #\x "Control") (post-key #\k)
+      (post (list :named "Return" '())))
+    (settle)))
+
 (defun chrome-checks ()
   (note "the sidebar, the tabs and the scroll bars")
   ;; Two files, and so two tabs.
@@ -1947,8 +2060,10 @@ gamma
   (section-fold-checks)
   (title-bar-checks)
   (chrome-checks)
+  (tab-scroll-checks)
   (pixel-scroll-checks)
   (palette-checks)
+  (find-bar-checks)
   (terminal-checks)
 
   (note "projects")

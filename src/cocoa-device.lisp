@@ -564,7 +564,8 @@ another window is on its right."
               (screen-tabs *screen*) (buffer-tabs buffer))))
     (setf (screen-popup *screen*) (popup-descriptor)
           (screen-scrolls *screen*) (window-scrolls)
-          (screen-palette *screen*) (palette-descriptor))
+          (screen-palette *screen*) (palette-descriptor)
+          (screen-find *screen*) (find-descriptor))
     (present-screen *screen*)
     (request-redraw)))
 

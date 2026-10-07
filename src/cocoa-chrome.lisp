@@ -296,6 +296,10 @@
          ;; its buttons, and wider with each tab.
          (container (objc:invoke (objc:invoke "NSView" "alloc") "initWithFrame:"
                                  (vector 0d0 0d0 (df width) 30d0)))
+         ;; Tabs that do not fit are scrolled to, sideways, by a swipe or
+         ;; Shift and the wheel.
+         (scroll (objc:invoke (objc:invoke "NSScrollView" "alloc") "initWithFrame:"
+                              (vector 0d0 0d0 (df width) 30d0)))
          (stack (objc:invoke (objc:invoke "NSStackView" "alloc") "initWithFrame:"
                              (vector 0d0 0d0 (df width) 30d0)))
          (target (make-instance 'tab-target)))
@@ -303,13 +307,20 @@
     (objc:invoke stack "setSpacing:" 2d0)
     (objc:invoke stack "setEdgeInsets:" (vector 2d0 8d0 2d0 8d0))
     (objc:invoke stack "setAlignment:" 10)                ; centred on Y
-    ;; Too many tabs are cut off at the right, not room made for them.
+    ;; Too many tabs are scrolled, not room made for them.
     (objc:invoke stack "setClippingResistancePriority:forOrientation:" 1f0 0)
     (objc:invoke stack "setHuggingPriority:forOrientation:" 1f0 0)
     (objc:invoke stack "setTranslatesAutoresizingMaskIntoConstraints:" t)
-    (objc:invoke stack "setAutoresizingMask:" 18)
+    (objc:invoke scroll "setDrawsBackground:" nil)
+    (objc:invoke scroll "setHasHorizontalScroller:" t)
+    (objc:invoke scroll "setHasVerticalScroller:" nil)
+    (objc:invoke scroll "setScrollerStyle:" 1)           ; overlay
+    (objc:invoke scroll "setAutohidesScrollers:" t)
+    (objc:invoke scroll "setVerticalScrollElasticity:" 1) ; none
+    (objc:invoke scroll "setAutoresizingMask:" 18)
+    (objc:invoke scroll "setDocumentView:" stack)
     (objc:invoke container "setAutoresizingMask:" 2)     ; the window's width
-    (objc:invoke container "addSubview:" stack)
+    (objc:invoke container "addSubview:" scroll)
     (objc:invoke controller "setView:" container)
     (objc:invoke controller "setLayoutAttribute:" 4)      ; under the title bar
     (objc:invoke (display-window display) "addTitlebarAccessoryViewController:" controller)
@@ -354,7 +365,26 @@
                        (objc:invoke button "setShowsBorderOnlyWhileMouseInside:" t)
                        (objc:invoke button "setState:" (if (string= name current) 1 0))
                        (objc:invoke button "setTag:" index)
-                       (objc:invoke stack "addArrangedSubview:" button)))))))))
+                       (objc:invoke stack "addArrangedSubview:" button)))
+            (fit-tabs stack (position current order :test #'string=))))))))
+
+(defun fit-tabs (stack current)
+  "The tabs' stack as wide as its tabs, or the bar when they are fewer, and
+   the current tab, at CURRENT among them, scrolled into sight."
+  (let* ((clip (objc:invoke stack "superview"))
+         (shown (aref (objc:invoke clip "bounds") 2))
+         (buttons (coerce-ns-array (objc:invoke stack "arrangedSubviews")))
+         ;; The buttons' own widths, the spacing and the insets: the stack's
+         ;; fitting size is nothing, its clipping resistance being so low.
+         (needed (+ 16 (* 2 (max 0 (1- (length buttons))))
+                    (loop for button in buttons
+                          sum (aref (objc:invoke button "fittingSize") 0)))))
+    (objc:invoke stack "setFrame:" (vector 0d0 0d0 (df (max shown needed)) 30d0))
+    (progn
+      (when (and current (< current (length buttons)))
+        (let ((button (nth current buttons)))
+          (objc:invoke stack "layoutSubtreeIfNeeded")
+          (objc:invoke button "scrollRectToVisible:" (objc:invoke button "bounds")))))))
 
 (defun coerce-ns-array (array)
   (loop for i below (objc:invoke array "count")

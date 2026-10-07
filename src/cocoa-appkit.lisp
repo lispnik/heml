@@ -105,6 +105,9 @@ uses so as not to overwrite the user's clipboard.")
   ;; ABOVE BELOW FRINGE) ...), POSITION and SIZE fractions (WINDOW-SCROLLS).
   (scrolls nil)
   (shown-scrolls nil)
+  ;; The find bar's (STRING INDEX COUNT) while it is open (cocoa-find.lisp).
+  (find nil)
+  (shown-find nil)
   ;; Frames presented, so that the main thread knows when one has come.
   (frames 0 :type fixnum)
   ;; The files open, for their tabs: (CURRENT (NAME MODIFIED TITLE) ...).
@@ -883,6 +886,7 @@ underlined, laid out in cells as a row's text is."
   (with-screen-lock (screen)
     (let ((rows (screen-shown-rows screen))
           (key-window-p (objc:invoke-bool (display-window display) "isKeyWindow")))
+      (draw-find-matches display screen)
       (dotimes (line (length rows))
         (unless (palette-hides-row-p line)
           (draw-row display (svref rows line) line)))
@@ -923,6 +927,9 @@ again."
           (on-main-thread (show-tabs tabs))))
       (note-scrolls (screen-scrolls screen) (screen-shown-scrolls screen))
       (setf (screen-shown-scrolls screen) (screen-scrolls screen))
+      (unless (equal (screen-find screen) (screen-shown-find screen))
+        (let ((find (setf (screen-shown-find screen) (screen-find screen))))
+          (on-main-thread (show-find-status find))))
       (unless (equal (screen-palette screen) (screen-shown-palette screen))
         (let ((palette (setf (screen-shown-palette screen) (screen-palette screen))))
           (on-main-thread (show-palette palette))))

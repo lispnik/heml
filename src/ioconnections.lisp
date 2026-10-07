@@ -342,6 +342,15 @@
     (cffi:foreign-funcall "sigprocmask" :int +sig-setmask+ :pointer set
                                         :pointer (cffi:null-pointer) :int)))
 
+(defun close-other-descriptors ()
+  "In a forked child, every descriptor but standard input, output and error
+   closed: it had all the editor's, and a pseudo-terminal's master among
+   them kept the program from ever seeing its terminal hang up, so that a
+   shell outlived the editor that started it, holding a terminal of the
+   system's few.  macOS has no closefrom."
+  (loop for fd from 3 below (min (cffi:foreign-funcall "getdtablesize" :int) 10240)
+        do (cffi:foreign-funcall "close" :int fd :int)))
+
 (defun %exec-in-child
        (stdin-read stdin-write stdout-read stdout-write file args directory
                    slave-pty-name &optional environment terminal)
@@ -405,6 +414,7 @@
    (loop for (name . value) in environment
          do (cffi:foreign-funcall "setenv" :string name :string value :int 1 :int))
    (reset-child-signals)
+   (close-other-descriptors)
    (let ((n (length args)))
      (cffi:with-foreign-object (argv :pointer (1+ n))
        (iter:iter (iter:for i from 0)

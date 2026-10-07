@@ -27,5 +27,6 @@
                (:file "cocoa-chrome")
                (:file "cocoa-settings")
                (:file "cocoa-palette")
+                 (:file "cocoa-find")
                (:file "cocoa-device")
                (:file "cocoa-main")))))
