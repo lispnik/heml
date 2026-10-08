@@ -321,7 +321,10 @@
 (defun add-sidebar-root (root &optional name)
   "Put the project at ROOT, a directory, in the sidebar, at its end.  On the
    main thread."
-  (let ((root (namestring (uiop:ensure-directory-pathname root))))
+  ;; As the file system names it: a path through .. or a link is the same
+  ;; project, not another.
+  (let ((root (namestring (let ((directory (uiop:ensure-directory-pathname root)))
+                            (or (ignore-errors (probe-file directory)) directory)))))
     (when name (setf (gethash root *sidebar-root-names*) name))
     (unless (sidebar-root-p root)
       (setf *sidebar-roots* (append *sidebar-roots* (list root)))

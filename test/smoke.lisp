@@ -1056,6 +1056,9 @@
                (wait-until (lambda () (main (and (member root heml.cocoa::*sidebar-roots* :test #'equal)
                                                  (> (length heml.cocoa::*sidebar-roots*) 1))))
                            5))
+        (main (heml.cocoa::add-sidebar-root (concatenate 'string root "src/../")))
+        (check "a project named another way, through .., is not added again"
+               (main (= 1 (count root heml.cocoa::*sidebar-roots* :test #'equal))))
         (check "each project at the top of the tree"
                (main (= (length heml.cocoa::*sidebar-roots*)
                         (loop with outline = (third heml.cocoa::*sidebar*)
