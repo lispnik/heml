@@ -692,7 +692,16 @@
            #:start-slave
            #:linedit
            #:formedit
-           #:repl)
+           #:repl
+           ;; Settings an init file may change.
+           #:*fold-marker-open*
+           #:*fold-marker-closed*
+           #:*fold-marker-font*
+           #:*fold-marker-closed-font*
+           #:*breakpoint-font*
+           #:*stopped-arrow-font*
+           #:*compressors*
+           #:*archive-types*)
   (:shadowing-import-from #:heml-ext
                           #:char-code-limit)
   ;;  #+cmu

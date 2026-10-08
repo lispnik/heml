@@ -14,7 +14,24 @@
            #:*option-is-meta*
            #:*right-option-is-meta*
            #:*initial-columns*
-           #:*initial-lines*)
+           #:*initial-lines*
+           ;; Settings an init file may change.
+           #:*cursor-style*
+           #:*cursor-blink*
+           #:*blink-interval*
+           #:*pixel-scrolling*
+           #:*overscroll-limit*
+           #:*scroller-shown-for*
+           #:*sidebar-width*
+           #:*sidebar-follow-projects*
+           #:*sidebar-follow-file*
+           #:*sidebar-ignored*
+           #:*tabs-shown*
+           #:*remember-chrome*
+           #:*remember-window-frame*
+           #:*palette-rows*
+           #:*palette-width*
+           #:*popup-padding*)
   (:documentation "The native macOS backend.
 
 AppKit owns the main thread and runs its own event loop there.  Heml
