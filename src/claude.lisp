@@ -41,14 +41,19 @@
 (defun claude-buffer-name (root)
   (format nil "*claude ~A*" (car (last (pathname-directory root)))))
 
+(defvar *claude-buffers* (make-hash-table :test 'equal)
+  "Each directory a Claude was started in, as a namestring, to its
+   terminal's buffer.")
+
+(defun claude-running-p (buffer)
+  (and buffer (member buffer *buffer-list*)
+       (let ((term (buffer-term buffer)))
+         (and term (null (term-exit-code term))))))
+
 (defun claude-term-buffer (root)
-  "The buffer of the Claude running at ROOT, when one still runs."
-  (let ((buffer (getstring (claude-buffer-name root) *buffer-names*)))
-    (when buffer
-      (let ((term (buffer-term buffer)))
-        (if (and term (null (term-exit-code term)))
-            buffer
-            nil)))))
+  "The buffer of the Claude running in ROOT, when one still runs."
+  (let ((buffer (gethash (namestring root) *claude-buffers*)))
+    (and (claude-running-p buffer) buffer)))
 
 (defun show-in-other-window (buffer)
   (let ((window (car (buffer-windows buffer))))
@@ -60,22 +65,22 @@
           (select-window (other-window))
           (change-to-buffer buffer)))))
 
-(defcommand "Claude" (p &optional ask)
-  "Run Claude Code in a terminal beside this window, at this buffer's
-   project's root, with Heml as its IDE; or go back to the one running
-   there.  With an argument, or ASK (the menu's Run…), ask what to run."
-  "Run Claude Code."
-  (let* ((root (claude-root))
+(defun start-claude (root &optional ask)
+  "Run Claude Code in ROOT, a directory, in a terminal beside this window,
+   with Heml as its IDE; or go back to the one running there.  ASK says to
+   ask what to run.  The Claude directory is ROOT's project's."
+  (let* ((root (uiop:ensure-directory-pathname root))
          (running (claude-term-buffer root)))
     (if running
         (show-in-other-window running)
-        (let* ((command (if (or p ask)
+        (let* ((command (if ask
                             (prompt-for-string :prompt "Run: " :default (value claude-program))
                             (value claude-program)))
                (words (cl-ppcre:split "\\s+" (string-trim " " command))))
           (unless (find-program (first words))
             (editor-error "~A is not installed." (first words)))
-          (let* ((config (claude-config-directory root))
+          (let* ((config (claude-config-directory
+                          (uiop:ensure-directory-pathname (or (project-root (namestring root)) root))))
                  (environment
                    `(("CLAUDE_CONFIG_DIR" . ,(string-right-trim "/" (namestring config)))
                      ,@(when (value claude-ide-server)
@@ -93,14 +98,48 @@
                                          for candidate = (format nil "~A<~D>" name i)
                                          unless (getstring candidate *buffer-names*)
                                            return candidate)
-                                   name))))))))
+                                   name)))
+            (setf (gethash (namestring root) *claude-buffers*) (current-buffer)))))))
+
+(defcommand "Claude" (p &optional ask)
+  "Run Claude Code in a terminal beside this window, at this buffer's
+   project's root -- or, in no project, its directory -- with Heml as its
+   IDE; or go back to the one running there.  With an argument, or ASK
+   (the menu's Run…), ask what to run."
+  "Run Claude Code."
+  (start-claude (claude-root) (or p ask)))
+
+(defcommand "Claude in Directory" (p)
+  "Run Claude Code in a directory asked for, or go back to the one running
+   there.  With an argument, ask what to run too."
+  "Run Claude Code in a directory."
+  (let* ((answer (prompt-for-file :prompt "Run Claude in directory: "
+                                  :default (default-directory)
+                                  :must-exist t
+                                  :help "The directory Claude Code is to work in."))
+         (directory (if (directoryp answer)
+                        answer
+                        (uiop:pathname-directory-pathname answer))))
+    (start-claude directory p)))
 
 (defun claude-for-sending ()
-  "The terminal of the Claude running at this buffer's project's root."
-  (let ((buffer (claude-term-buffer (claude-root))))
-    (unless buffer
+  "The terminal of the Claude this buffer's text is for, and the directory
+   it runs in: the innermost running Claude whose directory holds this
+   buffer's, or its project's root's."
+  (let* ((here (namestring (default-directory)))
+         (best nil))
+    (maphash (lambda (root buffer)
+               (when (and (claude-running-p buffer)
+                          (uiop:string-prefix-p root here)
+                          (or (null best) (> (length root) (length (car best)))))
+                 (setf best (cons root buffer))))
+             *claude-buffers*)
+    (unless best
+      (let ((buffer (claude-term-buffer (claude-root))))
+        (when buffer (setf best (cons (namestring (claude-root)) buffer)))))
+    (unless best
       (editor-error "No Claude runs here: C-c a a starts one."))
-    (buffer-term buffer)))
+    (values (buffer-term (cdr best)) (car best))))
 
 (defun mention-text (pathname root start-line end-line)
   "The @ reference Claude Code reads for the lines START-LINE to END-LINE,
@@ -113,22 +152,22 @@
 (defun claude-mention (start-line end-line)
   "Tell the Claude running here about the current buffer's lines START-LINE
    to END-LINE (from 0), or the whole file when they are NIL."
-  (let* ((buffer (current-buffer))
-         (pathname (buffer-pathname buffer))
-         (term (claude-for-sending)))
+  (multiple-value-bind (term root) (claude-for-sending)
+   (let* ((buffer (current-buffer))
+          (pathname (buffer-pathname buffer)))
     (cond ((and pathname start-line (ide-connected-p))
            (ide-mention pathname start-line end-line)
            (message "Lines ~D to ~D of ~A told to Claude." (1+ start-line) (1+ end-line)
                     (file-namestring pathname)))
           (pathname
-           (term-paste-string term (mention-text pathname (claude-root)
+           (term-paste-string term (mention-text pathname root
                                                  (and start-line (1+ start-line))
                                                  (and end-line (1+ end-line))))
            (message "~A put in Claude's prompt." (file-namestring pathname)))
           ((region-active-p)
            (term-paste-string term (region-to-string (current-region)))
            (message "The region put in Claude's prompt."))
-          (t (editor-error "This buffer has no file.")))))
+          (t (editor-error "This buffer has no file."))))))
 
 (defcommand "Claude Send Region" (p)
   "Tell the Claude running at this project's root about the region's lines,
@@ -160,10 +199,12 @@
 (bind-key "Claude" #k"control-c a a")
 (bind-key "Claude Send Region" #k"control-c a r")
 (bind-key "Claude Send File" #k"control-c a f")
+(bind-key "Claude in Directory" #k"control-c a d")
 
 (define-menu "Claude" (:after "Git")
   ("Run Claude" "Claude")
   ("Run…" (:command "Claude" t))
+  ("Run in Directory…" "Claude in Directory")
   :separator
   ("Send Region or Line" "Claude Send Region")
   ("Send File" "Claude Send File")

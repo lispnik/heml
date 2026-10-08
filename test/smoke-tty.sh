@@ -1268,6 +1268,17 @@ send C-x k
 sleep 0.3
 send Enter
 sleep 0.5
+send C-c a d
+expect 'Run Claude in directory:' "C-c a d asks where to run Claude"
+send C-a C-k
+type_text "$C/proj/src/"
+send Enter
+expect "PWD=$C/proj/src" "and runs it there" 10
+expect "CONFIG=$C/config" "with the Claude directory of the project it is in"
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
 send C-x C-c
 sleep 1
 send n
