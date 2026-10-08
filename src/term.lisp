@@ -505,11 +505,13 @@
         for name = (if (= i 1) "*terminal*" (format nil "*terminal<~D>*" i))
         unless (getstring name *buffer-names*) return name))
 
-(defun make-term (command directory)
+(defun make-term (command directory &key environment name)
+  "Run COMMAND in DIRECTORY in a new terminal, in a buffer NAME or the next
+   *terminal*, with ENVIRONMENT, an alist, beside the terminal's own."
   (handler-case (vterm:ensure-libvterm)
     (error ()
       (editor-error "libvterm is not installed (brew install libvterm).")))
-  (let* ((buffer (make-buffer (new-term-buffer-name) :modes '("Term")
+  (let* ((buffer (make-buffer (or name (new-term-buffer-name)) :modes '("Term")
                                                     :delete-hook (list 'term-buffer-deleted)))
          (id (incf *term-count*))
          (term (%make-term :id id :buffer buffer :rows 24 :columns 80
@@ -552,7 +554,7 @@
            :terminal t
            :rows (term-rows term) :columns (term-columns term)
            :environment `(("TERM" . "xterm-256color") ("COLORTERM" . "truecolor")
-                          ("INSIDE_HEML" . "1"))
+                          ("INSIDE_HEML" . "1") ,@environment)
            :filter (lambda (connection bytes)
                      (declare (ignore connection))
                      (term-input term bytes)
@@ -674,12 +676,15 @@
     (interprogram-paste)
     (when (zerop (ring-length *kill-ring*))
       (editor-error "Nothing to paste."))
-    (let ((vt (term-vt term))
-          (text (region-to-string (ring-ref *kill-ring* 0))))
-      (vterm:vterm-keyboard-start-paste vt)
-      (loop for char across text
-            do (vterm:vterm-keyboard-unichar vt (char-code (if (char= char #\Newline) #\Return char)) 0))
-      (vterm:vterm-keyboard-end-paste vt))))
+    (term-paste-string term (region-to-string (ring-ref *kill-ring* 0)))))
+
+(defun term-paste-string (term text)
+  "Send TEXT to TERM's program as a terminal pastes, bracketed."
+  (let ((vt (term-vt term)))
+    (vterm:vterm-keyboard-start-paste vt)
+    (loop for char across text
+          do (vterm:vterm-keyboard-unichar vt (char-code (if (char= char #\Newline) #\Return char)) 0))
+    (vterm:vterm-keyboard-end-paste vt)))
 
 (defcommand "Term Copy Mode" (p)
   "Read the terminal's text as a buffer: move, search and copy; q or C-c C-k

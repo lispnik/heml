@@ -315,7 +315,8 @@ while the current buffer is in the mode."
   ("Delete…" "Dired Delete")
   ("Make Symbolic Link…" "Dired Symlink")
   ("Change Mode…" "Dired Change Mode")
-  ("Compress or Uncompress" "Dired Compress")
+  ("Compress or Unpack" "Dired Compress")
+  ("Compress to Archive…" "Dired Compress To")
   ("Shell Command…" "Dired Shell Command")
   ("New Directory…" "Dired Create Directory")
   :separator

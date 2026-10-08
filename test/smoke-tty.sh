@@ -37,6 +37,7 @@ tmux new-session -d -s "$session" -x 100 -y 30 \
         --eval '(uiop:symbol-call :heml :define-language-server \"YAML\" (list (list \"python3\" \"$PWD/test/fake-lsp.py\" \"--pull\")))' \
         --eval '(setf (symbol-value (uiop:find-symbol* :*language-server-settings* :heml)) (list (list \"fake\" (cons \"greeting\" \"hello from settings\"))))' \
         --eval '(eval (read-from-string \"(setf (hi:variable-value (quote heml::term-program) :global) \\\"/bin/bash --norc --noprofile\\\")\"))' \
+        --eval '(eval (read-from-string \"(setf (hi:variable-value (quote heml::claude-program) :global) \\\"$PWD/test/fake-claude.sh\\\")\"))' \
         --eval '(uiop:symbol-call :heml :heml nil :backend-type :tty :load-user-init nil)' \
         --eval '(progn (format t \"~%EDITOR-RETURNED~%\") (finish-output) (sleep 30))'"
 
@@ -363,6 +364,96 @@ sleep 0.5
 send C-x k
 sleep 0.5
 send Enter
+
+# Compressing and unpacking: Z on each file, z for one archive of several.
+echo "dired compress"
+Z=$PWD/build/smoke-tty-compress
+rm -rf "$Z"
+mkdir -p "$Z/folder" "$Z/work/top" "$Z/work/many"
+printf 'a note\n' > "$Z/note.txt"
+printf 'another\n' > "$Z/other.txt"
+printf 'inside\n' > "$Z/folder/inside.txt"
+printf 'x\n' > "$Z/work/top/x.txt"
+printf 'p\n' > "$Z/work/many/p.txt"
+printf 'q\n' > "$Z/work/many/q.txt"
+printf 'only\n' > "$Z/work/only.txt"
+tar -czf "$Z/onedir.tar.gz" -C "$Z/work" top
+tar -czf "$Z/many.tar.gz" -C "$Z/work/many" p.txt q.txt
+tar -czf "$Z/single.tar.gz" -C "$Z/work" only.txt
+rm -rf "$Z/work"
+# expect_path TEST DESCRIPTION: wait for a test(1) of the file system.
+expect_path() {
+    checks=$((checks + 1))
+    tries=50
+    while [ "$tries" -gt 0 ]; do
+        if eval "$1"; then
+            echo "  ok    $2"
+            return 0
+        fi
+        sleep 0.2
+        tries=$((tries - 1))
+    done
+    echo "  FAIL  $2"; ls -laR "$Z" | sed 's/^/        | /'
+    failures=$((failures + 1))
+    return 1
+}
+# on PATTERN: only the files PATTERN matches marked (one * at most).
+on() {
+    send U
+    sleep 0.3
+    send %
+    sleep 0.3
+    type_text "$1"
+    send Enter
+    sleep 0.5
+}
+send C-x d
+sleep 0.5
+send C-a C-k
+type_text "$Z/"
+send Enter
+expect 'single.tar.gz' "Dired lists the archives"
+on 'note*'
+send Z
+expect_path '[ -f "$Z/note.txt.gz" ] && [ ! -e "$Z/note.txt" ]' "Z compresses a file, with gzip"
+expect 'note.txt.gz' "and Dired lists what it made"
+on 'note*'
+send Z
+expect_path '[ -f "$Z/note.txt" ] && [ ! -e "$Z/note.txt.gz" ]' "Z on a compressed file uncompresses it"
+on 'fold*'
+send Z
+expect_path '[ -f "$Z/folder.tar.gz" ] && tar -tzf "$Z/folder.tar.gz" | grep -q "folder/inside.txt"' \
+    "Z on a directory puts it in a tar beside it"
+on 'onedir*'
+send Z
+expect_path '[ -f "$Z/onedir/x.txt" ] && [ ! -e "$Z/top" ]' \
+    "an archive of one directory unpacks into one named as the archive"
+on 'many*'
+send Z
+expect_path '[ -f "$Z/many/p.txt" ] && [ -f "$Z/many/q.txt" ]' \
+    "an archive of several things unpacks into a directory named as it"
+on 'single*'
+send Z
+expect_path '[ -f "$Z/only.txt" ] && [ ! -e "$Z/single" ]' \
+    "an archive of one file unpacks just the file"
+expect_path '! ls -a "$Z" | grep -q unpacking' "and nothing is left of the unpacking"
+on 'oth*'
+send %
+sleep 0.3
+type_text 'note*'
+send Enter
+sleep 0.5
+send z
+expect 'Compress 2 files to:' "z asks for one archive's name"
+send C-a C-k
+type_text 'both.zip'
+send Enter
+expect_path '[ -f "$Z/both.zip" ] && unzip -l "$Z/both.zip" | grep -q other.txt && unzip -l "$Z/both.zip" | grep -q note.txt' \
+    "and puts the marked files in it, its type saying what kind"
+send C-x k
+sleep 0.5
+send Enter
+sleep 0.5
 sleep 0.5
 
 # Tree-sitter indentation, under SBCL and ECL alike: Return indents the new
@@ -1096,10 +1187,91 @@ type_text 'exit'
 send Enter
 expect 'The program ended with code 0' "the program's end, and its code, are shown" 10
 
+
+# Claude Code: "Claude" runs "Claude Program" (here a stand-in that prints
+# what it was given) at the project's root, with the project's own Claude
+# directory, and Heml serves it as its IDE, which test/fake-claude-ide.py
+# plays the client of.
+echo "claude"
+C=$PWD/build/smoke-tty-claude
+rm -rf "$C"
+mkdir -p "$C/proj/src" "$C/config"
+printf '(:name "claudeproj" :variables (("Claude Config Directory" . "%s/config/")))\n' "$C" > "$C/proj/.heml-project"
+printf 'first line\nsecond line\n' > "$C/proj/src/hello.txt"
+send C-x C-f
+sleep 0.5
+send C-a C-k
+type_text "$C/proj/src/hello.txt"
+send Enter
+expect 'first line' "a file of the project is visited"
+send C-c a a
+expect "CONFIG=$C/config" "C-c a a runs Claude with the project's Claude directory" 10
+expect "PWD=$C/proj" "at the project's root"
+expect_re 'PORT=[0-9][0-9]* IDE=true' "and told where Heml serves it as its IDE"
+checks=$((checks + 1))
+lockfile=$(ls "$C"/config/ide/*.lock 2>/dev/null | head -1)
+if [ -n "$lockfile" ] && ls -l "$lockfile" | grep -q "^-rw------- "; then
+    echo "  ok    the lock file is in that directory, for this user alone"
+else
+    echo "  FAIL  the lock file is in that directory, for this user alone"
+    ls -laR "$C/config" | sed 's/^/        | /'; failures=$((failures + 1))
+fi
+python3 test/fake-claude-ide.py "$C/config" > "$C/client.out" 2>&1
+client_has() {
+    checks=$((checks + 1))
+    if grep -qF -- "$1" "$C/client.out"; then
+        echo "  ok    $2"
+    else
+        echo "  FAIL  $2"; sed 's/^/        | /' "$C/client.out"; failures=$((failures + 1))
+    fi
+}
+client_has 'status HTTP/1.1 101' "a client with the token is let in"
+client_has 'initialize Heml 2024-11-05' "and MCP is initialized"
+client_has 'openDiff' "the tools are listed"
+client_has "$C/proj" "getWorkspaceFolders names the project"
+client_has 'hello.txt' "getOpenEditors names the file open"
+client_has 'getCurrentSelection {' "getCurrentSelection answers"
+client_has 'nonesuch ERROR' "and a tool there is not is an error"
+python3 test/fake-claude-ide.py "$C/config" --bad-token > "$C/client.out" 2>&1
+client_has 'refused HTTP/1.1 401' "a client without the token is refused"
+python3 test/fake-claude-ide.py "$C/config" --diff "$C/proj/src/hello.txt" 'first line
+changed line
+' > "$C/client.out" 2>&1 &
+client=$!
+expect '+changed line' "openDiff shows the change proposed as a diff" 10
+send C-x o
+sleep 0.3
+send C-c C-c
+checks=$((checks + 1))
+tries=50
+while kill -0 $client 2>/dev/null && [ $tries -gt 0 ]; do sleep 0.2; tries=$((tries - 1)); done
+if grep -qF 'openDiff FILE_SAVED | first line\nchanged line\n' "$C/client.out"; then
+    echo "  ok    and C-c C-c accepts it, answering with the text to write"
+else
+    echo "  FAIL  and C-c C-c accepts it, answering with the text to write"
+    sed 's/^/        | /' "$C/client.out"; screen | sed 's/^/        | /'; failures=$((failures + 1))
+fi
+kill $client 2>/dev/null
+send C-x b
+sleep 0.3
+send C-a C-k
+type_text '*claude proj*'
+send Enter
+sleep 0.5
+send C-x k
+sleep 0.3
+send Enter
+sleep 0.5
 send C-x C-c
 sleep 1
 send n
 expect 'EDITOR-RETURNED' "C-x C-c leaves the editor" 15
+checks=$((checks + 1))
+if ls "$C"/config/ide/*.lock >/dev/null 2>&1; then
+    echo "  FAIL  and takes its lock file away"; failures=$((failures + 1))
+else
+    echo "  ok    and takes its lock file away"
+fi
 
 # The :mini backend: HEML:REPL, a REPL whose lines are edited by Heml
 # where they stand rather than on a screen of their own.

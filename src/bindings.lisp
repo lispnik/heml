@@ -811,6 +811,7 @@
 (bind-key "Dired Symlink" #k"S" :mode "Dired")
 (bind-key "Dired Change Mode" #k"M" :mode "Dired")
 (bind-key "Dired Compress" #k"Z" :mode "Dired")
+(bind-key "Dired Compress To" #k"z" :mode "Dired")
 (bind-key "Dired Update Buffer" #k"hyper-u" :mode "Dired")
 (bind-key "Dired Update Buffer" #k"g" :mode "Dired")
 (bind-key "Dired Toggle Hidden Files" #k"h" :mode "Dired")

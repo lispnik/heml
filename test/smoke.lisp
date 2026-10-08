@@ -795,6 +795,43 @@
     (check "and the palette is put away"
            (main (not (objc:invoke-bool heml.cocoa::*palette-panel* "isVisible"))))))
 
+(defun claude-ide-checks ()
+  (note "Heml as Claude Code's IDE")
+  (let* ((root (merge-pathnames "claude/proj/" *out*))
+         (config (merge-pathnames "claude/config/" *out*))
+         (file (merge-pathnames "notes.txt" root)))
+    (uiop:delete-directory-tree (merge-pathnames "claude/" *out*) :validate t :if-does-not-exist :ignore)
+    (ensure-directories-exist file)
+    (ensure-directories-exist config)
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out "one~%two~%"))
+    (post (list :open (namestring file)))
+    (settle)
+    (post (list :call (lambda () (heml::ensure-ide-server (namestring root) config))))
+    (check "the server writes its lock file in the Claude directory given"
+           (wait-until (lambda () (directory (merge-pathnames "ide/*.lock" config))) 5))
+    (let ((client (uiop:launch-program
+                   (list "python3" (namestring (merge-pathnames "test/fake-claude-ide.py"
+                                                                (uiop:getcwd)))
+                         (namestring config) "--diff" (namestring file)
+                         (format nil "one~%TWO~%"))
+                   :output :stream)))
+      (check "a change Claude proposes is shown as a diff"
+             (wait-until (lambda () (not (eq :none (row-runs-containing "+TWO")))) 10))
+      (shot "claude-diff")
+      ;; Accepted in the diff's window.
+      (post-key #\x "Control") (post-key #\o)
+      (post-key #\c "Control") (post-key #\c "Control")
+      (check "and accepting it answers with the text to write"
+             (let ((output (with-output-to-string (s)
+                             (loop for line = (read-line (uiop:process-info-output client) nil)
+                                   while line do (write-line line s)))))
+               (search "openDiff FILE_SAVED" output)))
+      (uiop:wait-process client))
+    (post (list :call (lambda () (heml::stop-ide-server))))
+    (check "and the lock file goes with the server"
+           (wait-until (lambda () (null (directory (merge-pathnames "ide/*.lock" config)))) 5))))
+
 (defun find-bar-checks ()
   (note "the find bar")
   (let ((file (merge-pathnames "find.txt" *out*)))
@@ -2064,6 +2101,7 @@ gamma
   (pixel-scroll-checks)
   (palette-checks)
   (find-bar-checks)
+  (claude-ide-checks)
   (terminal-checks)
 
   (note "projects")

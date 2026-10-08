@@ -535,7 +535,11 @@
                                                   :local-host addr
                                                   :local-port port)))
                 (if port
-                    (doit port)
+                    ;; Port 0 is one the system chooses, read back.
+                    (let ((socket (doit port)))
+                      (when (zerop port)
+                        (setf port (iolib.sockets:local-port socket)))
+                      socket)
                     (iter:iter (iter:for p from 1024 below 65536)
                                (handler-case
                                    (doit p)
@@ -557,6 +561,10 @@
      (process-incoming-connection instance))))
 
 (defmethod delete-connection :before ((connection listening-connection/iolib))
+  ;; Forgotten by the event loop first, as any connection's descriptors
+  ;; are: left watching a closed one, its next select(2) fails with EBADF.
+  (when (connection-fd connection)
+    (iolib:remove-fd-handlers *event-base* (connection-fd connection)))
   (close (connection-socket connection)))
 
 (defmethod (setf connection-fd)
