@@ -1302,20 +1302,6 @@ is the size of what the top directory holds."
       (isys:chmod (string-right-trim "/" (namestring target)) mode)))
   (dired-refresh))
 
-(defcommand "Dired Compress" (p)
-  "Compress the marked files, or the file under point, with gzip; one that is
-   already compressed (.gz) is uncompressed."
-  "Compress or uncompress with gzip."
-  (declare (ignore p))
-  (dolist (target (dired-targets))
-    (unless (directoryp target)
-      (let ((result (uiop:run-program (list (if (equalp (pathname-type target) "gz") "gunzip" "gzip")
-                                            (namestring target))
-                                      :ignore-error-status t
-                                      :error-output :string)))
-        (declare (ignore result)))))
-  (dired-refresh))
-
 (defcommand "Dired Shell Command" (p)
   "Run a shell command on the marked files, or the file under point.  A * in
    the command stands for the files; without one, they go at the end."

@@ -485,10 +485,12 @@
 ;;;; Wildcard resolution
 
 (defun pathnames-from-pattern (pattern files)
-  "Return a list of pathnames from files whose file-namestrings match
-   pattern.  Pattern must be a non-empty string and contains only one
-   asterisk.  Files contains no directories."
-  (declare (simple-string pattern))
+  "Return a list of pathnames from files whose names match pattern: a
+   file's file-namestring, a directory's last component.  Pattern must be a
+   non-empty string and contains only one asterisk."
+  ;; Simple strings, which the matching declares: neither a prompt's answer
+  ;; nor, on ECL, a FILE-NAMESTRING need be one.
+  (setf pattern (coerce pattern 'simple-string))
   (when (string= pattern "")
     (funcall *error-function* "Must be a non-empty pattern."))
   (unless (= (count wildcard-char pattern :test #'char=) 1)
@@ -497,8 +499,10 @@
                        (before-wildcard-after pattern (wildcardp pattern))
     (let ((result nil))
       (dolist (f files result)
-        (let* ((ses-namestring (namestring f))
-               (f-namestring (file-namestring ses-namestring))
+        (let* ((name (if (pathname-name f)
+                         (file-namestring f)
+                         (car (last (pathname-directory f)))))
+               (f-namestring (coerce (or name "") 'simple-string))
                (match (find-match before after f-namestring)))
           (when match (push f result)))))))
 

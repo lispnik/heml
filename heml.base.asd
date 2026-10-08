@@ -225,6 +225,7 @@
                (:file "highlight")
                (:file "dired")
                (:file "diredcoms" :depends-on ("dired"))
+               (:file "dired-compress" :depends-on ("diredcoms" "grep" "command"))
                (:file "bufed")
                (:file "coned")
                (:file "xref")
