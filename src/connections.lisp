@@ -65,7 +65,7 @@
               ;; note the space in the buffer name
               (format nil " *Connection ~A*" (connection-name instance))
               :delete-hook (list #'delete-hook))))
-      (hi::buffer
+      (buffer
        (push #'delete-hook (buffer-delete-hook buffer)))
       (null)
       (t
@@ -408,12 +408,12 @@
 (defun set-pty-size (fd rows columns)
   "Tell the terminal whose master side is FD that it is ROWS by COLUMNS."
   #+sbcl
-  (cffi:with-foreign-object (ws '(:struct osicat-posix::winsize))
-    (cffi:with-foreign-slots ((osicat-posix::row osicat-posix::col
-                               osicat-posix::xpixel osicat-posix::ypixel)
-                              ws (:struct osicat-posix::winsize))
-      (setf osicat-posix::row rows osicat-posix::col columns
-            osicat-posix::xpixel 0 osicat-posix::ypixel 0))
+  (cffi:with-foreign-object (ws '(:struct osicat-posix:winsize))
+    (cffi:with-foreign-slots ((osicat-posix:row osicat-posix:col
+                               osicat-posix:xpixel osicat-posix:ypixel)
+                              ws (:struct osicat-posix:winsize))
+      (setf osicat-posix:row rows osicat-posix:col columns
+            osicat-posix:xpixel 0 osicat-posix:ypixel 0))
     ;; Not osicat's IOCTL, which takes the request as a signed 32-bit
     ;; number (TIOCSWINSZ is #x80087467, more than one can be) and passes
     ;; its argument as a fixed one, where arm64 macOS wants a variadic one

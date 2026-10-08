@@ -35,8 +35,8 @@
 (setf heml.cocoa::*activate* nil
       heml.cocoa::*pasteboard-name* "org.lispnik.heml.smoke"
       heml.cocoa::*remember-font* nil
-      heml.cocoa::*remember-window-frame* nil
-      heml.cocoa::*remember-chrome* nil
+      heml.cocoa:*remember-window-frame* nil
+      heml.cocoa:*remember-chrome* nil
       heml.cocoa:*font-size* 13
       heml.cocoa:*font-name* nil)
 
@@ -190,22 +190,22 @@
                      (subseq chars (min right (length chars)) (min length (length chars)))))
       (hi::line-chars line)))
 
-(defun buffer-text (&optional (buffer (hi::current-buffer)))
+(defun buffer-text (&optional (buffer (hi:current-buffer)))
   (with-output-to-string (out)
-    (loop for line = (hi::mark-line (hi::buffer-start-mark buffer)) then next
-          for next = (hi::line-next line)
+    (loop for line = (hi:mark-line (hi:buffer-start-mark buffer)) then next
+          for next = (hi:line-next line)
           do (write-string (line-text line) out)
              (when next (terpri out))
           while next)))
 
-(defun region-text () (hi::region-to-string (heml::current-region nil nil)))
+(defun region-text () (hi:region-to-string (heml::current-region nil nil)))
 
 (defun pasteboard-text ()
   (main (let ((string (objc:invoke (heml.cocoa::general-pasteboard)
                                    "stringForType:" "public.utf8-plain-text")))
           (and (not (cffi:null-pointer-p string)) (objc:ns-string-to-string string t)))))
 
-(defun point-column () (hi::mark-column (hi::current-point)))
+(defun point-column () (hi:mark-column (hi:current-point)))
 
 (defun menu-hidden-p (title)
   (main (objc:invoke-bool (objc:invoke (objc:invoke (objc.runloop:shared-application) "mainMenu")
@@ -271,9 +271,9 @@
 ;;; Random edits to a buffer, and after each a check that the change a
 ;;; server is told of, made to the text it had, is the buffer's text.  On
 ;;; the editor's thread, which a buffer belongs to.
-(hi::defcommand "Smoke Sync Check" (p) "" ""
+(hi:defcommand "Smoke Sync Check" (p) "" ""
   (declare (ignore p))
-  (let* ((buffer (hi::make-buffer "smoke sync check"))
+  (let* ((buffer (hi:make-buffer "smoke sync check"))
          (state (sb-ext:seed-random-state 7))
          (pieces (vector "a" "bc" (string #\Newline) (format nil "x~%y") (string (code-char #x1F600)) ""))
          (document (heml::make-document 1 0))
@@ -288,31 +288,31 @@
                                  (incf i))
                         i)))
                (concatenate 'string (subseq old 0 (index sl sc)) text (subseq old (index el ec))))))
-      (hi::insert-string (hi::buffer-point buffer) (format nil "one~%two~%three"))
+      (hi:insert-string (hi:buffer-point buffer) (format nil "one~%two~%three"))
       (multiple-value-bind (lines strings) (heml::buffer-snapshot buffer)
         (setf (heml::document-lines document) lines (heml::document-strings document) strings))
-      (let ((old (hi::region-to-string (hi::buffer-region buffer))))
+      (let ((old (hi:region-to-string (hi:buffer-region buffer))))
         (dotimes (round 400)
-          (let* ((text (hi::region-to-string (hi::buffer-region buffer)))
+          (let* ((text (hi:region-to-string (hi:buffer-region buffer)))
                  (where (random (1+ (length text)) state)))
-            (hi::with-mark ((m (hi::buffer-start-mark buffer) :left-inserting))
-              (hi::character-offset m where)
+            (hi:with-mark ((m (hi:buffer-start-mark buffer) :left-inserting))
+              (hi:character-offset m where)
               (if (and (plusp (length text)) (< (random 10 state) 4))
-                  (hi::with-mark ((e m))
-                    (hi::character-offset e (min (- (length text) where) (random 6 state)))
-                    (hi::delete-region (hi::region m e)))
-                  (hi::insert-string m (aref pieces (random (length pieces) state))))))
-          (let ((new (hi::region-to-string (hi::buffer-region buffer))))
+                  (hi:with-mark ((e m))
+                    (hi:character-offset e (min (- (length text) where) (random 6 state)))
+                    (hi:delete-region (hi:region m e)))
+                  (hi:insert-string m (aref pieces (random (length pieces) state))))))
+          (let ((new (hi:region-to-string (hi:buffer-region buffer))))
             (multiple-value-bind (sl sc el ec text) (heml::line-change document buffer)
               (if text
                   (progn (incf changes)
                          (unless (string= new (apply-change old sl sc el ec text)) (incf failures)))
                   (unless (string= old new) (incf failures))))
             (setf old new)))))
-    (hi::delete-buffer buffer)
+    (hi:delete-buffer buffer)
     (setf *sync-result* (list changes failures))))
 
-(hi::defcommand "Smoke Queue" (p)
+(hi:defcommand "Smoke Queue" (p)
   "Queue something for the command loop to do." ""
   (declare (ignore p))
   (heml::queue-command (lambda () (setf *queued-ran* t))))
@@ -334,7 +334,7 @@
   (ignore-errors (delete-file (merge-pathnames "more.pas.made" *out*)))
   (post (list :open (namestring (merge-pathnames "more.pas" *out*))))
   (settle)
-  (flet ((point-line () (line-text (hi::mark-line (hi::current-point))))
+  (flet ((point-line () (line-text (hi:mark-line (hi:current-point))))
          (row-p (text)
            (find text (map 'list #'heml.cocoa::row-text
                            (screen-rows*))
@@ -344,7 +344,7 @@
            (wait-until (lambda () (row-p "(Indexing 50%)")) 30))
     (check "what a server says to the user is kept in a buffer"
            (wait-until (lambda ()
-                         (let ((buffer (hi::getstring "Language Servers" hi::*buffer-names*)))
+                         (let ((buffer (hi:getstring "Language Servers" hi:*buffer-names*)))
                            (and buffer (search "fake says hello" (buffer-text buffer)))))
                        10))
     (check "the other uses of the name at point are shown"
@@ -407,13 +407,13 @@
         (mouse :up (+ column 12) row)
         (settle))
       (check "a click on a character after a hint is on that character"
-             (and row (eql 2 (hi::mark-charpos (hi::current-point)))))
+             (and row (eql 2 (hi:mark-charpos (hi:current-point)))))
       (when row
         (mouse :down (+ column 3) row)
         (mouse :up (+ column 3) row)
         (settle))
       (check "and a click on a hint is where the hint is"
-             (and row (eql 0 (hi::mark-charpos (hi::current-point))))))
+             (and row (eql 0 (hi:mark-charpos (hi:current-point))))))
     (post-key #\< "Meta")
     (extended-command "LSP Code Lenses")
     (check "and LSP Code Lenses what it offers to do there, after the line's end"
@@ -443,7 +443,7 @@
     (extended-command "LSP Find Implementation")
     (check "LSP Find Implementation lists what implements a thing"
            (wait-until (lambda ()
-                         (and (equal "*Implementations*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*Implementations*" (hi:buffer-name (hi:current-buffer)))
                               (search "Implementations: 2" (buffer-text))))
                        10))
     (post-key #\x "Control") (post-key #\1)
@@ -452,7 +452,7 @@
     (post-key #\c "Control") (post-key #\u "Control")
     (check "C-c C-u lists what calls a function"
            (wait-until (lambda ()
-                         (and (equal "*Calls*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*Calls*" (hi:buffer-name (hi:current-buffer)))
                               (search "function fake_caller" (buffer-text))))
                        10))
     (post-key #\x "Control") (post-key #\1)
@@ -461,7 +461,7 @@
     (extended-command "LSP Outgoing Calls")
     (check "and LSP Outgoing Calls what it calls"
            (wait-until (lambda ()
-                         (and (equal "*Calls*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*Calls*" (hi:buffer-name (hi:current-buffer)))
                               (search "function fake_callee" (buffer-text))))
                        10))
     (post-key #\x "Control") (post-key #\1)
@@ -530,20 +530,20 @@
     (extended-command "LSP Format Region")
     (check "LSP Format Region lays the region out"
            (wait-until (lambda () (starts-p "{ ranged }")) 10))
-    (setf (hi::variable-value 'heml::lsp-format-on-type :global) t)
+    (setf (hi:variable-value 'heml::lsp-format-on-type :global) t)
     (post-key #\> "Meta")
     (post-text ";")
     (check "with LSP Format on Type, the server lays out what is typed"
            (wait-until (lambda () (starts-p "{ typed }")) 10))
-    (setf (hi::variable-value 'heml::lsp-format-on-type :global) nil)
+    (setf (hi:variable-value 'heml::lsp-format-on-type :global) nil)
     (post-key #\< "Meta")
     (post-key #\c "Control") (post-key #\l "Control")
     (check "C-c C-l does what the server offers for the line"
            (wait-until (lambda () (starts-p "{ lens }")) 10))
     (settle)
-    (setf (hi::buffer-modified (hi::current-buffer)) nil)
-    (let ((made (hi::getstring "more.pas.made" hi::*buffer-names*)))
-      (when made (setf (hi::buffer-modified made) nil)))))
+    (setf (hi:buffer-modified (hi:current-buffer)) nil)
+    (let ((made (hi:getstring "more.pas.made" hi:*buffer-names*)))
+      (when made (setf (hi:buffer-modified made) nil)))))
 
 (defun language-server-watch-checks ()
   ;; Files a server asks to hear of, and settings that change: in a
@@ -635,7 +635,7 @@
       (check "but its link still is"
              (let ((font (run-font-at "http://example.com/c" 0)))
                (and (consp font) (getf font :link))))
-      (setf (hi::buffer-modified (hi::current-buffer)) nil)))
+      (setf (hi:buffer-modified (hi:current-buffer)) nil)))
   ;; Lines first drawn while selected keep their links once it is gone.
   (let ((file (merge-pathnames "selected-links.dat" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)
@@ -712,7 +712,7 @@
       (settle)
       (check "and a change marks it edited, a dot in its close button"
              (wait-until (lambda () (third (window-state))) 5))
-      (setf (hi::buffer-modified (hi::current-buffer)) nil)
+      (setf (hi:buffer-modified (hi:current-buffer)) nil)
       (check "the current window's modeline is a status bar, the active one"
              (let ((font (run-font-at "titled.txt" 0)))
                (declare (ignore font))
@@ -724,7 +724,7 @@
 
 (defun first-shown-line ()
   "The text of the current window's first line."
-  (hi::line-string (hi::mark-line (hi::window-display-start (hi::current-window)))))
+  (hi:line-string (hi:mark-line (hi:window-display-start (hi:current-window)))))
 
 (defun scroll-shift ()
   "How far the window being scrolled by points is drawn moved, or NIL."
@@ -798,8 +798,8 @@
     (post (list :named "Return" '()))
     (check "Return runs the one chosen"
            (wait-until (lambda () (and (null (palette))
-                                       (equal "row 0" (hi::line-string
-                                                       (hi::mark-line (hi::current-point))))))
+                                       (equal "row 0" (hi:line-string
+                                                       (hi:mark-line (hi:current-point))))))
                        5))
     (check "and the palette is put away"
            (main (not (objc:invoke-bool heml.cocoa::*palette-panel* "isVisible"))))))
@@ -866,8 +866,8 @@
                        (objc:invoke field "sendAction:to:" (objc:invoke field "action")
                                     (objc:invoke field "target")))))
              (point-at ()
-               (let ((point (hi::current-point)))
-                 (list (hi::line-string (hi::mark-line point)) (hi::mark-charpos point))))
+               (let ((point (hi:current-point)))
+                 (list (hi:line-string (hi:mark-line point)) (hi:mark-charpos point))))
              (status-is (text)
                (wait-until (lambda () (equal text (status))) 5)))
       (main (heml.cocoa::show-find-bar))
@@ -904,12 +904,12 @@
       (search-for "Apple")
       (check "with a capital in it, only that case is found"
              (status-is "1 of 1"))
-      (post (list :call (lambda () (setf (hi::variable-value 'heml::find-bar-case :global) :ignore))))
+      (post (list :call (lambda () (setf (hi:variable-value 'heml::find-bar-case :global) :ignore))))
       (search-for "Apple ")
       (search-for "Apple")
       (check "and with Find Bar Case :IGNORE, every case"
              (status-is "1 of 3"))
-      (post (list :call (lambda () (setf (hi::variable-value 'heml::find-bar-case :global) :smart))))
+      (post (list :call (lambda () (setf (hi:variable-value 'heml::find-bar-case :global) :smart))))
       (search-for "fruit")
       (status-is "1 of 1")
       (main (heml.cocoa::hide-find-bar))
@@ -1007,7 +1007,7 @@
              (= width (main (aref (objc:invoke (window) "frame") 2))))
       (check "and a click on a tab goes to its buffer"
              (wait-until (lambda ()
-                           (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+                           (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
                              (and pathname (equal "tab-one.txt" (file-namestring pathname)))))
                          5)))
     ;; The scroll bar: the window's place in its buffer moves as it scrolls.
@@ -1094,7 +1094,7 @@
           (sidebar-press (string #\Return) 36)
           (check "Return there visits the file chosen, and the keys go back to the editor"
                  (and (wait-until (lambda ()
-                                    (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+                                    (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
                                       (and pathname (equal ".heml-project" (file-namestring pathname)))))
                                   5)
                       (focused-p #'view)))
@@ -1126,8 +1126,8 @@
                                                 (heml.cocoa::sidebar-entries root)))))
                  (sorted (sort &optional (folders-first t))
                    (post (list :call (lambda ()
-                                       (setf (hi::variable-value 'heml::sidebar-sort :global) sort
-                                             (hi::variable-value 'heml::sidebar-folders-first :global)
+                                       (setf (hi:variable-value 'heml::sidebar-sort :global) sort
+                                             (hi:variable-value 'heml::sidebar-folders-first :global)
                                              folders-first))))
                    (wait-until (lambda () (main (and (eq heml.cocoa::*sidebar-sort* sort)
                                                      (eq heml.cocoa::*sidebar-folders-first* folders-first))))
@@ -1164,7 +1164,7 @@
             (press-in-sidebar "s" 1 0)
             (check "s in the sidebar sorts it the next way"
                    (wait-until (lambda () (main (eq heml.cocoa::*sidebar-sort* :kind))) 5))
-            (post (list :call (lambda () (setf (hi::variable-value 'heml::sidebar-sort :global) :name))))
+            (post (list :call (lambda () (setf (hi:variable-value 'heml::sidebar-sort :global) :name))))
             (select-root)
             (let ((before (place)))
               (press-in-sidebar (string (code-char #xF700)) 126 (logior (ash 1 19) #x20))
@@ -1195,7 +1195,7 @@
                                            (heml.cocoa::sidebar-entries root))))
                            5))
         (post (list :call (lambda ()
-                            (setf (hi::variable-value 'heml::sidebar-ignored :global)
+                            (setf (hi:variable-value 'heml::sidebar-ignored :global)
                                   (list ".git" ".DS_Store" "scratch.tmp")))))
         (check "and so are the names in Sidebar Ignored"
                (wait-until (lambda ()
@@ -1205,11 +1205,11 @@
                                                 (heml.cocoa::sidebar-entries root)))))
                            5))
         (post (list :call (lambda ()
-                            (setf (hi::variable-value 'heml::cursor-style :global) :block))))
+                            (setf (hi:variable-value 'heml::cursor-style :global) :block))))
         (check "Cursor Style, an editor variable, sets how the caret is drawn"
                (wait-until (lambda () (main (eq heml.cocoa::*cursor-style* :block))) 5))
         (post (list :call (lambda ()
-                            (setf (hi::variable-value 'heml::cursor-style :global) :bar))))
+                            (setf (hi:variable-value 'heml::cursor-style :global) :bar))))
         (shot "sidebar" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
         (main (heml.cocoa::remove-sidebar-root root))
         (check "and Remove Project takes it away"
@@ -1279,7 +1279,7 @@
                 (search "cases, 0 failed" *corpus-result*)))
     (unless (and *corpus-result* (search "cases, 0 failed" *corpus-result*))
       (note "~A" *corpus-result*))
-    (setf (hi::buffer-modified (hi::current-buffer)) nil)))
+    (setf (hi:buffer-modified (hi:current-buffer)) nil)))
 
 (defun terminal-checks ()
   (note "a terminal")
@@ -1315,7 +1315,7 @@
     (settle)
     ;; Gone before the projects' checks, which count the windows.
     (check "killing its buffer ends the terminal"
-           (wait-until (lambda () (not (hi::getstring "*terminal*" hi::*buffer-names*))) 10))))
+           (wait-until (lambda () (not (hi:getstring "*terminal*" hi:*buffer-names*))) 10))))
 
 (defun git-checks ()
   (note "git")
@@ -1365,8 +1365,8 @@
              (find text (map 'list #'heml.cocoa::row-text
                              (screen-rows*))
                    :test #'search))
-           (point-line () (line-text (hi::mark-line (hi::current-point))))
-           (buffer-named (name) (hi::getstring name hi::*buffer-names*)))
+           (point-line () (line-text (hi:mark-line (hi:current-point))))
+           (buffer-named (name) (hi:getstring name hi:*buffer-names*)))
       (post-key #\< "Meta")
       (post-key #\n "Control") (post-key #\n "Control")
       (post (list :named "F9" '()))
@@ -1449,7 +1449,7 @@
                (write-string text out))
              (post (list :open (namestring (merge-pathnames name *out*))))
              (settle)
-             (hi::current-buffer))
+             (hi:current-buffer))
            (wrong (buffer)
              ;; What the server says is wrong in BUFFER, the first of it.
              (fourth (first (gethash buffer heml::*buffer-diagnostics*)))))
@@ -1466,7 +1466,7 @@
           (check "about its other files too, which the change may have changed"
                  (wait-until (lambda () (equal "pulled error: 21" (wrong first))) 30))
           (settle)
-          (setf (hi::buffer-modified second) nil)))
+          (setf (hi:buffer-modified second) nil)))
       ;; A second server for Pascal, beside the first: what is wrong is what
       ;; either finds.
       (heml::define-additional-language-server "Pascal" "second"
@@ -1504,7 +1504,7 @@
         (check "and the completions are those of both"
                (wait-until (lambda () (search "fake_second" (buffer-text buffer))) 10))
         (settle)
-        (setf (hi::buffer-modified buffer) nil))
+        (setf (hi:buffer-modified buffer) nil))
       (setf heml::*additional-language-servers* '())
       (heml::define-language-server "JSON" (list (list "python3" fake "--crash")))
       (let ((buffer (file "crash.json" (format nil "{}~%"))))
@@ -1543,7 +1543,7 @@
                                                                  :heml.cocoa)))))
    :launch 'heml::file-launch)
   ;; Hints change what a line shows: off, until the checks of them.
-  (setf (hi::variable-value 'heml::lsp-inlay-hints :global) nil)
+  (setf (hi:variable-value 'heml::lsp-inlay-hints :global) nil)
   (sleep 2)
   (note "typing")
   (post-text "(defun hello (name)
@@ -1567,7 +1567,7 @@ café λ 日本語 end")
   (press "≈" :unmodified "x" :flags +left-option+)
   (settle)
   (check "left Option is Meta: M-x prompts"
-         (eq hi::*current-window* hi::*echo-area-window*))
+         (eq hi::*current-window* hi:*echo-area-window*))
   (shot "meta-x")
   (post-key #\g "Control")
   (settle)
@@ -1589,7 +1589,7 @@ café λ 日本語 end")
   (post-key #\x "Control") (post-key #\2)
   (settle)
   (check "C-x 2 shows the buffer in two windows"
-         (= 2 (length (hi::buffer-windows (hi::current-buffer)))))
+         (= 2 (length (hi:buffer-windows (hi:current-buffer)))))
   (shot "split")
   (let ((columns (heml.cocoa::screen-columns heml.cocoa::*screen*)))
     (main (objc:invoke (window) "setFrame:display:" (vector 100d0 100d0 640d0 520d0) t))
@@ -1660,7 +1660,7 @@ café λ 日本語 end")
                          (objc:invoke "NSArray" "arrayWithObject:" url))))
     (settle)
     (check "application:openURLs: visits the file"
-           (and (equal (truename (hi::buffer-pathname (hi::current-buffer)))
+           (and (equal (truename (hi:buffer-pathname (hi:current-buffer)))
                        (truename file))
                 (search "Opened from Finder, λ." (buffer-text))))
     ;; The first buffer a grammar colours waits for the grammar to load.
@@ -1676,7 +1676,7 @@ café λ 日本語 end")
     (post (list :open (namestring file)))
     (settle)
     (check "a C file is in C mode"
-           (equal "C" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "C" (hi:buffer-major-mode (hi:current-buffer))))
     (if (and (heml.tree-sitter:tree-sitter-available-p)
              (heml.tree-sitter::find-in-directories "lib/libtree-sitter-c.dylib"))
         (progn
@@ -1714,7 +1714,7 @@ café λ 日本語 end")
         (mouse :up (+ column 2) line :flags +command+)
         (settle)))
     (check "Command-click follows it"
-           (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+           (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
              (and pathname (equal "linked.txt" (file-namestring pathname))))))
   (let ((file (merge-pathnames "greet" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)
@@ -1724,7 +1724,7 @@ café λ 日本語 end")
     (post (list :open (namestring file)))
     (settle)
     (check "a script without a type is in the mode its #! line names"
-           (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Shell Script" (hi:buffer-major-mode (hi:current-buffer))))
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-bash.dylib")
       (check "tree-sitter colours a shell script's comment and string"
              (wait-until (lambda ()
@@ -1738,7 +1738,7 @@ café λ 日本語 end")
     (post (list :open (namestring file)))
     (settle)
     (check "a Pascal file is in Pascal mode"
-           (equal "Pascal" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Pascal" (hi:buffer-major-mode (hi:current-buffer))))
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-pascal.dylib")
       (check "tree-sitter colours Pascal's keywords"
              (eql 5 (run-font-at "program Hello" 0)))))
@@ -1753,7 +1753,7 @@ café λ 日本語 end")
            (heml.tree-sitter::find-in-directories (format nil "lib/libtree-sitter-~A.dylib" name))))
     (visit "hello.rs" "// a Rust comment" "fn main() { let s = \"text\"; }")
     (check "a .rs file is in Rust mode"
-           (equal "Rust" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Rust" (hi:buffer-major-mode (hi:current-buffer))))
     (when (grammar-p "rust")
       (check "tree-sitter colours Rust's comment and string"
              (and (eql 1 (run-font-at "// a Rust comment" 0))
@@ -1761,12 +1761,12 @@ café λ 日本語 end")
     (visit "hello.go" "// a Go comment" "package main")
     (when (grammar-p "go")
       (check "and Go's comment and keyword"
-             (and (equal "Go" (hi::buffer-major-mode (hi::current-buffer)))
+             (and (equal "Go" (hi:buffer-major-mode (hi:current-buffer)))
                   (eql 1 (run-font-at "// a Go comment" 0))
                   (eql 5 (run-font-at "package main" 0)))))
     (visit "hello.ts" "// a TypeScript comment" "function f(a: number): number { return a; }")
     (check "a .ts file is in TS mode"
-           (equal "TS" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "TS" (hi:buffer-major-mode (hi:current-buffer))))
     (when (grammar-p "typescript")
       (check "tree-sitter colours TypeScript's comment, keyword and type"
              (and (eql 1 (run-font-at "// a TypeScript comment" 0))
@@ -1775,13 +1775,13 @@ café λ 日本語 end")
     (visit "hello.js" "// a JavaScript comment" "const s = 'text';")
     (when (grammar-p "javascript")
       (check "and JavaScript's comment and string"
-             (and (equal "JavaScript" (hi::buffer-major-mode (hi::current-buffer)))
+             (and (equal "JavaScript" (hi:buffer-major-mode (hi:current-buffer)))
                   (eql 1 (run-font-at "// a JavaScript comment" 0))
                   (eql 4 (run-font-at "'text'" 1)))))
     (visit "data.json" "{\"key\": \"value\", \"n\": 12}")
     (when (grammar-p "json")
       (check "and JSON's string and number"
-             (and (equal "JSON" (hi::buffer-major-mode (hi::current-buffer)))
+             (and (equal "JSON" (hi:buffer-major-mode (hi:current-buffer)))
                   (eql 4 (run-font-at "\"value\"" 1))
                   (eql 3 (run-font-at "12}" 0)))))
     ;; A Markdown code block that names its language is coloured as that
@@ -1799,27 +1799,27 @@ café λ 日本語 end")
     ;; no #! line.
     (visit ".bashrc" "# a bashrc comment" "export EDITOR=\"heml\"")
     (check "a file with a well-known name, .bashrc, is in its mode"
-           (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Shell Script" (hi:buffer-major-mode (hi:current-buffer))))
     (when (grammar-p "bash")
       (check "and is coloured"
              (and (eql 1 (run-font-at "# a bashrc comment" 0))
                   (eql 4 (run-font-at "\"heml\"" 1)))))
-    (setf (hi::variable-value 'heml::mode-from-file-name :global) nil)
+    (setf (hi:variable-value 'heml::mode-from-file-name :global) nil)
     (visit ".zshenv" "# a zshenv comment")
     (check "unless Mode from File Name is off"
-           (not (equal "Shell Script" (hi::buffer-major-mode (hi::current-buffer)))))
-    (setf (hi::variable-value 'heml::mode-from-file-name :global) t)
+           (not (equal "Shell Script" (hi:buffer-major-mode (hi:current-buffer)))))
+    (setf (hi:variable-value 'heml::mode-from-file-name :global) t)
     (heml::define-file-name-mode '("Smokefile" "smoke.*.conf") "Python")
     (visit "Smokefile" "x = 1")
     (check "a name of one's own is given a mode with define-file-name-mode"
-           (equal "Python" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Python" (hi:buffer-major-mode (hi:current-buffer))))
     (visit "smoke.local.conf" "x = 1")
     (check "and a * in it stands for any characters"
-           (equal "Python" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Python" (hi:buffer-major-mode (hi:current-buffer))))
     (visit "conf.yaml" "# a YAML comment" "key: value")
     (when (grammar-p "yaml")
       (check "and YAML's comment"
-             (and (equal "YAML" (hi::buffer-major-mode (hi::current-buffer)))
+             (and (equal "YAML" (hi:buffer-major-mode (hi:current-buffer)))
                   (eql 1 (run-font-at "# a YAML comment" 0))))))
   (let ((file (merge-pathnames "block.lisp" *out*)))
     (with-open-file (out file :direction :output :if-exists :supersede)
@@ -1838,10 +1838,10 @@ café λ 日本語 end")
 
   (note "modes")
   (flet ((file-buffer (name)
-           (find name hi::*buffer-list*
-                 :key (lambda (b) (and (hi::buffer-pathname b) (file-namestring (hi::buffer-pathname b))))
+           (find name hi:*buffer-list*
+                 :key (lambda (b) (and (hi:buffer-pathname b) (file-namestring (hi:buffer-pathname b))))
                  :test #'equal))
-         (point-line () (line-text (hi::mark-line (hi::current-point))))
+         (point-line () (line-text (hi:mark-line (hi:current-point))))
          (write-file (name &rest lines)
            (with-open-file (out (merge-pathnames name *out*) :direction :output :if-exists :supersede)
              (dolist (line lines) (write-line line out)))
@@ -1863,7 +1863,7 @@ café λ 日本語 end")
     (post (list :named "Return" '()))
     (settle)
     (check "n and Return visit the first match"
-           (and (eq (hi::current-buffer) (file-buffer "grep.txt"))
+           (and (eq (hi:current-buffer) (file-buffer "grep.txt"))
                 (equal "alpha one" (point-line))))
     (post-key #\x "Control") (post-key #\`)
     (settle)
@@ -1873,7 +1873,7 @@ café λ 日本語 end")
     (post-key #\x "Control") (post-key #\q "Control")
     (settle)
     (check "C-x C-q makes the lines editable"
-           (equal "Wgrep" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Wgrep" (hi:buffer-major-mode (hi:current-buffer))))
     (post-key #\< "Meta")
     (extended-command "Replace String")
     (post-text "alpha
@@ -1885,7 +1885,7 @@ gamma
            (let ((text (buffer-text (file-buffer "grep.txt"))))
              (and (search "gamma one" text) (search "gamma three" text) (search "beta two" text))))
     (check "and goes back to Grep"
-           (equal "Grep" (hi::buffer-major-mode (hi::current-buffer))))
+           (equal "Grep" (hi:buffer-major-mode (hi:current-buffer))))
     (post-key #\x "Control") (post-key #\1)
     (post (list :open (namestring (write-file "tb.py" "def f():" "    raise ValueError('x')" "" "f()"))))
     (settle)
@@ -1899,7 +1899,7 @@ gamma
     (post-key #\x "Control") (post-key #\`)
     (settle)
     (check "C-x ` visits the place a traceback names"
-           (and (eq (hi::current-buffer) (file-buffer "tb.py"))
+           (and (eq (hi:current-buffer) (file-buffer "tb.py"))
                 (member (point-line) '("f()" "    raise ValueError('x')") :test #'equal)))
     (post-key #\x "Control") (post-key #\1)
     (when (heml.tree-sitter::find-in-directories "lib/libtree-sitter-python.dylib")
@@ -1908,7 +1908,7 @@ gamma
       ;; As its grammar has them, or, where a Python language server is
       ;; installed and ready, as the server names them.
       (check "Outline lists a Python file's definitions"
-             (and (equal "Outline" (hi::buffer-major-mode (hi::current-buffer)))
+             (and (equal "Outline" (hi:buffer-major-mode (hi:current-buffer)))
                   (or (search "def f():" (buffer-text))
                       (search "function f" (buffer-text)))))
       (post-key #\x "Control") (post-key #\1))
@@ -1932,16 +1932,16 @@ gamma
       (post-key #\c "Control") (post-key #\c "Control")
       (check "C-c C-c compiles Pascal with fpc, staying in the file's window"
              (and (wait-until (lambda ()
-                                (let ((compilation (hi::getstring "*compilation*" hi::*buffer-names*)))
+                                (let ((compilation (hi:getstring "*compilation*" hi:*buffer-names*)))
                                   ;; This compilation's, not one before.
                                   (and compilation
                                        (search "fpc 'bad.pas'" (buffer-text compilation))
                                        (search "Compilation finished" (buffer-text compilation))))))
-                  (eq (hi::current-buffer) (file-buffer "bad.pas"))))
+                  (eq (hi:current-buffer) (file-buffer "bad.pas"))))
       (post-key #\x "Control") (post-key #\`)
       (settle)
       (check "and C-x ` visits its error"
-             (and (eq (hi::current-buffer) (file-buffer "bad.pas"))
+             (and (eq (hi:current-buffer) (file-buffer "bad.pas"))
                   (equal "  x := 1;" (point-line))))
       (post-key #\x "Control") (post-key #\1))
     (post (list :open (namestring (write-file "heads.md" "# One" "text" "## Two" "more"))))
@@ -2067,7 +2067,7 @@ gamma
       (post (list :named "Return" '()))
       (check "and the one chosen is visited"
              (wait-until (lambda ()
-                           (equal (hi::buffer-pathname (hi::current-buffer))
+                           (equal (hi:buffer-pathname (hi:current-buffer))
                                   (merge-pathnames "grep.txt" *out*)))
                          10)))
     (post (list :open (namestring (write-file "words.txt" "Hello wrold here"))))
@@ -2095,7 +2095,7 @@ gamma
     (write-line "begin end." out))
   (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
   (settle)
-  (flet ((point-line () (line-text (hi::mark-line (hi::current-point)))))
+  (flet ((point-line () (line-text (hi:mark-line (hi:current-point)))))
     (check "a language server's error is underlined where it is"
            (wait-until (lambda ()
                          (and (getf (run-font-at "wrongthing here" 1) :underline)
@@ -2126,7 +2126,7 @@ gamma
     (post-key #\? "Meta")
     (check "M-? lists the references it names"
            (wait-until (lambda ()
-                         (and (equal "*References*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*References*" (hi:buffer-name (hi:current-buffer)))
                               (search "fake.pas:1: program fake;" (buffer-text))
                               (search "fake.pas:3: begin end." (buffer-text))))
                        10))
@@ -2252,7 +2252,7 @@ gamma
     (post-key #\n "Meta")
     (settle)
     (check "M-n goes to the next error and says what it is"
-           (and (search "fake error" (buffer-text hi::*echo-area-buffer*))
+           (and (search "fake error" (buffer-text hi:*echo-area-buffer*))
                 (search "thing here" (point-line))))
     (check "the modeline counts the errors"
            (find "(1 error)" (map 'list #'heml.cocoa::row-text
@@ -2264,25 +2264,25 @@ gamma
 ")
     (check "C-c C-s lists the project's symbols the server finds"
            (wait-until (lambda ()
-                         (and (equal "*Symbols*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*Symbols*" (hi:buffer-name (hi:current-buffer)))
                               (search "function fake_symbol" (buffer-text))))
                        10))
     (post-key #\x "Control") (post-key #\1)
     (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
     (settle)
     ;; Laid out by the server as it is saved, when that is asked for.
-    (setf (hi::variable-value 'heml::lsp-format-on-save :global) t)
+    (setf (hi:variable-value 'heml::lsp-format-on-save :global) t)
     (post-key #\x "Control") (post-key #\s "Control")
     (check "with LSP Format on Save, saving formats first"
            (wait-until (lambda ()
                          (eql 0 (search "{ formatted }"
                                         (uiop:read-file-string (merge-pathnames "fake.pas" *out*)))))
                        10))
-    (setf (hi::variable-value 'heml::lsp-format-on-save :global) nil)
+    (setf (hi:variable-value 'heml::lsp-format-on-save :global) nil)
     (extended-command "Outline")
     (check "Outline lists the symbols the server names, with their kinds"
            (wait-until (lambda ()
-                         (and (equal "*Outline*" (hi::buffer-name (hi::current-buffer)))
+                         (and (equal "*Outline*" (hi:buffer-name (hi:current-buffer)))
                               (search "function fake_symbol" (buffer-text))
                               (search "  variable inner" (buffer-text))))
                        10))
@@ -2290,7 +2290,7 @@ gamma
     (post (list :open (namestring (merge-pathnames "fake.pas" *out*))))
     (settle)
     ;; Left unsaved, and not asked about on the way out.
-    (setf (hi::buffer-modified (hi::current-buffer)) nil))
+    (setf (hi:buffer-modified (hi:current-buffer)) nil))
 
   (language-server-feature-checks)
   (language-server-watch-checks)
@@ -2319,12 +2319,12 @@ gamma
                  (dolist (line lines) (write-line line out)))
                path))
            (file-shown-p (name)
-             (find name (remove hi::*echo-area-window* hi::*window-list*)
-                   :key (lambda (w) (let ((p (hi::buffer-pathname (hi::window-buffer w))))
+             (find name (remove hi:*echo-area-window* hi:*window-list*)
+                   :key (lambda (w) (let ((p (hi:buffer-pathname (hi:window-buffer w))))
                                       (and p (file-namestring p))))
                    :test #'equal))
-           (current-line-text () (line-text (hi::mark-line (hi::current-point))))
-           (current-file () (let ((p (hi::buffer-pathname (hi::current-buffer))))
+           (current-line-text () (line-text (hi:mark-line (hi:current-point))))
+           (current-file () (let ((p (hi:buffer-pathname (hi:current-buffer))))
                               (and p (file-namestring p)))))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)
       (ensure-directories-exist (merge-pathnames ".git/" root))
@@ -2339,7 +2339,7 @@ gamma
       (check "a project's file names the project in its modeline, as its settings name it"
              (not (eq :none (row-runs-containing "[Proj X]"))))
       (check "its settings' variables are set in its buffers"
-             (eql 42 (hi::variable-value 'heml::fill-column :buffer (hi::current-buffer))))
+             (eql 42 (hi:variable-value 'heml::fill-column :buffer (hi:current-buffer))))
       ;; Asked of the editor's thread: listing files runs a program, and so
       ;; may the editor at any moment, which two threads must not do at once.
       (setf *project-files* :unknown)
@@ -2367,7 +2367,7 @@ gamma
       (settle)
       (check "and lists the files when several have it"
              (wait-until (lambda ()
-                           (and (equal "*Project Files*" (hi::buffer-name (hi::current-buffer)))
+                           (and (equal "*Project Files*" (hi:buffer-name (hi:current-buffer)))
                                 (search "src/a.c" (buffer-text)) (search "src/b.c" (buffer-text))))
                          10))
       (post-key #\q)
@@ -2399,7 +2399,7 @@ gamma
       (settle)
       (settle)
       (check "Kill Project Buffers kills them"
-             (not (find "a.c" hi::*buffer-list* :key #'hi::buffer-name :test #'search)))
+             (not (find "a.c" hi:*buffer-list* :key #'hi:buffer-name :test #'search)))
       (post (list :open (namestring (merge-pathnames "README.md" root))))
       (settle)
       (extended-command "Restore Project Session")
@@ -2407,16 +2407,16 @@ gamma
       (check "Restore Project Session reopens the files, in their windows"
              (wait-until (lambda ()
                            (and (file-shown-p "a.c") (file-shown-p "b.c")
-                                (= 2 (length (remove hi::*echo-area-window* hi::*window-list*)))))
+                                (= 2 (length (remove hi:*echo-area-window* hi:*window-list*)))))
                          10))
       (check "with their points"
              (let ((w (file-shown-p "a.c")))
                (and w (equal "  return 1;"
-                             (line-text (hi::mark-line (hi::window-point w)))))))
+                             (line-text (hi:mark-line (hi:window-point w)))))))
       (check "and their folds"
-             (let ((buffer (find "b.c" hi::*buffer-list* :key #'hi::buffer-name :test #'search)))
+             (let ((buffer (find "b.c" hi:*buffer-list* :key #'hi:buffer-name :test #'search)))
                (and buffer
-                    (hi:line-hidden-p (hi::line-next (hi::mark-line (hi::buffer-start-mark buffer)))))))
+                    (hi:line-hidden-p (hi:line-next (hi:mark-line (hi:buffer-start-mark buffer)))))))
       ;; A window on one of the project's directories comes back too.
       (post-key #\x "Control") (post-key #\p) (post-key #\d)
       (settle)
@@ -2432,8 +2432,8 @@ gamma
       (settle)
       (check "a Dired window of the project is reopened with its session"
              (wait-until (lambda ()
-                           (find "Dired" (remove hi::*echo-area-window* hi::*window-list*)
-                                 :key (lambda (w) (hi::buffer-major-mode (hi::window-buffer w)))
+                           (find "Dired" (remove hi:*echo-area-window* hi:*window-list*)
+                                 :key (lambda (w) (hi:buffer-major-mode (hi:window-buffer w)))
                                  :test #'equal))
                          10))
       ;; Back to the two files side by side, for what follows.
@@ -2475,7 +2475,7 @@ gamma
       (post-key #\p "Meta") (post-key #\p "Meta")
       (settle)
       (check "and M-p at its prompt goes back through them"
-             (search "echo one" (buffer-text hi::*echo-area-buffer*)))
+             (search "echo one" (buffer-text hi:*echo-area-buffer*)))
       (post-key #\g "Control")
       (settle)
       (post-key #\x "Control") (post-key #\1)
@@ -2517,7 +2517,7 @@ gamma
       (post-key #\y)
       (check "C-x p r replaces a string in every file of the project that has it"
              (wait-until (lambda ()
-                           (and (equal "*Project Replace*" (hi::buffer-name (hi::current-buffer)))
+                           (and (equal "*Project Replace*" (hi:buffer-name (hi:current-buffer)))
                                 (search "src/a.c:2: give_back 1;" (buffer-text))
                                 (search "src/b.c:2: give_back 2;" (buffer-text))))
                          20))
@@ -2545,16 +2545,16 @@ gamma
   (choose-menu-item "View" "Split Window")
   (settle)
   (check "View > Split Window splits it"
-         (= 2 (length (hi::buffer-windows (hi::current-buffer)))))
+         (= 2 (length (hi:buffer-windows (hi:current-buffer)))))
   (choose-menu-item "View" "Delete Window")
   (settle)
   (check "View > Delete Window deletes one"
-         (= 1 (length (hi::buffer-windows (hi::current-buffer)))))
+         (= 1 (length (hi:buffer-windows (hi:current-buffer)))))
 
   (note "side by side")
   (choose-menu-item "View" "Split Window Side by Side")
   (settle)
-  (let* ((hunks (sort (mapcar #'hi::window-hunk (hi::buffer-windows (hi::current-buffer)))
+  (let* ((hunks (sort (mapcar #'hi::window-hunk (hi:buffer-windows (hi:current-buffer)))
                       #'< :key #'hi::device-hunk-column))
          (left (first hunks))
          (right (second hunks)))
@@ -2606,7 +2606,7 @@ gamma
   (choose-menu-item "View" "Delete Window")
   (settle)
   (check "deleting one of them leaves one window across the screen"
-         (let ((windows (hi::buffer-windows (hi::current-buffer))))
+         (let ((windows (hi:buffer-windows (hi:current-buffer))))
            (and (= 1 (length windows))
                 (= (hi::device-hunk-width (hi::window-hunk (first windows)))
                    (heml.cocoa::screen-columns heml.cocoa::*screen*)))))
@@ -2622,7 +2622,7 @@ gamma
     (choose-menu-item "View" "Delete Other Windows")
     (settle)
     (check "View > Delete Other Windows leaves the current window, filling the screen"
-           (let ((windows (remove hi::*echo-area-window* hi::*window-list*)))
+           (let ((windows (remove hi:*echo-area-window* hi:*window-list*)))
              (and (equal windows (list current))
                   (= (hi::device-hunk-width (hi::window-hunk current))
                      (heml.cocoa::screen-columns heml.cocoa::*screen*))))))
@@ -2644,7 +2644,7 @@ gamma
   (settle)
   (press-menu #\b)
   (settle)
-  (check "Cmd-B prompts for a buffer" (eq hi::*current-window* hi::*echo-area-window*))
+  (check "Cmd-B prompts for a buffer" (eq hi::*current-window* hi:*echo-area-window*))
   (shot "switch-buffer")
   (post-key #\g "Control")
   (settle)
@@ -2678,7 +2678,7 @@ gamma
     (choose-menu-item "Dired" "Unmark All")
     (settle)
     (check "Dired lists a directory, with a header"
-           (and (equal "Dired" (hi::buffer-major-mode (hi::current-buffer)))
+           (and (equal "Dired" (hi:buffer-major-mode (hi:current-buffer)))
                 (not (eq :none (row-runs-containing "(2 entries, ")))))
     (check "a directory is blue and bold"
            (equal '(:fg 4 :bold t) (run-font-at "a-directory/" 0)))
@@ -2698,7 +2698,7 @@ gamma
         (mouse :down (+ column 2) line :clicks 2) (mouse :up (+ column 2) line :clicks 2)
         (settle))
       (check "a double click in Dired visits the file"
-             (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+             (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
                (and pathname (equal "a-file.txt" (file-namestring pathname)))))
       (check "and the Dired menu is hidden again there" (menu-hidden-p "Dired")))
     (post-key #\x "Control") (post-key #\k)
@@ -2717,13 +2717,13 @@ gamma
   (choose-menu-item "Smoke" "Split Side by Side")
   (settle)
   (check "and its item runs its command"
-         (= 2 (length (remove hi::*echo-area-window* hi::*window-list*))))
+         (= 2 (length (remove hi:*echo-area-window* hi:*window-list*))))
   (heml-interface:add-menu-item "Smoke" '("One Window" "Delete Other Windows"))
   (settle)
   (choose-menu-item "Smoke" "One Window")
   (settle)
   (check "add-menu-item adds an item that works"
-         (= 1 (length (remove hi::*echo-area-window* hi::*window-list*))))
+         (= 1 (length (remove hi:*echo-area-window* hi:*window-list*))))
   (heml-interface:remove-menu "Smoke")
   (settle)
   (check "remove-menu takes it away"
@@ -2749,7 +2749,7 @@ gamma
       (mouse :down (+ column 2) line :clicks 2) (mouse :up (+ column 2) line :clicks 2)
       (settle))
     (check "a double click in Bufed visits the buffer"
-           (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+           (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
              (and pathname (equal "opened.c" (file-namestring pathname))))))
 
   (note "text styles")
@@ -2759,12 +2759,12 @@ gamma
     (post (list :open (namestring file)))
     (settle)
     ;; The editor is idle, waiting for input, while the marks are made.
-    (let ((line (hi::mark-line (hi::buffer-start-mark (hi::current-buffer)))))
-      (hi::font-mark line 6 '(:italic t))
-      (hi::font-mark line 12 0)
-      (hi::font-mark line 13 '(:underline t))
-      (hi::font-mark line 18 0)
-      (hi::font-mark line 19 '(:bold t :italic t :underline t)))
+    (let ((line (hi:mark-line (hi:buffer-start-mark (hi:current-buffer)))))
+      (hi:font-mark line 6 '(:italic t))
+      (hi:font-mark line 12 0)
+      (hi:font-mark line 13 '(:underline t))
+      (hi:font-mark line 18 0)
+      (hi:font-mark line 19 '(:bold t :italic t :underline t)))
     (post-key #\l "Control")
     (settle)
     (check "styles reach the screen"
@@ -2823,20 +2823,20 @@ gamma
   (check "colour codes from a shell are not text"
          (wait-until (lambda () (search (format nil "~%red plain") (buffer-text)))))
   (check "a colour code becomes a font"
-         (let ((line (hi::mark-line (hi::buffer-start-mark (hi::current-buffer)))))
+         (let ((line (hi:mark-line (hi:buffer-start-mark (hi:current-buffer)))))
            (loop while line
                  thereis (and (search "red plain" (line-text line))
                               (some (lambda (m) (and (hi::fast-font-mark-p m)
                                                      (eql (hi::font-mark-font m) 1)))
                                     (hi::line-marks line)))
-                 do (setf line (hi::line-next line)))))
+                 do (setf line (hi:line-next line)))))
   (post-text "echo first-in
 ")
   (wait-until (lambda () (<= 2 (count-matches "first-in" (buffer-text)))))
   (post-key #\c "Control") (post-key #\p "Control")
   (settle)
   (check "C-c C-p goes back to the last input"
-         (search "echo first-in" (line-text (hi::mark-line (hi::current-point)))))
+         (search "echo first-in" (line-text (hi:mark-line (hi:current-point)))))
   (post (list :named "Return" '()))
   (check "Return on it sends it again"
          (wait-until (lambda () (<= 4 (count-matches "first-in" (buffer-text))))))
@@ -2856,14 +2856,14 @@ gamma
   (extended-command "List Slaves")
   (settle)
   (check "List Slaves shows the slave, idle"
-         (and (equal "Slave-List" (hi::buffer-major-mode (hi::current-buffer)))
+         (and (equal "Slave-List" (hi:buffer-major-mode (hi:current-buffer)))
               (search "idle" (buffer-text))))
   (post-key #\c "Control") (post-key #\?)
   (post-key #\a "Control") (post-key #\k "Control")
   (post-text "mapcar
 ")
   (check "Slave Apropos lists the symbols"
-         (wait-until (lambda () (and (equal "Apropos" (hi::buffer-major-mode (hi::current-buffer)))
+         (wait-until (lambda () (and (equal "Apropos" (hi:buffer-major-mode (hi:current-buffer)))
                                      (search "MAPCAR" (buffer-text))))))
   (settle)
   (check "with what each names, coloured"
@@ -2872,7 +2872,7 @@ gamma
   (post (list :command "Smoke Debug Buffer"))
   (settle)
   (check "the debugger lists frames, coloured"
-         (and (equal "Debug" (hi::buffer-major-mode (hi::current-buffer)))
+         (and (equal "Debug" (hi:buffer-major-mode (hi:current-buffer)))
               (eql 2 (run-font-at "  0: (FOO 1)" 2))))
   (post (list :named "Return" '()))
   (settle)
@@ -2906,7 +2906,7 @@ gamma
         (post-text (format nil "~~~Agrep.txt~%" (subseq out (length home))))
         (check "C-x C-f takes a ~/ name typed after the directory offered"
                (wait-until (lambda ()
-                             (equal (hi::buffer-pathname (hi::current-buffer))
+                             (equal (hi:buffer-pathname (hi:current-buffer))
                                     (merge-pathnames "grep.txt" *out*)))
                            10)))))
   ;; A stand-in for the user's shell, which says what its environment is.
@@ -2949,7 +2949,7 @@ gamma
       ;; keeps it.
       (main (objc:invoke (control "Signature Help") "performClick:" (cffi:null-pointer)))
       (check "a check box there sets its variable"
-             (wait-until (lambda () (null (hi::variable-value 'heml::signature-help :global))) 5))
+             (wait-until (lambda () (null (hi:variable-value 'heml::signature-help :global))) 5))
       (check "and the init file keeps it, in the section the window writes"
              (wait-until (lambda ()
                            (let ((file (merge-pathnames ".config/heml/init.lisp" home)))
@@ -2960,13 +2960,13 @@ gamma
                                          (search "NIL" text))))))
                        5))
       (main (objc:invoke (control "Signature Help") "performClick:" (cffi:null-pointer)))
-      (wait-until (lambda () (hi::variable-value 'heml::signature-help :global)) 5)
+      (wait-until (lambda () (hi:variable-value 'heml::signature-help :global)) 5)
       (main (objc:invoke heml.cocoa::*settings-window* "orderOut:" (cffi:null-pointer))))
     (main (heml.cocoa::open-init-file))
     (settle)
     (check "Edit init.lisp… opens the init file, ~/.config/heml/init.lisp"
            (wait-until (lambda ()
-                         (equal (hi::buffer-pathname (hi::current-buffer))
+                         (equal (hi:buffer-pathname (hi:current-buffer))
                                 (merge-pathnames ".config/heml/init.lisp" home)))
                        10))
     (check "in a directory made for it"
@@ -3021,6 +3021,18 @@ gamma
  (lambda ()
    (sleep 600)
    (note "smoke: no result after ten minutes")
+   ;; Where the editor and the run are, so that a hang says why.
+   (dolist (thread (sb-thread:list-all-threads))
+     (when (member (sb-thread:thread-name thread) '("Heml" "smoke") :test #'equal)
+       (ignore-errors
+        (sb-thread:interrupt-thread
+         thread
+         (let ((name (sb-thread:thread-name thread)))
+           (lambda ()
+             (format t "~&smoke: the ~A thread:~%" name)
+             (sb-debug:print-backtrace :count 40 :stream *standard-output*)
+             (finish-output)))))))
+   (sleep 3)
    (sb-ext:exit :code 2 :abort t))
  :name "smoke watchdog")
 

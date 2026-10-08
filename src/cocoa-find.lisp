@@ -15,14 +15,14 @@
 
 ;;;; The editor's side.
 
-(hi::defhvar "Find Bar Case"
+(hi:defhvar "Find Bar Case"
   "Whether the find bar's search minds case: :IGNORE, never; :MATCH,
    always; :SMART, only when what is looked for has a capital in it."
   :value :smart)
 
 (defun find-case-sensitive-p (string)
   "Whether looking for STRING minds case, as \"Find Bar Case\" says."
-  (case (hi::variable-value 'heml::find-bar-case)
+  (case (hi:variable-value 'heml::find-bar-case)
     (:match t)
     (:ignore nil)
     (t (some #'upper-case-p string))))
@@ -43,7 +43,7 @@
   "Where STRING is in BUFFER, minding case as \"Find Bar Case\" says, in
    order: a vector of (INDEX LINE CHARPOS), INDEX the line's place in the
    buffer."
-  (let* ((signature (hi::buffer-signature buffer))
+  (let* ((signature (hi:buffer-signature buffer))
          (test (if (find-case-sensitive-p string) #'char= #'char-equal))
          (key (list string test)))
     (if (and *find-cache*
@@ -53,10 +53,10 @@
         (cdddr *find-cache*)
         (let ((matches (make-array 16 :adjustable t :fill-pointer 0)))
           (when (plusp (length string))
-            (loop for line = (hi::mark-line (hi::buffer-start-mark buffer)) then (hi::line-next line)
+            (loop for line = (hi:mark-line (hi:buffer-start-mark buffer)) then (hi:line-next line)
                   for index from 0
                   while line
-                  do (loop with text = (hi::line-string line)
+                  do (loop with text = (hi:line-string line)
                            for start = (search string text :test test)
                              then (search string text :test test :start2 (1+ start))
                            while start
@@ -66,13 +66,13 @@
 
 (defun mark-place (mark)
   "MARK as (INDEX CHARPOS), INDEX its line's place in its buffer."
-  (let ((target (hi::mark-line mark)))
-    (list (loop for line = (hi::mark-line (hi::buffer-start-mark (hi::line-buffer target)))
-                  then (hi::line-next line)
+  (let ((target (hi:mark-line mark)))
+    (list (loop for line = (hi:mark-line (hi:buffer-start-mark (hi:line-buffer target)))
+                  then (hi:line-next line)
                 for index from 0
                 until (or (null line) (eq line target))
                 finally (return index))
-          (hi::mark-charpos mark))))
+          (hi:mark-charpos mark))))
 
 (defun place< (a b)
   (or (< (first a) (first b))
@@ -93,81 +93,81 @@
               (aref matches 0))))))
 
 (defun go-to-match (match)
-  (hi::move-to-position (hi::current-point) (third match) (second match)))
+  (hi:move-to-position (hi:current-point) (third match) (second match)))
 
 (defun find-and-go (string from direction &key inclusive)
   "Look for STRING from the mark FROM, and go to what is found."
   (setf *find-last-string* string)
-  (let* ((matches (find-matches (hi::current-buffer) string))
+  (let* ((matches (find-matches (hi:current-buffer) string))
          (match (find-from (mark-place from) matches direction :inclusive inclusive)))
     (cond (match (go-to-match match))
-          ((plusp (length string)) (hi::beep)))))
+          ((plusp (length string)) (hi:beep)))))
 
 (defun find-descriptor ()
   "The find bar's state, for the main thread: (STRING INDEX COUNT), INDEX
    the place among the matches of the one point is at, or NIL; NIL when the
    bar is closed."
   (when *find-string*
-    (let* ((matches (find-matches (hi::current-buffer) *find-string*))
-           (point (hi::current-point))
-           (line (hi::mark-line point))
-           (charpos (hi::mark-charpos point)))
+    (let* ((matches (find-matches (hi:current-buffer) *find-string*))
+           (point (hi:current-point))
+           (line (hi:mark-line point))
+           (charpos (hi:mark-charpos point)))
       (list *find-string*
             (position-if (lambda (match) (and (eq (second match) line) (= (third match) charpos)))
                          matches)
             (length matches)
             (find-case-sensitive-p *find-string*)))))
 
-(hi::defcommand "Find Bar Start" (p &optional (string ""))
+(hi:defcommand "Find Bar Start" (p &optional (string ""))
   "The find bar opened: what is typed in it is looked for from here."
   "The find bar opened."
   (declare (ignore p))
-  (when *find-origin* (hi::delete-mark *find-origin*))
-  (setf *find-origin* (hi::copy-mark (hi::current-point) :temporary)
+  (when *find-origin* (hi:delete-mark *find-origin*))
+  (setf *find-origin* (hi:copy-mark (hi:current-point) :temporary)
         *find-string* string))
 
-(hi::defcommand "Find Bar Search" (p &optional (string ""))
+(hi:defcommand "Find Bar Search" (p &optional (string ""))
   "Look for STRING from where the find bar was opened, as it is typed."
   "Look for the find bar's string."
   (declare (ignore p))
-  (unless (and *find-origin* (eq (hi::line-buffer (hi::mark-line *find-origin*))
-                                 (hi::current-buffer)))
+  (unless (and *find-origin* (eq (hi:line-buffer (hi:mark-line *find-origin*))
+                                 (hi:current-buffer)))
     (find-bar-start-command nil string))
   (setf *find-string* string)
   (if (plusp (length string))
       (find-and-go string *find-origin* :forward :inclusive t)
-      (hi::move-mark (hi::current-point) *find-origin*)))
+      (hi:move-mark (hi:current-point) *find-origin*)))
 
-(hi::defcommand "Find Bar Next" (p)
+(hi:defcommand "Find Bar Next" (p)
   "Go to the next match of what the find bar looks for."
   "Go to the next match."
   (declare (ignore p))
-  (find-and-go (or *find-string* *find-last-string*) (hi::current-point) :forward))
+  (find-and-go (or *find-string* *find-last-string*) (hi:current-point) :forward))
 
-(hi::defcommand "Find Bar Previous" (p)
+(hi:defcommand "Find Bar Previous" (p)
   "Go to the match before point of what the find bar looks for."
   "Go to the previous match."
   (declare (ignore p))
-  (find-and-go (or *find-string* *find-last-string*) (hi::current-point) :backward))
+  (find-and-go (or *find-string* *find-last-string*) (hi:current-point) :backward))
 
-(hi::defcommand "Find Bar Done" (p)
+(hi:defcommand "Find Bar Done" (p)
   "The find bar closed: point stays at the match."
   "The find bar closed."
   (declare (ignore p))
   (when *find-origin*
-    (hi::delete-mark *find-origin*)
+    (hi:delete-mark *find-origin*)
     (setf *find-origin* nil))
   (setf *find-string* nil))
 
-(hi::defcommand "Find Bar Use Selection" (p)
+(hi:defcommand "Find Bar Use Selection" (p)
   "Have the find bar look for the selection, or the word at point."
   "Find the selection."
   (declare (ignore p))
   (let ((string (if (heml::region-active-p)
-                    (hi::region-to-string (heml::current-region))
-                    (let* ((point (hi::current-point))
-                           (text (hi::line-string (hi::mark-line point)))
-                           (at (hi::mark-charpos point))
+                    (hi:region-to-string (heml::current-region))
+                    (let* ((point (hi:current-point))
+                           (text (hi:line-string (hi:mark-line point)))
+                           (at (hi:mark-charpos point))
                            (start (or (position-if-not #'alphanumericp text :end at :from-end t) -1))
                            (end (or (position-if-not #'alphanumericp text :start at) (length text))))
                       (subseq text (1+ start) end)))))

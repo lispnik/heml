@@ -427,7 +427,7 @@
               (eq (current-window) *echo-area-window*)
               (member window *random-typeout-buffers*
                       :key #'(lambda (cons)
-                               (hi::random-typeout-stream-window (cdr cons)))))
+                               (random-typeout-stream-window (cdr cons)))))
       (supply-generic-pointer-up-function #'do-nothing)
       (editor-error "I'm afraid I can't let you do that Dave."))
     (setf (current-window) window)

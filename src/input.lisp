@@ -45,7 +45,7 @@
    (tail :accessor editor-input-tail :initarg :tail)))
 
 (defmethod initialize-instance :after ((instance editor-input) &key)
-  (let ((e (hi::make-input-event)))
+  (let ((e (make-input-event)))
     (setf (editor-input-head instance) e)
     (setf (editor-input-tail instance) e)))
 

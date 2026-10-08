@@ -59,7 +59,7 @@
          (let ((table (character-set-table set)))
            (setf (gethash code table) value)))))
 
-(defun hi::%sp-find-character-with-attribute (string start end table mask)
+(defun %sp-find-character-with-attribute (string start end table mask)
   (declare (simple-string string)
            (fixnum start end mask)
            (type character-set table))
@@ -74,7 +74,7 @@
     (if (/= (logand (char-set-ref table (char-code (elt string index))) mask) 0)
         (return index))))
 
-(defun hi::%sp-reverse-find-character-with-attribute (string start end table
+(defun %sp-reverse-find-character-with-attribute (string start end table
                                                       mask)
   (declare (simple-string string)
            (fixnum start end mask)

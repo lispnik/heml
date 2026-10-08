@@ -39,7 +39,7 @@
            :buffer nil
            :filter (lambda (connection bytes)
                      (tty-key-event
-                      (hi::default-filter connection bytes))
+                      (default-filter connection bytes))
                      nil))))
   (let* ((width (tty-device-columns device))
          (height (tty-device-lines device))

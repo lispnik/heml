@@ -191,11 +191,11 @@
     (unwind-protect
         (progn
           #+echo-area-is-separate-window
-          (setf (current-window) hi::*echo-area-window*)
+          (setf (current-window) *echo-area-window*)
           (hi::display-prompt-nicely "Describe key: " nil)
           (setf (fill-pointer hi::*prompt-key*) 0)
           (loop
-            (let ((key-event (get-key-event hi::*editor-input*)))
+            (let ((key-event (get-key-event *editor-input*)))
               (vector-push-extend key-event hi::*prompt-key*)
               (let ((res (get-command hi::*prompt-key* :current)))
                 (heml-ext:print-pretty-key-event key-event *echo-area-stream*)

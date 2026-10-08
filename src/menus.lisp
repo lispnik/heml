@@ -158,11 +158,11 @@ own.")
 (defun typed-key-p (key)
   "Whether KEY is one typed, and so worth showing: no mouse key, and no
 Super, a Mac's Command, which an item's own :KEY shows."
-  (let ((super (ignore-errors (heml-ext::key-event-modifier-mask "Super"))))
+  (let ((super (ignore-errors (key-event-modifier-mask "Super"))))
     (every (lambda (event)
-             (and (not (and super (logtest super (heml-ext::key-event-bits event))))
+             (and (not (and super (logtest super (key-event-bits event))))
                   (notany (lambda (name) (cl-ppcre:scan *pointer-key-scanner* name))
-                          (heml-ext::keysym-names (heml-ext::key-event-keysym event)))))
+                          (keysym-names (key-event-keysym event)))))
            (key-events-of key))))
 
 (defun key-display-string (key)

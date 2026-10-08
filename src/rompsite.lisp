@@ -468,7 +468,7 @@
   (let* ((buffer-name (or buffer-name "Unnamed typescript"))
          (ts-data
           (heml.wire:remote-value
-           heml.wire::*current-wire*
+           heml.wire:*current-wire*
            (heml::%make-extra-typescript-buffer buffer-name)))
          (stream
           ;; (heml::make-ts-stream heml.wire::*current-wire* ts-data)
@@ -500,7 +500,7 @@
         (symbol
          (values (lambda (&rest args) (apply mapping args)) override))
         (t
-         (let ((cmd (getstring mapping hi::*command-names*)))
+         (let ((cmd (getstring mapping *command-names*)))
            (when cmd
              (let ((sym (command-function cmd)))
                (check-type sym symbol)

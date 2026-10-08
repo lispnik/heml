@@ -183,14 +183,14 @@
 
 ;;; Standard Mouse keysyms.
 ;;;
-(heml-ext::define-mouse-keysym 1 25601 "Leftdown" "Super" :button-press)
-(heml-ext::define-mouse-keysym 1 25602 "Leftup" "Super" :button-release)
+(heml-ext:define-mouse-keysym 1 25601 "Leftdown" "Super" :button-press)
+(heml-ext:define-mouse-keysym 1 25602 "Leftup" "Super" :button-release)
 
-(heml-ext::define-mouse-keysym 2 25603 "Middledown" "Super" :button-press)
-(heml-ext::define-mouse-keysym 2 25604 "Middleup" "Super" :button-release)
+(heml-ext:define-mouse-keysym 2 25603 "Middledown" "Super" :button-press)
+(heml-ext:define-mouse-keysym 2 25604 "Middleup" "Super" :button-release)
 
-(heml-ext::define-mouse-keysym 3 25605 "Rightdown" "Super" :button-press)
-(heml-ext::define-mouse-keysym 3 25606 "Rightup" "Super" :button-release)
+(heml-ext:define-mouse-keysym 3 25605 "Rightdown" "Super" :button-press)
+(heml-ext:define-mouse-keysym 3 25606 "Rightup" "Super" :button-release)
 
 ;;; Pointer motion with the left button down, and the scroll wheel, one
 ;;; line to an event.  No X button maps to these; a backend that sees them
@@ -243,26 +243,26 @@
 (let ((@-code (char-code #\@)))
   (dotimes (i (char-code #\space))
     (setf (heml-ext:char-key-event (code-char i))
-          (heml-ext::make-key-event (string (char-downcase (code-char (+ i @-code))))
+          (heml-ext:make-key-event (string (char-downcase (code-char (+ i @-code))))
                                (heml-ext:key-event-modifier-mask "control")))))
-(setf (heml-ext:char-key-event (code-char 9)) (heml-ext::make-key-event #k"Tab"))
-(setf (heml-ext:char-key-event (code-char 10)) (heml-ext::make-key-event #k"Linefeed"))
-(setf (heml-ext:char-key-event (code-char 13)) (heml-ext::make-key-event #k"Return"))
-(setf (heml-ext:char-key-event (code-char 27)) (heml-ext::make-key-event #k"Alt"))
+(setf (heml-ext:char-key-event (code-char 9)) (heml-ext:make-key-event #k"Tab"))
+(setf (heml-ext:char-key-event (code-char 10)) (heml-ext:make-key-event #k"Linefeed"))
+(setf (heml-ext:char-key-event (code-char 13)) (heml-ext:make-key-event #k"Return"))
+(setf (heml-ext:char-key-event (code-char 27)) (heml-ext:make-key-event #k"Alt"))
 ;;;
 ;;; Other ASCII codes are exactly the same as the Common Lisp codes.
 ;;;
 (do ((i (char-code #\space) (1+ i)))
     ((= i 128))
   (setf (heml-ext:char-key-event (code-char i))
-        (heml-ext::make-key-event (string (code-char i)))))
+        (heml-ext:make-key-event (string (code-char i)))))
 
 ;;; This makes KEY-EVENT-CHAR the inverse of CHAR-KEY-EVENT from the start.
 ;;; It need not be this way, but it is.
 ;;;
 (dotimes (i 128)
   (let ((character (code-char i)))
-    (setf (heml-ext::key-event-char (heml-ext:char-key-event character)) character)))
+    (setf (heml-ext:key-event-char (heml-ext:char-key-event character)) character)))
 
 ;;; Since we treated these characters specially above when setting
 ;;; HEML-EXT:CHAR-KEY-EVENT above, we must set these HEML-EXT:KEY-EVENT-CHAR's specially

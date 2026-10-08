@@ -16,13 +16,13 @@
                              (values (subseq prefix 0 p)
                                      (string-downcase (subseq prefix (1+ p))))
                              (values nil (string-downcase prefix))))
-    (heml::eval-in-slave
+    (eval-in-slave
      `(%fuzzy-complete-symbol/request
        ,(or packname (package-at-point) :cl)
        ,symname))))
 
 (defun %fuzzy-complete-symbol/request (packname symname)
-  (heml::eval-in-master
+  (eval-in-master
    `(%fuzzy-complete-symbol/results 
      ',(let ((*buffer-package* packname))
          (fuzzy-completions symname packname)))))

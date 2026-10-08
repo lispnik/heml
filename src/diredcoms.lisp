@@ -1077,11 +1077,11 @@ is the size of what the top directory holds."
   (let ((old (getf (line-plist line) 'dired-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'dired-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (dired-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Dired" 'dired-highlight-line :marks 'dired-marks)
 

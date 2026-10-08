@@ -164,7 +164,7 @@
           (go-to-definition pathname type name))
         (let ((results (eval-form-in-server
                         info
-                        (format nil "(heml::definition-editing-info ~S)"
+                        (format nil "(definition-editing-info ~S)"
                                 fun-name))))
           (go-to-definition (read-from-string (first results)) ;file
                             (read-from-string (second results)) ;type

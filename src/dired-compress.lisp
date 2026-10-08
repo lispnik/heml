@@ -103,7 +103,7 @@
                  (when (and (eq event :disconnected) (not done))
                    (setf done t)
                    (hi::reap-process connection)
-                   (let ((code (hi::connection-exit-code connection)))
+                   (let ((code (connection-exit-code connection)))
                      (queue-command
                       (lambda ()
                         ;; Its descriptors closed and itself forgotten.

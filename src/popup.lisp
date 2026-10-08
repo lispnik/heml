@@ -48,10 +48,10 @@
       (unless (eq window *echo-area-window*)
         (let ((hunk (window-hunk window)))
           (when (or (null best)
-                    (> (hi::device-hunk-position hunk)
-                       (hi::device-hunk-position (window-hunk best)))
-                    (and (= (hi::device-hunk-position hunk)
-                            (hi::device-hunk-position (window-hunk best)))
+                    (> (device-hunk-position hunk)
+                       (device-hunk-position (window-hunk best)))
+                    (and (= (device-hunk-position hunk)
+                            (device-hunk-position (window-hunk best)))
                          (< (hi::device-hunk-column hunk)
                             (hi::device-hunk-column (window-hunk best)))))
             (setf best window)))))))
@@ -70,7 +70,7 @@
     (multiple-value-bind (x y)
         (if window
             (values 1 nil)
-            (hi::mark-to-cursorpos mark over))
+            (mark-to-cursorpos mark over))
       (when x
         (let* ((below (if window 0 (- height y 1)))
                (above (if window height y))
@@ -121,7 +121,7 @@
              (redisplay)
              (show-popup items selected start window)
              (redisplay)
-             (let* ((key (get-key-event hi::*editor-input*))
+             (let* ((key (get-key-event *editor-input*))
                     (char (heml-ext:key-event-char key)))
                (cond ((member key (list #k"control-n" #k"downarrow"))
                       (setf selected (mod (1+ selected) (length items))))
@@ -147,7 +147,7 @@
                       (insert-character point char))
                      (t
                       ;; Anything else is not for the popup.
-                      (unget-key-event key hi::*editor-input*)
+                      (unget-key-event key *editor-input*)
                       (return nil))))))
       (setf hi::*popup* nil))))
 
@@ -169,7 +169,7 @@
            (redisplay)
            (show-popup rows selected mark)
            (redisplay)
-           (let* ((key (get-key-event hi::*editor-input*))
+           (let* ((key (get-key-event *editor-input*))
                   (char (heml-ext:key-event-char key))
                   (digit (and char (zerop (heml-ext:key-event-bits key)) (digit-char-p char))))
              (cond ((member key (list #k"control-n" #k"downarrow"))
@@ -183,7 +183,7 @@
                    ((member key (list #k"control-g" #k"escape"))
                     (return nil))
                    (t
-                    (unget-key-event key hi::*editor-input*)
+                    (unget-key-event key *editor-input*)
                     (return nil)))))
       (setf hi::*popup* nil))))
 
@@ -211,7 +211,7 @@
          (lines (popup-text-lines text (max 10 (min *popup-width* (- (window-width window) 2)))))
          (width (+ 2 (reduce #'max lines :key #'length :initial-value 1))))
     (redisplay)
-    (multiple-value-bind (x y) (hi::mark-to-cursorpos mark window)
+    (multiple-value-bind (x y) (mark-to-cursorpos mark window)
       (when x
         (let* ((below (- height y 1))
                (under (or (>= below (length lines)) (>= below y)))
@@ -229,9 +229,9 @@
                                        (if under (1+ y) (- y count))
                                        rows))
                  (redisplay)
-                 (let ((key (get-key-event hi::*editor-input*)))
+                 (let ((key (get-key-event *editor-input*)))
                    (unless (member key (list #k"escape" #k"control-g"))
-                     (unget-key-event key hi::*editor-input*))))
+                     (unget-key-event key *editor-input*))))
             (setf hi::*popup* nil)))))))
 
 
@@ -343,7 +343,7 @@
                        (ignore-errors
                         (eval-form-in-server-1
                          info
-                         (format nil "(heml::%symbol-completions ~S ~S)" package-name name)))))
+                         (format nil "(%symbol-completions ~S ~S)" package-name name)))))
                    (ignore-errors (%symbol-completions package-name name)))))
            (symbols (remove name symbols :key #'car :test #'string=))
            (tokens (unless colon
@@ -755,7 +755,7 @@
   (when (and (value complete-as-you-type)
              (not (eq (current-buffer) *echo-area-buffer*))
              (null hi::*popup*)
-             (not (listen-editor-input hi::*editor-input*)))
+             (not (listen-editor-input *editor-input*)))
     (let* ((point (current-point))
            (char (previous-character point)))
       (when (and char (word-char-p char))
@@ -805,7 +805,7 @@
         ;; The name being typed starts after the last / before point.
         (loop for char = (previous-character start)
               while (and char (char/= char #\/)
-                         (mark> start (region-start hi::*parse-input-region*)))
+                         (mark> start (region-start *parse-input-region*)))
               do (mark-before start))
         (unwind-protect
              (let ((choice (popup-choose names start :window (bottom-window))))
@@ -846,7 +846,7 @@
    anchor is not on the screen."
   (destructuring-bind (anchor text start end) *signature*
     (let ((window (current-window)))
-      (multiple-value-bind (x y) (hi::mark-to-cursorpos anchor window)
+      (multiple-value-bind (x y) (mark-to-cursorpos anchor window)
         (if (null x)
             (setf hi::*popup* nil)
             (let* ((width (min (+ 2 (length text)) (window-width window)))
@@ -952,7 +952,7 @@
                                   (when info
                                     (ignore-errors
                                      (eval-form-in-server-1
-                                      info (format nil "(heml::%arglist-string ~S ~S)"
+                                      info (format nil "(%arglist-string ~S ~S)"
                                                    name package)))))
                                 (ignore-errors (%arglist-string name package)))))
                  (when (stringp text)

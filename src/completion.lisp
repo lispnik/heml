@@ -540,7 +540,7 @@
 (defun %find-symbol-completion/request
        (show-matches-p prefix packname symname)
   (let ((matches (%find-symbol-completion-matches packname symname)))
-    (heml::eval-in-master
+    (eval-in-master
      `(%find-symbol-completion/results 
        ',show-matches-p ',prefix ',matches))))
 
@@ -611,7 +611,7 @@
                                      (string-downcase (subseq prefix (1+ p))))
                              (values nil
                                      (string-downcase prefix))))
-    (heml::eval-in-slave
+    (eval-in-slave
      `(%find-symbol-completion/request
        ',(and show-matches-p t)
        ',package-prefix
@@ -770,11 +770,11 @@
   (let ((old (getf (line-plist line) 'completion-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'completion-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (completion-line-fonts line)
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Completelist" 'completion-highlight-line :marks 'completion-marks)
 (define-mode-highlighter "Fuzzylist" 'completion-highlight-line :marks 'completion-marks)

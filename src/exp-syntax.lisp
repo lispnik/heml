@@ -403,7 +403,7 @@ a buffer in another mode must not be coloured as Lisp on that account."
           (t
            ;; work to do, but first remove old font marks
            (dolist (fm font-marks)
-             (hi::delete-font-mark fm))
+             (delete-font-mark fm))
            (setf font-marks nil)
            ;; now do the highlighting
            (note-line-decorated line)
@@ -420,14 +420,14 @@ a buffer in another mode must not be coloured as Lisp on that account."
                             when (and (<= start p) (< p end))
                               do (setf font (overlay-font font overlay)))
                       (unless (equal font last-font)
-                        (push (hi::font-mark line p font) font-marks)
+                        (push (font-mark line p font) font-marks)
                         (setf last-font font)))))
              (setf state (step** state #\newline))
              ;; The name a top-level definition defines.
              (multiple-value-bind (start end) (definition-name-bounds line prev-to)
                (when start
-                 (push (hi::font-mark line start 5) font-marks)
-                 (push (hi::font-mark line end 0) font-marks)))
+                 (push (font-mark line start 5) font-marks)
+                 (push (font-mark line end 0) font-marks)))
              (make-syntax-info (line-signature line)
                                prev-to
                                state

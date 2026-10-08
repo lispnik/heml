@@ -27,21 +27,21 @@
   (1+ (- (hi::device-hunk-text-position hunk) (hi::device-hunk-text-height hunk))))
 
 (defun current-device ()
-  (hi::device-hunk-device (hi::window-hunk (hi::current-window))))
+  (hi::device-hunk-device (hi::window-hunk (hi:current-window))))
 
 
 ;;;; Editor input
 
 (defclass cocoa-editor-input (hi::editor-input) ())
 
-(defmethod hi::get-key-event
+(defmethod hi:get-key-event
     ((stream cocoa-editor-input) &optional ignore-abort-attempts-p)
   (hi::%editor-input-method stream ignore-abort-attempts-p))
 
-(defmethod hi::unget-key-event (key-event (stream cocoa-editor-input))
+(defmethod hi:unget-key-event (key-event (stream cocoa-editor-input))
   (hi::un-event key-event stream))
 
-(defmethod hi::clear-editor-input ((stream cocoa-editor-input))
+(defmethod hi:clear-editor-input ((stream cocoa-editor-input))
   (take-inbox)
   (heml-ext:without-interrupts
     (let* ((head (hi::editor-input-head stream))
@@ -52,25 +52,25 @@
                 hi::*free-input-events* next)
         (setf (hi::editor-input-tail stream) head)))))
 
-(defmethod hi::listen-editor-input ((stream cocoa-editor-input))
+(defmethod hi:listen-editor-input ((stream cocoa-editor-input))
   (hi::dispatch-events-no-hang)
   (not (null (hi::input-event-next (hi::editor-input-head stream)))))
 
 (defmethod hi::backend-init-raw-io ((backend (eql :cocoa)) display)
   (declare (ignore display))
-  (setf hi::*editor-input* (make-instance 'cocoa-editor-input))
-  (setf hi::*real-editor-input* hi::*editor-input*))
+  (setf hi:*editor-input* (make-instance 'cocoa-editor-input))
+  (setf hi:*real-editor-input* hi:*editor-input*))
 
 (defun modifier-bits (names)
   (reduce #'logior names
-          :key #'heml-ext::key-event-modifier-mask
+          :key #'heml-ext:key-event-modifier-mask
           :initial-value 0))
 
 (defun descriptor-key-event (descriptor)
   (destructuring-bind (kind thing modifiers) descriptor
     (let ((bits (modifier-bits modifiers)))
       (ecase kind
-        (:named (heml-ext::make-key-event thing bits))
+        (:named (heml-ext:make-key-event thing bits))
         ;; Any character: one Heml has no keysym for gets one, bound to
         ;; Self Insert, the first time it is typed.
         (:char (let ((key-event (heml-ext:character-key-event thing)))
@@ -83,7 +83,7 @@
   "Menu commands waiting for the command loop, oldest first, each (name
 arg ...).  The editor thread's only.")
 
-(hi::defcommand "Menu Command" (p)
+(hi:defcommand "Menu Command" (p)
   "Run the command a menu item chose.  Bound to the key the Cocoa backend
 queues for one, so that it runs as a typed command does, prefix argument
 included."
@@ -91,13 +91,13 @@ included."
   (let ((entry (pop *menu-commands*)))
     (when entry
       (destructuring-bind (name &rest arguments) entry
-        (let ((command (hi::getstring name hi::*command-names*)))
+        (let ((command (hi:getstring name hi:*command-names*)))
           (unless command
-            (hi::editor-error "No command ~S." name))
-          (apply (hi::command-function command) p arguments))))))
+            (hi:editor-error "No command ~S." name))
+          (apply (hi:command-function command) p arguments))))))
 
 (defun queue-key-event (key-event)
-  (hi::q-event hi::*real-editor-input* key-event))
+  (hi::q-event hi:*real-editor-input* key-event))
 
 (defun process-inbox ()
   "Turn what the main thread has posted into Heml input.  Runs as the
@@ -108,8 +108,8 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
           ((eq item :quit)
            ;; What C-x C-c does, whatever it is bound to.
            (let ((control (modifier-bits '("Control"))))
-             (queue-key-event (heml-ext::make-key-event "x" control))
-             (queue-key-event (heml-ext::make-key-event "c" control))))
+             (queue-key-event (heml-ext:make-key-event "x" control))
+             (queue-key-event (heml-ext:make-key-event "c" control))))
           ((eq (car item) :resize)
            (resize-screen (current-device) (second item) (third item)))
           ((eq (car item) :command)
@@ -144,7 +144,7 @@ wakeup connection's filter, inside DISPATCH-EVENTS on the editor thread."
 ;;; Y within the window's text, Y NIL on its modeline, and the hunk.
 ;;;
 (defun locate-cell (column line)
-  (dolist (hunk (cons (hi::window-hunk hi::*echo-area-window*)
+  (dolist (hunk (cons (hi::window-hunk hi:*echo-area-window*)
                       (hi::device-window-hunks (current-device)))
                 (values nil nil nil))
     (let ((top (hunk-top-line hunk))
@@ -225,7 +225,7 @@ that, and should not also reach the editor as a key."
 
 (defun queue-mouse-event (name modifiers column line)
   (multiple-value-bind (x y hunk) (locate-cell column line)
-    (hi::q-event hi::*real-editor-input*
+    (hi::q-event hi:*real-editor-input*
                  (heml-ext:make-key-event name (modifier-bits modifiers))
                  x y hunk)))
 
@@ -242,21 +242,21 @@ that, and should not also reach the editor as a key."
            (heml-ext:make-key-event name (modifier-bits modifiers))))
     (install-palette-bindings #'key)
     ;; As treemacs's: to the sidebar, and M-0 there comes back.
-    (hi::bind-key "Sidebar Focus" (key "0" "Meta"))
-    (hi::bind-key "Mouse Set Point" (key "Leftdown"))
-    (hi::bind-key "Mouse Drag Region" (key "Leftup"))
-    (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
-    (hi::bind-key "Mouse Drag Region" (key "Leftup" "Shift"))
-    (hi::bind-key "Mouse Select Word" (key "Doubleleftdown"))
+    (hi:bind-key "Sidebar Focus" (key "0" "Meta"))
+    (hi:bind-key "Mouse Set Point" (key "Leftdown"))
+    (hi:bind-key "Mouse Drag Region" (key "Leftup"))
+    (hi:bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
+    (hi:bind-key "Mouse Drag Region" (key "Leftup" "Shift"))
+    (hi:bind-key "Mouse Select Word" (key "Doubleleftdown"))
     ;; Command-click follows a link.
-    (hi::bind-key "Mouse Open Link" (key "Leftdown" "Super"))
+    (hi:bind-key "Mouse Open Link" (key "Leftdown" "Super"))
     ;; In Dired, a double click opens what it is on.
-    (hi::bind-key "Dired Mouse Edit File" (key "Doubleleftdown") :mode "Dired")
-    (hi::bind-key "Bufed Mouse Goto" (key "Doubleleftdown") :mode "Bufed")
-    (hi::bind-key "Mouse Select Line" (key "Tripleleftdown"))
-    (hi::bind-key "Mouse Point Unless In Region" (key "Rightdown"))
-    (hi::bind-key "Do Nothing" (key "Rightup"))
-    (hi::bind-key "Menu Command" (key "Menucommand")))
+    (hi:bind-key "Dired Mouse Edit File" (key "Doubleleftdown") :mode "Dired")
+    (hi:bind-key "Bufed Mouse Goto" (key "Doubleleftdown") :mode "Bufed")
+    (hi:bind-key "Mouse Select Line" (key "Tripleleftdown"))
+    (hi:bind-key "Mouse Point Unless In Region" (key "Rightdown"))
+    (hi:bind-key "Do Nothing" (key "Rightup"))
+    (hi:bind-key "Menu Command" (key "Menucommand")))
   ;; The modelines and a popup's choice in the accent colour the user chose
   ;; in System Settings, as the Mac's own selections are.
   (setf hi::*modeline-font* '(:fg :accent-text :bg :accent :bold t)
@@ -294,21 +294,21 @@ that, and should not also reach the editor as a key."
   (let* ((device (make-instance 'cocoa-device :name "Cocoa"))
          (width (screen-columns *screen*))
          (height (screen-lines *screen*))
-         (echo-height (hi::value heml::echo-area-height))
+         (echo-height (hi:value heml::echo-area-height))
          (main-lines (- height echo-height 1))
          (main-text-lines (1- main-lines))
          (last-text-line (1- main-text-lines)))
-    (setf hi::*window-list* ())
+    (setf hi:*window-list* ())
     (setf (hi::device-bottom-window-base device) last-text-line)
     (let* ((echo-hunk (make-instance 'cocoa-hunk :device device
                                                  :position (1- height) :height echo-height
                                                  :text-position (- height 2)
                                                  :text-height echo-height :width width))
            (echo (hi::internal-make-window :hunk echo-hunk)))
-      (setf hi::*echo-area-window* echo)
+      (setf hi:*echo-area-window* echo)
       (setf (hi::device-hunk-window echo-hunk) echo)
-      (hi::setup-window-image hi::*parse-starting-mark* echo echo-height width)
-      (hi::setup-modeline-image hi::*echo-area-buffer* echo)
+      (hi::setup-window-image hi:*parse-starting-mark* echo echo-height width)
+      (hi::setup-modeline-image hi:*echo-area-buffer* echo)
       (setf (hi::device-hunk-previous echo-hunk) echo-hunk
             (hi::device-hunk-next echo-hunk) echo-hunk))
     (let ((main-hunk (hi::device-make-hunk device)))
@@ -316,7 +316,7 @@ that, and should not also reach the editor as a key."
       (let ((main (hi::internal-make-window :hunk main-hunk)))
         (setf (hi::device-hunk-window main-hunk) main)
         (setf hi::*current-window* main)
-        (hi::setup-window-image (hi::buffer-point hi::*current-buffer*)
+        (hi::setup-window-image (hi:buffer-point hi::*current-buffer*)
                                 main (hi::device-hunk-text-height main-hunk) width)
         (hi::setup-modeline-image hi::*current-buffer* main)))
     (ensure-wakeup-connection)
@@ -411,7 +411,7 @@ another window is on its right."
       (when (hi::window-modeline-buffer window)
         (store-modeline screen (+ top height) left width
                         (hi::window-modeline-dis-line window)
-                        (cond ((eq window hi::*echo-area-window*) :status)
+                        (cond ((eq window hi:*echo-area-window*) :status)
                               ((eq window hi::*current-window*) :active)
                               (t :inactive))))
       (when (< (+ left width) (screen-columns screen))
@@ -442,48 +442,48 @@ another window is on its right."
               (screen-cursor-y screen) line
               (device-dirty device) t)))))
 
-(hi::defhvar "Cursor Style"
+(hi:defhvar "Cursor Style"
   "How the Cocoa editor draws the caret: :BAR, a thin line before the
    character in the accent colour, as a Mac text view does; or :BLOCK, the
    character in reverse, as a terminal does."
   :value :bar)
 
-(hi::defhvar "Cursor Blink"
+(hi:defhvar "Cursor Blink"
   "Whether the Cocoa editor's caret blinks while nothing is typed."
   :value t)
 
-(hi::defhvar "Pixel Scrolling"
+(hi:defhvar "Pixel Scrolling"
   "Whether a trackpad scrolls the Cocoa editor by points, with a bounce at
    the ends; NIL scrolls by whole lines, as a mouse wheel does."
   :value t)
 
-(hi::defhvar "Mouse Wheel Lines"
+(hi:defhvar "Mouse Wheel Lines"
   "How many lines a notch of a mouse wheel scrolls.  A trackpad scrolls by
    distance."
   :value 3)
 
-(hi::defhvar "Sidebar Ignored"
+(hi:defhvar "Sidebar Ignored"
   "Names the sidebar does not list, in every project.  A project's
    .heml-project :ignore patterns, which C-x p f leaves out, are left out
    of its tree too."
   :value '(".git" ".DS_Store" ".hg" ".svn"))
 
-(hi::defhvar "Sidebar Sort"
+(hi:defhvar "Sidebar Sort"
   "How the sidebar orders each folder's entries: :NAME, alphabetically;
    :KIND, by type and then name; :DATE, the newest first; :SIZE, the
    largest first.  The tree is one view of every project, so its global
    value is the one that counts."
   :value :name)
 
-(hi::defhvar "Sidebar Folders First"
+(hi:defhvar "Sidebar Folders First"
   "Whether the sidebar lists a folder's folders before its files."
   :value t)
 
-(hi::defhvar "Sidebar Follow Projects"
+(hi:defhvar "Sidebar Follow Projects"
   "Whether visiting a file of a project the sidebar does not show adds it."
   :value t)
 
-(hi::defhvar "Sidebar Follow File"
+(hi:defhvar "Sidebar Follow File"
   "Whether the file being edited is shown and chosen in the sidebar."
   :value t)
 
@@ -491,7 +491,7 @@ another window is on its right."
   "The current buffer's values of the variables the main thread acts on,
    for each frame to carry: they may be the buffer's mode's, or its
    project's."
-  (flet ((value (name) (hi::variable-value (hi::string-to-variable name))))
+  (flet ((value (name) (hi:variable-value (hi:string-to-variable name))))
     (list :cursor-style (value "Cursor Style")
           :cursor-blink (value "Cursor Blink")
           :pixel-scrolling (value "Pixel Scrolling")
@@ -500,36 +500,36 @@ another window is on its right."
           :sidebar-follow-projects (value "Sidebar Follow Projects")
           :sidebar-follow-file (value "Sidebar Follow File")
           ;; The tree is one view of every project: its order is global.
-          :sidebar-sort (hi::variable-value 'heml::sidebar-sort :global)
-          :sidebar-folders-first (hi::variable-value 'heml::sidebar-folders-first :global))))
+          :sidebar-sort (hi:variable-value 'heml::sidebar-sort :global)
+          :sidebar-folders-first (hi:variable-value 'heml::sidebar-folders-first :global))))
 
 (defun buffer-title (buffer)
   "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT
    ROOT), ROOT its project's directory."
-  (let ((pathname (hi::buffer-pathname buffer))
+  (let ((pathname (hi:buffer-pathname buffer))
         (root (ignore-errors (heml::buffer-project-root buffer))))
-    (list (if pathname (file-namestring pathname) (hi::buffer-name buffer))
+    (list (if pathname (file-namestring pathname) (hi:buffer-name buffer))
           (and pathname (namestring pathname))
-          (and pathname (hi::buffer-modified buffer) t)
+          (and pathname (hi:buffer-modified buffer) t)
           (and root (ignore-errors (heml::project-name root)))
           root)))
 
 (defun buffer-tabs (current)
   "The files open, for their tabs: (CURRENT-NAME (NAME MODIFIED TITLE) ...),
    NAME the buffer's and TITLE its file's."
-  (cons (hi::buffer-name current)
-        (loop for buffer in hi::*buffer-list*
-              for pathname = (hi::buffer-pathname buffer)
+  (cons (hi:buffer-name current)
+        (loop for buffer in hi:*buffer-list*
+              for pathname = (hi:buffer-pathname buffer)
               when pathname
-                collect (list (hi::buffer-name buffer)
-                              (and (hi::buffer-modified buffer) t)
+                collect (list (hi:buffer-name buffer)
+                              (and (hi:buffer-modified buffer) t)
                               (file-namestring pathname)))))
 
-(hi::defcommand "Cocoa Select Buffer" (p &optional name)
+(hi:defcommand "Cocoa Select Buffer" (p &optional name)
   "Go to the buffer NAME, as a tab's click does."
   "Go to the buffer NAME."
   (declare (ignore p))
-  (let ((buffer (and name (hi::getstring name hi::*buffer-names*))))
+  (let ((buffer (and name (hi:getstring name hi:*buffer-names*))))
     (when buffer
       (hi::change-to-buffer buffer))))
 
@@ -550,22 +550,22 @@ another window is on its right."
 (defun window-incoming-lines (window width)
   "The text of the rows just above WINDOW's first and below its last, which
    scrolling by points shows part of before the editor scrolls."
-  (let* ((start (hi::window-display-start window))
-         (line (hi::mark-line start))
-         (above (if (plusp (hi::mark-charpos start))
-                    (shown-text (subseq (hi::line-string line) 0 (hi::mark-charpos start)) width t)
-                    (let ((previous (loop for l = (hi::line-previous line) then (hi::line-previous l)
-                                          while (and l (hi::line-hidden-p l))
+  (let* ((start (hi:window-display-start window))
+         (line (hi:mark-line start))
+         (above (if (plusp (hi:mark-charpos start))
+                    (shown-text (subseq (hi:line-string line) 0 (hi:mark-charpos start)) width t)
+                    (let ((previous (loop for l = (hi:line-previous line) then (hi:line-previous l)
+                                          while (and l (hi:line-hidden-p l))
                                           finally (return l))))
-                      (and previous (shown-text (hi::line-string previous) width t)))))
+                      (and previous (shown-text (hi:line-string previous) width t)))))
          (last (loop with found = nil
                      for cell = (cdr (hi::window-first-line window)) then (cdr cell)
                      until (or (atom cell) (eq cell hi::the-sentinel))
                      do (let ((shown (hi::dis-line-line (car cell))))
                           (when shown (setf found shown)))
                      finally (return found)))
-         (next (and last (hi::next-shown-line last))))
-    (values above (and next (shown-text (hi::line-string next) width)))))
+         (next (and last (hi:next-shown-line last))))
+    (values above (and next (shown-text (hi:line-string next) width)))))
 
 (defun window-scrolls ()
   "Each window's place in its buffer: (COLUMN LINE WIDTH HEIGHT POSITION
@@ -575,17 +575,17 @@ another window is on its right."
    pulls on a rubber band; the text of the rows that would come in above and
    below; and its fringe's width.  A line's number is an ordering, spaced
    LINE-INCREMENT apart, which is near enough here and costs nothing."
-  (loop for window in hi::*window-list*
-        for buffer = (hi::window-buffer window)
-        unless (or (eq window hi::*echo-area-window*) (null buffer))
+  (loop for window in hi:*window-list*
+        for buffer = (hi:window-buffer window)
+        unless (or (eq window hi:*echo-area-window*) (null buffer))
           collect (let* ((hunk (hi::window-hunk window))
-                         (start (hi::line-number (hi::mark-line (hi::buffer-start-mark buffer))))
-                         (end (hi::line-number (hi::mark-line (hi::buffer-end-mark buffer))))
-                         (first (hi::line-number (hi::mark-line (hi::window-display-start window))))
+                         (start (hi::line-number (hi:mark-line (hi:buffer-start-mark buffer))))
+                         (end (hi::line-number (hi:mark-line (hi:buffer-end-mark buffer))))
+                         (first (hi::line-number (hi:mark-line (hi:window-display-start window))))
                          (span (max 1 (- end start)))
                          (height (hi::device-hunk-text-height hunk))
                          (lines (1+ (/ span hi::line-increment)))
-                         (fringe (hi::window-fringe-width window)))
+                         (fringe (hi:window-fringe-width window)))
                     (multiple-value-bind (above below)
                         (window-incoming-lines window (- (hi::device-hunk-width hunk) fringe))
                     (list (hi::device-hunk-column hunk) (hunk-top-line hunk)
@@ -594,8 +594,8 @@ another window is on its right."
                           (float (max 0 (min 1 (/ (- first start)
                                                   (max 1 (- span (* (1- height) hi::line-increment)))))))
                           (float (min 1 (/ height lines)))
-                          (hi::mark= (hi::window-display-start window) (hi::buffer-start-mark buffer))
-                          (hi::%displayed-p (hi::buffer-end-mark buffer) window)
+                          (hi:mark= (hi:window-display-start window) (hi:buffer-start-mark buffer))
+                          (hi::%displayed-p (hi:buffer-end-mark buffer) window)
                           above below fringe)))))
 
 (defun popup-descriptor ()
@@ -620,9 +620,9 @@ another window is on its right."
     (setf (screen-borders *screen*) (layout-borders))
     ;; The mode the menus follow.  A prompt's echo area leaves them as they
     ;; were, rather than hiding a mode's menu while it asks.
-    (let ((buffer (hi::current-buffer)))
-      (unless (eq buffer hi::*echo-area-buffer*)
-        (setf (screen-mode *screen*) (hi::buffer-major-mode buffer)
+    (let ((buffer (hi:current-buffer)))
+      (unless (eq buffer hi:*echo-area-buffer*)
+        (setf (screen-mode *screen*) (hi:buffer-major-mode buffer)
               (screen-settings *screen*) (editor-settings)
               (screen-title *screen*) (buffer-title buffer)
               (screen-tabs *screen*) (buffer-tabs buffer))))
@@ -650,7 +650,7 @@ another window is on its right."
 ;;; the matching open paren is flashed.
 ;;;
 (defmethod hi::device-show-mark ((device cocoa-device) window x y time)
-  (cond ((hi::listen-editor-input hi::*editor-input*) nil)
+  (cond ((hi:listen-editor-input hi:*editor-input*) nil)
         (x (hi::internal-redisplay)
            (hi::device-put-cursor device (hi::window-hunk window) x y)
            (hi::device-force-output device)
@@ -684,30 +684,30 @@ another window is on its right."
 ;;; The View menu's actions, for M-x and key bindings.  They run on the main
 ;;; thread, which owns the fonts; the grid follows as a :RESIZE.
 
-(hi::defcommand "Increase Font Size" (p)
+(hi:defcommand "Increase Font Size" (p)
   "Make the font a point larger, or P points."
   "Make the font larger."
   (let ((delta (or p 1)))
     (on-main-thread (change-font-size delta))))
 
-(hi::defcommand "Decrease Font Size" (p)
+(hi:defcommand "Decrease Font Size" (p)
   "Make the font a point smaller, or P points."
   "Make the font smaller."
   (let ((delta (- (or p 1))))
     (on-main-thread (change-font-size delta))))
 
-(hi::defcommand "Default Font Size" (p)
+(hi:defcommand "Default Font Size" (p)
   "Go back to the default font size, or with an argument, make it P points."
   "Set the font size."
   (on-main-thread (if p (change-font :size p) (change-font-size nil))))
 
-(hi::defcommand "Select Font" (p)
+(hi:defcommand "Select Font" (p)
   "Open the font panel; the font chosen there is used, and kept for next time."
   "Open the font panel."
   (declare (ignore p))
   (on-main-thread (show-font-panel)))
 
-(hi::defcommand "Use System Font" (p)
+(hi:defcommand "Use System Font" (p)
   "Go back to the system monospaced font, keeping the size."
   "Use the system monospaced font."
   (declare (ignore p))

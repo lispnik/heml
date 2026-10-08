@@ -64,7 +64,7 @@
 
 (defun maybe-resize-tty-device (device)
   (multiple-value-bind (lines cols)
-      (hi::get-terminal-attributes)
+      (get-terminal-attributes)
     (let ((cols (if heml.terminfo:auto-right-margin (1- cols) cols)))
       (unless (and (eql lines (tty-device-lines device))
                    (eql cols (tty-device-columns device)))
@@ -287,7 +287,7 @@
 
 (defun tty-color (color)
   "COLOR as the index the terminal is to be given, or NIL for its default."
-  (let ((colors (or heml.terminfo::max-colors 8)))
+  (let ((colors (or heml.terminfo:max-colors 8)))
     (cond ((null color) nil)
           ((and (integerp color) (<= 0 color 9)) color)
           ((integerp color)

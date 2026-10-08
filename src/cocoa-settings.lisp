@@ -35,23 +35,23 @@
 (defun variable-mode (name)
   "Where the Heml variable NAME is set: (:MODE MODE) when Lisp mode has its
    own, else (:GLOBAL)."
-  (let ((symbol (hi::string-to-variable name)))
-    (if (hi::heml-bound-p symbol :mode "Lisp")
+  (let ((symbol (hi:string-to-variable name)))
+    (if (hi:heml-bound-p symbol :mode "Lisp")
         (list :mode "Lisp")
         (list :global))))
 
 (defun setting-value (name)
   (ignore-errors
-   (apply #'hi::variable-value (hi::string-to-variable name) (variable-mode name))))
+   (apply #'hi:variable-value (hi:string-to-variable name) (variable-mode name))))
 
 (defun set-setting (name value)
   "Set the Heml variable NAME to VALUE, on the editor's thread."
   (post-to-editor
    (list :call (lambda ()
-                 (let ((symbol (hi::string-to-variable name)))
+                 (let ((symbol (hi:string-to-variable name)))
                    (if (eq (first (variable-mode name)) :mode)
-                       (setf (hi::variable-value symbol :mode "Lisp") value)
-                       (setf (hi::variable-value symbol :global) value)))))))
+                       (setf (hi:variable-value symbol :mode "Lisp") value)
+                       (setf (hi:variable-value symbol :global) value)))))))
 
 
 ;;;; What is written to the init file.

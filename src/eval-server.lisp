@@ -353,7 +353,7 @@
           "--eval" registry
           "--eval" load-heml
           ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
-          "--eval" "(progn (heml::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
+          "--eval" "(progn (main (rest sb-ext:*posix-argv*)) (uiop:quit))"
           "--end-toplevel-options"
           "--slave")
     ;; ECL reads every --eval before it evaluates any, so nothing here may
@@ -544,7 +544,7 @@
 (defun prompt-for-slave-command ()
   (cl-ppcre:split
    " "
-   (heml-interface::prompt-for-string
+   (prompt-for-string
     :prompt "Command: "
     :default (format nil "~{~A~^ ~}"
                      (slave-command-with-arguments)))))
@@ -851,7 +851,7 @@
       (setf *master-machine-and-port* (list machine port))
       (format t "Connecting to ~A:~D~%" machine port)
       (hi::with-new-event-loop ()
-        (let ((heml.wire::*current-wire* :wire-not-yet-known))
+        (let ((heml.wire:*current-wire* :wire-not-yet-known))
           (connect-to-editor machine port slave-buffer background-buffer)
           (dispatch-events-no-hang)
           (iter:iter
@@ -951,7 +951,7 @@
    port
    (lambda (wire)
      (let ()
-       (setf heml.wire::*current-wire* wire)
+       (setf heml.wire:*current-wire* wire)
        (heml.wire:remote-value-bind wire
          (slave background)
          (set-up-buffers-for-slave (lisp-implementation-type)
@@ -984,7 +984,7 @@
    machine
    port
    (lambda (wire)
-     (setf heml.wire::*current-wire* wire))
+     (setf heml.wire:*current-wire* wire))
    'editor-died))
 
 
@@ -1246,7 +1246,7 @@
 ;;;;
 
 (defcommand "Start Swank Server"
-    (p &optional (port (heml-interface::prompt-for-integer
+    (p &optional (port (prompt-for-integer
                         :prompt "Port: "
                         :default-string "4005")))
   "" ""

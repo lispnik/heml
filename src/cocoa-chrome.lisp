@@ -404,9 +404,9 @@
    frame lists it again so; and say so."
   (post-to-editor
    (list :call (lambda ()
-                 (setf (hi::variable-value 'heml::sidebar-sort :global) sort
-                       (hi::variable-value 'heml::sidebar-folders-first :global) folders-first)
-                 (hi::message "Sidebar sorted by ~(~A~)~:[~;, folders first~]."
+                 (setf (hi:variable-value 'heml::sidebar-sort :global) sort
+                       (hi:variable-value 'heml::sidebar-folders-first :global) folders-first)
+                 (hi:message "Sidebar sorted by ~(~A~)~:[~;, folders first~]."
                               (if (eq sort :date) "date modified" sort) folders-first)))))
 
 (defun expanded-paths ()
@@ -573,13 +573,13 @@
             (error (condition) (log-error "sidebar key" condition) t))
     (objc:invoke (objc:current-super) "keyDown:" event)))
 
-(hi::defcommand "Sidebar Focus" (p)
+(hi:defcommand "Sidebar Focus" (p)
   "Go to the sidebar, showing it if it is hidden; M-0 there comes back."
   "Go to the sidebar."
   (declare (ignore p))
   (on-main-thread (focus-sidebar)))
 
-(hi::defcommand "Sidebar Visit Other Window" (p &optional path)
+(hi:defcommand "Sidebar Visit Other Window" (p &optional path)
   "Visit PATH, the sidebar's file, in the other window."
   "Visit a file in the other window."
   (declare (ignore p))
@@ -858,27 +858,27 @@
 (defun toggle-sidebar ()
   (show-sidebar (not *sidebar-shown*)))
 
-(hi::defcommand "Sidebar Add Project" (p)
+(hi:defcommand "Sidebar Add Project" (p)
   "Put a project in the sidebar: this buffer's, or with an argument, a
    directory asked for."
   "Put a project in the sidebar."
   (let ((root (if p
-                  (namestring (hi::prompt-for-file :prompt "Add project: "
+                  (namestring (hi:prompt-for-file :prompt "Add project: "
                                                    :default (heml::buffer-default-directory
-                                                             (hi::current-buffer))
+                                                             (hi:current-buffer))
                                                    :must-exist t))
-                  (or (heml::buffer-project-root (hi::current-buffer))
-                      (hi::editor-error "This buffer is in no project.")))))
+                  (or (heml::buffer-project-root (hi:current-buffer))
+                      (hi:editor-error "This buffer is in no project.")))))
     (on-main-thread (add-sidebar-root root) (show-sidebar t))))
 
-(hi::defcommand "Sidebar Remove Project" (p)
+(hi:defcommand "Sidebar Remove Project" (p)
   "Take a project out of the sidebar, asked for among those it shows."
   "Take a project out of the sidebar."
   (declare (ignore p))
   (let ((roots (copy-list *sidebar-roots*)))
-    (unless roots (hi::editor-error "The sidebar shows no project."))
-    (let ((root (nth-value 1 (hi::prompt-for-keyword
-                              (list (hi::make-string-table
+    (unless roots (hi:editor-error "The sidebar shows no project."))
+    (let ((root (nth-value 1 (hi:prompt-for-keyword
+                              (list (hi:make-string-table
                                      :initial-contents (mapcar (lambda (root) (cons root root)) roots)))
                               :prompt "Remove project: " :help "A project the sidebar shows."))))
       (on-main-thread (remove-sidebar-root root)))))

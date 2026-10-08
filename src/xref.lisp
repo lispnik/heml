@@ -102,11 +102,11 @@
   (let ((old (getf (line-plist line) 'xref-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'xref-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (xref-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Xref" 'xref-highlight-line :marks 'xref-marks)
 
@@ -152,14 +152,14 @@
 
 (defun %find-definitions (label xref-fun name)
   ;; LABEL is "definition", or the command's name ("Who Calls").
-  (let* ((sym (heml::resolve-slave-symbol name nil))
+  (let* ((sym (resolve-slave-symbol name nil))
          (data
           (and sym
                (mapcar (lambda (def)
                          (cons (princ-to-string (car def))
                                (cdr def)))
                        (funcall xref-fun sym)))))
-    (heml::eval-in-master `(%definitions-found ',label ',name ',data))))
+    (eval-in-master `(%definitions-found ',label ',name ',data))))
 
 (defun %definitions-found (label name data)
   (let ((entries (mapcar #'make-xref-entry data)))
@@ -176,12 +176,12 @@
                                     name)))))))
 
 (defun find-definitions (name)
-  (heml::eval-in-slave
+  (eval-in-slave
    `(%find-definitions "definition" 'conium:find-definitions ',name)))
 
 (defcommand "Find Definitions" (p)
   "" ""
-  (let ((default (heml::symbol-string-at-point)))
+  (let ((default (symbol-string-at-point)))
     ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
     ;; will get random forms rather than a symbol.  Let's at least
     ;; catch the case where the result is more than a line long,
@@ -189,9 +189,9 @@
     (when (find #\newline default)
       (setf default nil))
     (find-definitions
-     (heml::parse-slave-symbol
+     (parse-slave-symbol
       (if (or p (not default))
-          (heml-interface::prompt-for-string
+          (prompt-for-string
            :prompt "Name: "
            :default default)
           default)))))
@@ -201,7 +201,7 @@
        `(progn
           (defcommand ,name (p)
             "" ""
-            (let ((default (heml::symbol-string-at-point)))
+            (let ((default (symbol-string-at-point)))
               ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
               ;; will get random forms rather than a symbol.  Let's at least
               ;; catch the case where the result is more than a line long,
@@ -209,14 +209,14 @@
               (when (find #\newline default)
                 (setf default nil))
               (,fun
-               (heml::parse-slave-symbol
+               (parse-slave-symbol
                 (if (or p (not default))
-                    (heml-interface::prompt-for-string
+                    (prompt-for-string
                      :prompt "Name: "
                      :default default)
                     default)))))
           (defun ,fun (name)
-            (heml::eval-in-slave
+            (eval-in-slave
              (list '%find-definitions
                    (list 'quote ',name)
                    (list 'quote ',conium-fun)

@@ -9,7 +9,7 @@
 
 ;;;; PREPL/background buffer integration
 
-(declaim (special hi::*in-heml-slave-p*
+(declaim (special *in-heml-slave-p*
                   heml::*master-machine-and-port*
                   heml::*original-terminal-io*))
 
@@ -19,7 +19,7 @@
 (defun call-with-typeout-for-thread-debugger (cont)
   (with-new-event-loop ()
     (let ((prepl:*entering-prepl-debugger-hook* nil)
-          (hi::*in-heml-slave-p* t)
+          (*in-heml-slave-p* t)
           (heml.wire:*current-wire* :not-yet))
       (heml::connect-to-editor-for-background-thread
        (car heml::*master-machine-and-port*)
@@ -41,7 +41,7 @@
 (defun typeout-for-thread ()
   (assert (or (not (boundp '*event-base*)) (not *event-base*)))
   (setf *event-base* (make-event-loop *connection-backend*))
-  (setf hi::*in-heml-slave-p* t)
+  (setf *in-heml-slave-p* t)
   (let ((heml.wire:*current-wire* :not-yet))
     (heml::connect-to-editor-for-background-thread
      (car heml::*master-machine-and-port*)

@@ -392,7 +392,7 @@
                      (name (buffer-name buffer)))
                  (cond ((not pn)
                         (format nil "~A: " name))
-                       ((string/= (heml::pathname-to-buffer-name pn) name)
+                       ((string/= (pathname-to-buffer-name pn) name)
                         (format nil "~A: " name))
                        (t "")))))
 
@@ -403,11 +403,11 @@
 (defun maximum-modeline-pathname-length-hook (name kind where new-value)
   (declare (ignore name new-value))
   (if (eq kind :buffer)
-      (hi::queue-buffer-change where)
+      (queue-buffer-change where)
       (dolist (buffer *buffer-list*)
         (when (and (buffer-modeline-field-p buffer :buffer-pathname)
                    (buffer-windows buffer))
-          (hi::queue-buffer-change buffer)))))
+          (queue-buffer-change buffer)))))
 
 (defun buffer-pathname-ml-field-fun (buffer window)
   "Returns the namestring of buffer's pathname if there is one.  When

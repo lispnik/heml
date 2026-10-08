@@ -269,7 +269,7 @@
 (defun eval-in-master (form)
   (if *synchronous-evaluation-of-slave-requests-in-the-master*
       (eval form)
-      (heml.wire:remote heml.wire::*current-wire*
+      (heml.wire:remote heml.wire:*current-wire*
         (eval-safely-in-master form))))
 
 (defun eval-in-slave (form)
@@ -1192,7 +1192,7 @@ is to be read in, which evaluates it somewhere of the host's choosing.")
           (with-pop-up-display (s)
             (write-string (eval-form-in-server-1
                            info
-                           (format nil "(heml::describe-function-call-aux ~S)"
+                           (format nil "(describe-function-call-aux ~S)"
                                    (region-to-string (region mark1 mark2)))
                            (if (eq package-exists t) package nil))
                            s))))))))
@@ -1233,7 +1233,7 @@ is to be read in, which evaluates it somewhere of the host's choosing.")
           (with-pop-up-display (s)
             (write-string (eval-form-in-server-1
                            info
-                           (format nil "(heml::describe-symbol-aux '~A)"
+                           (format nil "(describe-symbol-aux '~A)"
                                    (region-to-string (region mark1 mark2)))
                            package)
                           s))))))))

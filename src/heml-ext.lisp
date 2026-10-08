@@ -31,7 +31,7 @@
 
 
 (defun find-buffer (name)
-  (getstring name hi::*buffer-names*))
+  (getstring name hi:*buffer-names*))
 
 (defun maybe-rename-buffer (buffer new-name)
   (unless (find-buffer new-name)

@@ -56,7 +56,7 @@
 (defun queue-command (function)
   "Have FUNCTION called by the command loop when it next reads input."
   (setf *queued-commands* (append *queued-commands* (list function)))
-  (hi::q-event hi::*real-editor-input* (heml-ext:make-key-event "Queuedcommand" 0)))
+  (hi::q-event *real-editor-input* (heml-ext:make-key-event "Queuedcommand" 0)))
 
 (defvar *queued-waiting* 0
   "How many of the functions QUEUE-COMMAND queued have had their key read

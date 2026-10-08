@@ -84,7 +84,7 @@
     (with-pop-up-display (s)
       (write-string (eval-form-in-server-1
                      info
-                     (format nil "(heml::describe-symbol-aux ~A)"
+                     (format nil "(describe-symbol-aux ~A)"
                              (slave-symbol-form (apropos-entry-slavesym entry))))
                     s))))
 
@@ -139,11 +139,11 @@
   (let ((old (getf (line-plist line) 'apropos-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'apropos-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (apropos-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Apropos" 'apropos-highlight-line :marks 'apropos-marks)
 
@@ -179,7 +179,7 @@
 
 (defcommand "Slave Apropos Ignoring Point"
             (p &optional (str
-                          (heml-interface::prompt-for-string
+                          (prompt-for-string
                            :prompt "Apropos string: ")))
   "" ""
   (declare (ignore p))
@@ -188,7 +188,7 @@
 (defcommand "Slave Apropos" (p)
   "" ""
   (declare (ignore p))
-  (let ((default (heml::symbol-string-at-point)))
+  (let ((default (symbol-string-at-point)))
     ;; Fixme: MARK-SYMBOL isn't very good, meaning that often we
     ;; will get random forms rather than a symbol.  Let's at least
     ;; catch the case where the result is more than a line long,
@@ -196,12 +196,12 @@
     (when (find #\newline default)
       (setf default nil))
     (slave-apropos
-     (heml-interface::prompt-for-string
+     (prompt-for-string
       :prompt "Apropos string: "
       :default default))))
 
 (defun slave-apropos (str)
-  (heml::eval-in-slave `(%apropos ',str)))
+  (eval-in-slave `(%apropos ',str)))
 
 (defun %apropos (str)
   (let ((data
@@ -209,7 +209,7 @@
                    (cons (make-slave-symbol sym)
                          (conium:describe-symbol-for-emacs sym)))
                  (apropos-list str))))
-    (heml::eval-in-master `(%apropos-results ',data ',str))))
+    (eval-in-master `(%apropos-results ',data ',str))))
 
 (defun %apropos-results (data str)
   (let ((entries (mapcar #'parse-apropos-entry data)))

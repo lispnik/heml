@@ -124,7 +124,7 @@
     ;; (popup.lisp), and only if none is chosen is the ambiguity complained of.
     (when (and (not win)
                (not (and result
-                         (heml::choose-file-completion
+                         (choose-file-completion
                           (region-to-string *parse-input-region*)
                           (directory-namestring *parse-default*))))
                (value beep-on-ambiguity))

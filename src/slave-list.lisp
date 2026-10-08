@@ -163,11 +163,11 @@
   (let ((old (getf (line-plist line) 'slave-list-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'slave-list-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (slave-list-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Slave-List" 'slave-list-highlight-line :marks 'slave-list-marks)
 

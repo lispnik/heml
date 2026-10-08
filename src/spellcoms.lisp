@@ -884,7 +884,7 @@
          (old (getf (line-plist line) 'text-marks)))
     (unless (and old (equal (car old) key))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (let* ((string (line-string line))
              (links (line-links string))
              (spans (when spell

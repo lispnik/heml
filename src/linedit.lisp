@@ -25,7 +25,7 @@
 
 ;;;; LINEDIT-DEVICE: a minimal backend implemented as a subclass of TTY-DEVICE
 
-(pushnew :mini hi::*available-backends*)
+(pushnew :mini *available-backends*)
 
 (defclass linedit-device (tty-device)
   ((hbuf :accessor hbuf
@@ -97,7 +97,7 @@
      (cond
        ((eq (window-buffer window) (hbuf device))
         (let* ((hunk (window-hunk window))
-               (y (hi::tty-hunk-modeline-pos hunk)))
+               (y (tty-hunk-modeline-pos hunk)))
           (funcall (tty-device-clear-to-eol device) hunk 0 y)
           (device-write-string
            (make-string (tty-device-columns device)
@@ -246,14 +246,14 @@
   (newline (current-device))
   (if *inner-linedit-p*
       (throw 'inner-linedit-result (get-string (current-device)))
-      (heml::exit-heml)))
+      (exit-heml)))
 
 (defcommand "Illegal Linedit Command" (p) "" ""
   (declare (ignore p))
   (editor-error "Command not available"))
 
 (defun empty-region-p (r)
-  (heml::mark= (heml::region-start r) (heml::region-end r)))
+  (mark= (region-start r) (region-end r)))
 
 (defcommand "Linedit Delete Or Eof" (p) "" ""
   (if (empty-region-p (hi:buffer-region (current-buffer)))
@@ -273,7 +273,7 @@
   (if (find "Lisp" (buffer-modes (current-buffer)) :test #'string=)
       (let ((heml::*first-line-column* (length (editor-prompt (current-device)))))
         (heml::run-sexp-command 'sexp-edit:newline-and-indent))
-      (heml::insert-character (current-point) #\Newline)))
+      (insert-character (current-point) #\Newline)))
 
 (defcommand "Linedit Clear Screen" (p) "" ""
   (tty-write-cmd (heml.terminfo:tputs heml.terminfo:clear-screen)))
@@ -930,14 +930,14 @@ empty string."
                 (newline (current-device))
                 (dispatch-events-no-hang))
               prepl::*eof-command*)))
-         (real-prompt-fun prepl::*prompt*)
-         (prepl::*prompt*
+         (real-prompt-fun prepl:*prompt*)
+         (prepl:*prompt*
           (lambda (&rest junk)
             (declare (ignore stream))
             (setf prompt
                   (string-trim (list #\newline)
                                (with-output-to-string (s)
-                                 (let ((prepl::*prompt* real-prompt-fun))
+                                 (let ((prepl:*prompt* real-prompt-fun))
                                    (prepl::prompt s)))))
             "")))
     (prepl:repl)))
@@ -950,7 +950,7 @@ empty string."
     (cond
       (line
        (setf (get-string editor) line)
-       (heml::goto-buffer-end))
+       (goto-buffer-end))
       (t
        (beep)))))
 

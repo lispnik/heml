@@ -619,10 +619,10 @@ then the others under no heading."
   (let ((old (getf (line-plist line) 'bufed-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'bufed-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (bufed-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Bufed" 'bufed-highlight-line :marks 'bufed-marks)

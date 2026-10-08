@@ -500,7 +500,7 @@ GB
            (*standard-output* (buffer-point buffer))
          (eval `(grindef ,x))   ; hackish, I know...
          (terpri)
-         (heml::change-to-buffer buffer)
+         (change-to-buffer buffer)
          (buffer-start (buffer-point buffer)))))
     ((or string pathname)
      (heml::find-file-command () x))

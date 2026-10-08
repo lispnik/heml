@@ -34,13 +34,13 @@
    what Return puts in the prompt for it.")
 
 (defun palette-prompting-p ()
-  (and (eq hi::*current-window* hi::*echo-area-window*)
-       (hi::regionp hi::*parse-input-region*)))
+  (and (eq hi::*current-window* hi:*echo-area-window*)
+       (hi:regionp hi:*parse-input-region*)))
 
 (defun string-table-names (tables)
   (let ((names '()))
     (dolist (table tables names)
-      (hi::do-strings (name value table)
+      (hi:do-strings (name value table)
         (declare (ignore value))
         (push name names)))))
 
@@ -70,10 +70,10 @@
                     #'> :key #'car))))
 
 (defun palette-matches (input)
-  (cond ((eq hi::*parse-type* :file) (file-matches input))
-        (hi::*parse-string-tables*
+  (cond ((eq hi:*parse-type* :file) (file-matches input))
+        (hi:*parse-string-tables*
          (mapcar (lambda (name) (cons name name))
-                 (rank-matches input (string-table-names hi::*parse-string-tables*))))))
+                 (rank-matches input (string-table-names hi:*parse-string-tables*))))))
 
 (defun update-palette (input)
   "The matches for INPUT, worked out again when it has changed, and nothing
@@ -97,15 +97,15 @@
   (unless (palette-prompting-p)
     (forget-palette))
   (when (palette-prompting-p)
-    (let* ((input (hi::region-to-string hi::*parse-input-region*))
-           (point (hi::buffer-point hi::*echo-area-buffer*))
-           (start (hi::region-start hi::*parse-input-region*))
-           (echo-hunk (hi::window-hunk hi::*echo-area-window*)))
+    (let* ((input (hi:region-to-string hi:*parse-input-region*))
+           (point (hi:buffer-point hi:*echo-area-buffer*))
+           (start (hi:region-start hi:*parse-input-region*))
+           (echo-hunk (hi::window-hunk hi:*echo-area-window*)))
       (update-palette input)
-      (list :prompt (string-right-trim " " (or hi::*parse-prompt* ""))
+      (list :prompt (string-right-trim " " (or hi:*parse-prompt* ""))
             :input input
-            :caret (if (eq (hi::mark-line point) (hi::mark-line start))
-                       (max 0 (- (hi::mark-charpos point) (hi::mark-charpos start)))
+            :caret (if (eq (hi:mark-line point) (hi:mark-line start))
+                       (max 0 (- (hi:mark-charpos point) (hi:mark-charpos start)))
                        (length input))
             :matches (loop for (text) in *palette-matches*
                            repeat *palette-rows*
@@ -114,21 +114,21 @@
             :echo-top (hunk-top-line echo-hunk)
             :echo-height (hi::device-hunk-text-height echo-hunk)))))
 
-(hi::defcommand "Palette Next" (p)
+(hi:defcommand "Palette Next" (p)
   "Choose the next of the palette's matches."
   "Choose the next match."
   (declare (ignore p))
-  (update-palette (hi::region-to-string hi::*parse-input-region*))
+  (update-palette (hi:region-to-string hi:*parse-input-region*))
   (when *palette-matches*
     (setf *palette-chosen* t)
     (setf *palette-index* (mod (1+ *palette-index*)
                                (min *palette-rows* (length *palette-matches*))))))
 
-(hi::defcommand "Palette Previous" (p)
+(hi:defcommand "Palette Previous" (p)
   "Choose the previous of the palette's matches."
   "Choose the previous match."
   (declare (ignore p))
-  (update-palette (hi::region-to-string hi::*parse-input-region*))
+  (update-palette (hi:region-to-string hi:*parse-input-region*))
   (when *palette-matches*
     (setf *palette-chosen* t)
     (setf *palette-index* (mod (1- *palette-index*)
@@ -136,47 +136,47 @@
 
 (defun answer-p (input)
   "Whether INPUT is an answer to the prompt as it stands."
-  (cond ((eq hi::*parse-type* :file)
+  (cond ((eq hi:*parse-type* :file)
          (let ((expanded (ignore-errors (heml-ext:expand-file-name input))))
            (and expanded (plusp (length input)) (probe-file expanded))))
-        (hi::*parse-string-tables*
-         (some (lambda (table) (hi::getstring input table)) hi::*parse-string-tables*))
+        (hi:*parse-string-tables*
+         (some (lambda (table) (hi:getstring input table)) hi:*parse-string-tables*))
         (t t)))
 
-(hi::defcommand "Palette Confirm" (p)
+(hi:defcommand "Palette Confirm" (p)
   "Take what is typed, or else the palette's match chosen: one chosen with
    the arrows, or the first where only an existing answer will do (M-x),
    never in place of a new file's or buffer's name.  A directory chosen is
    gone into rather than taken."
   "Take the input, or the match chosen."
-  (let* ((input (hi::region-to-string hi::*parse-input-region*))
+  (let* ((input (hi:region-to-string hi:*parse-input-region*))
          (match (progn (update-palette input)
                        (nth *palette-index* *palette-matches*))))
     (cond ((or (null match) (zerop (length input)) (answer-p input)
                (not (or *palette-chosen*
-                        (and hi::*parse-value-must-exist*
-                             (not (eq hi::*parse-type* :file))))))
+                        (and hi:*parse-value-must-exist*
+                             (not (eq hi:*parse-type* :file))))))
            (forget-palette)
            (heml::confirm-parse-command p))
-          ((and (eq hi::*parse-type* :file)
+          ((and (eq hi:*parse-type* :file)
                 (let ((answer (cdr match)))
                   (char= (char answer (1- (length answer))) #\/)))
-           (hi::delete-region hi::*parse-input-region*)
-           (hi::insert-string (hi::region-end hi::*parse-input-region*) (cdr match)))
+           (hi:delete-region hi:*parse-input-region*)
+           (hi:insert-string (hi:region-end hi:*parse-input-region*) (cdr match)))
           (t
-           (hi::delete-region hi::*parse-input-region*)
-           (hi::insert-string (hi::region-end hi::*parse-input-region*) (cdr match))
+           (hi:delete-region hi:*parse-input-region*)
+           (hi:insert-string (hi:region-end hi:*parse-input-region*) (cdr match))
            (forget-palette)
            (heml::confirm-parse-command p)))))
 
 (defun install-palette-bindings (key)
   "The palette's keys, in the echo area: Cocoa's alone, since only it shows
    the palette."
-  (hi::bind-key "Palette Next" (funcall key "Downarrow") :mode "Echo Area")
-  (hi::bind-key "Palette Previous" (funcall key "Uparrow") :mode "Echo Area")
-  (hi::bind-key "Palette Next" (funcall key "n" "Control") :mode "Echo Area")
-  (hi::bind-key "Palette Previous" (funcall key "p" "Control") :mode "Echo Area")
-  (hi::bind-key "Palette Confirm" (funcall key "Return") :mode "Echo Area"))
+  (hi:bind-key "Palette Next" (funcall key "Downarrow") :mode "Echo Area")
+  (hi:bind-key "Palette Previous" (funcall key "Uparrow") :mode "Echo Area")
+  (hi:bind-key "Palette Next" (funcall key "n" "Control") :mode "Echo Area")
+  (hi:bind-key "Palette Previous" (funcall key "p" "Control") :mode "Echo Area")
+  (hi:bind-key "Palette Confirm" (funcall key "Return") :mode "Echo Area"))
 
 
 ;;;; On the main thread: the panel.

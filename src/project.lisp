@@ -145,7 +145,7 @@
   "Give BUFFER, a buffer of ROOT's project, the project's :VARIABLES."
   (loop for (name . value) in (getf (project-settings root) :variables)
         do (ignore-errors
-            (let ((symbol (hi::string-to-variable name)))
+            (let ((symbol (string-to-variable name)))
               (when (heml-bound-p symbol)
                 (defhvar name (variable-documentation symbol)
                   :buffer buffer :value value))))))
@@ -820,10 +820,10 @@
               ((null (rest children)) (first children))
               (t (list* :split (hi::layout-split-direction node) (nreverse sizes)
                         (nreverse children)))))
-      (session-window (hi::device-hunk-window node) root)))
+      (session-window (device-hunk-window node) root)))
 
 (defun current-layout-root ()
-  (hi::layout-root (hi::device-layout (hi::device-hunk-device (window-hunk (current-window))))))
+  (hi::layout-root (hi::device-layout (device-hunk-device (window-hunk (current-window))))))
 
 (defun save-project-session (root &key (layout t))
   "Save what ROOT's project has open, and the windows if LAYOUT."

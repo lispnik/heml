@@ -150,11 +150,11 @@
   (let ((old (getf (line-plist line) 'debug-marks)))
     (unless (and old (eq (car old) (line-signature line)))
       (dolist (mark (cdr old))
-        (hi::delete-font-mark mark))
+        (delete-font-mark mark))
       (setf (getf (line-plist line) 'debug-marks)
             (cons (line-signature line)
                   (loop for (position . font) in (debug-line-fonts (line-string line))
-                        collect (hi::font-mark line position font)))))))
+                        collect (font-mark line position font)))))))
 
 (define-mode-highlighter "Debug" 'debug-highlight-line :marks 'debug-marks)
 
@@ -226,6 +226,6 @@
             (impl (lisp-implementation-type))
             (thread (bordeaux-threads:thread-name
                      (bordeaux-threads:current-thread))))
-        (heml::eval-in-master
+        (eval-in-master
          `(make-debug-buffer ',context ',frames ',impl ',thread)))
       (prepl:debugger nil nil (lambda () (debug-using-master start end)))))
