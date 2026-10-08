@@ -1109,6 +1109,86 @@
           (sidebar-press (string (code-char 27)) 53)
           (check "as Escape does"
                  (wait-until (lambda () (focused-p #'view)) 5)))
+        ;; Sorting: three files of known kinds, sizes and dates.
+        (flet ((make (name bytes stamp)
+                 (let ((path (merge-pathnames name second)))
+                   (with-open-file (out path :direction :output :if-exists :supersede)
+                     (write-string (make-string bytes :initial-element #\x) out))
+                   (uiop:run-program (list "touch" "-t" stamp (namestring path))))))
+          (make "a.md" 10 (format nil "~D01010000" 2026))
+          (make "b.lisp" 10000 "202001010000")
+          (make "c.lisp" 1000 "202201010000"))
+        (labels ((order ()
+                   (main (clrhash heml.cocoa::*sidebar-children*)
+                         (remove-if-not (lambda (name) (member name '("a.md" "b.lisp" "c.lisp" "src")
+                                                                :test #'equal))
+                                        (mapcar #'heml.cocoa::entry-name
+                                                (heml.cocoa::sidebar-entries root)))))
+                 (sorted (sort &optional (folders-first t))
+                   (post (list :call (lambda ()
+                                       (setf (hi::variable-value 'heml::sidebar-sort :global) sort
+                                             (hi::variable-value 'heml::sidebar-folders-first :global)
+                                             folders-first))))
+                   (wait-until (lambda () (main (and (eq heml.cocoa::*sidebar-sort* sort)
+                                                     (eq heml.cocoa::*sidebar-folders-first* folders-first))))
+                               5)
+                   (order)))
+          (check "the sidebar sorts by name, folders first"
+                 (equal '("src" "a.md" "b.lisp" "c.lisp") (sorted :name)))
+          (check "by kind"
+                 (equal '("src" "b.lisp" "c.lisp" "a.md") (sorted :kind)))
+          (check "by date modified, the newest first"
+                 (equal '("src" "a.md" "c.lisp" "b.lisp") (sorted :date)))
+          (check "by size, the largest first"
+                 (equal '("src" "b.lisp" "c.lisp" "a.md") (sorted :size)))
+          (check "and with Sidebar Folders First NIL, folders among the files"
+                 (equal '("a.md" "b.lisp" "c.lisp" "src") (sorted :name nil)))
+          (sorted :name t))
+        (let ((outline (third heml.cocoa::*sidebar*))
+              (source (fourth heml.cocoa::*sidebar*)))
+          (flet ((press-in-sidebar (characters code flags)
+                   (main (objc:invoke (window) "makeFirstResponder:" outline)
+                         (objc:invoke (window) "sendEvent:"
+                                      (objc:invoke "NSEvent"
+                                                   "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"
+                                                   10 (vector 0d0 0d0) flags 0d0
+                                                   (objc:invoke (window) "windowNumber") nil
+                                                   characters characters nil code))))
+                 (select-root ()
+                   (main (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                                      (objc:invoke "NSIndexSet" "indexSetWithIndex:"
+                                                   (objc:invoke outline "rowForItem:"
+                                                                (heml.cocoa::sidebar-item root)))
+                                      nil)))
+                 (place () (main (position root heml.cocoa::*sidebar-roots* :test #'equal))))
+            (press-in-sidebar "s" 1 0)
+            (check "s in the sidebar sorts it the next way"
+                   (wait-until (lambda () (main (eq heml.cocoa::*sidebar-sort* :kind))) 5))
+            (post (list :call (lambda () (setf (hi::variable-value 'heml::sidebar-sort :global) :name))))
+            (select-root)
+            (let ((before (place)))
+              (press-in-sidebar (string (code-char #xF700)) 126 (logior (ash 1 19) #x20))
+              (check "Option-Up moves the chosen project up, still chosen"
+                     (wait-until (lambda ()
+                                   (main (and (eql (place) (1- before))
+                                              (equal root (heml.cocoa::item-path
+                                                           (objc:invoke outline "itemAtRow:"
+                                                                        (objc:invoke outline "selectedRow")))))))
+                                 5)))
+            ;; Dragged to the top.
+            (main (objc:invoke source "outlineView:pasteboardWriterForItem:"
+                               outline (heml.cocoa::sidebar-item root)))
+            (check "a project dragged may be dropped between projects"
+                   (= 16 (main (objc:invoke source "outlineView:validateDrop:proposedItem:proposedChildIndex:"
+                                            (cffi:null-pointer) (cffi:null-pointer) (cffi:null-pointer) 0))))
+            (main (objc:invoke source "outlineView:acceptDrop:item:childIndex:"
+                               outline (cffi:null-pointer) (cffi:null-pointer) 0))
+            (check "and dropped there, goes there"
+                   (wait-until (lambda () (eql 0 (place))) 5))
+            (main (objc:invoke source "outlineView:pasteboardWriterForItem:"
+                               outline (heml.cocoa::sidebar-item (concatenate 'string root "a.md"))))
+            (check "but a file does not drag"
+                   (null (main heml.cocoa::*sidebar-dragged-root*)))))
         (check "a project's :ignore patterns are left out of its tree"
                (wait-until (lambda ()
                              (main (notany (lambda (path) (search "hidden/" path))

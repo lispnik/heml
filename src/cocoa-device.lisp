@@ -468,6 +468,17 @@ another window is on its right."
    of its tree too."
   :value '(".git" ".DS_Store" ".hg" ".svn"))
 
+(hi::defhvar "Sidebar Sort"
+  "How the sidebar orders each folder's entries: :NAME, alphabetically;
+   :KIND, by type and then name; :DATE, the newest first; :SIZE, the
+   largest first.  The tree is one view of every project, so its global
+   value is the one that counts."
+  :value :name)
+
+(hi::defhvar "Sidebar Folders First"
+  "Whether the sidebar lists a folder's folders before its files."
+  :value t)
+
 (hi::defhvar "Sidebar Follow Projects"
   "Whether visiting a file of a project the sidebar does not show adds it."
   :value t)
@@ -487,7 +498,10 @@ another window is on its right."
           :mouse-wheel-lines (value "Mouse Wheel Lines")
           :sidebar-ignored (value "Sidebar Ignored")
           :sidebar-follow-projects (value "Sidebar Follow Projects")
-          :sidebar-follow-file (value "Sidebar Follow File"))))
+          :sidebar-follow-file (value "Sidebar Follow File")
+          ;; The tree is one view of every project: its order is global.
+          :sidebar-sort (hi::variable-value 'heml::sidebar-sort :global)
+          :sidebar-folders-first (hi::variable-value 'heml::sidebar-folders-first :global))))
 
 (defun buffer-title (buffer)
   "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT

@@ -155,22 +155,57 @@
 (defun sidebar-root-p (path)
   (member path *sidebar-roots* :test #'equal))
 
+(defvar *sidebar-sort* :name
+  "How each folder's entries are ordered: \"Sidebar Sort\", as the editor
+   last said.")
+
+(defparameter *sidebar-sorts*
+  '((10 :name "Name") (11 :kind "Kind") (12 :date "Date Modified") (13 :size "Size"))
+  "(TAG SORT TITLE) for each order the sidebar's Sort By submenu offers.")
+
+(defvar *sidebar-folders-first* t
+  "\"Sidebar Folders First\", as the editor last said.")
+
+(defun entry-stat (path)
+  "PATH's modification time and size, or zeros."
+  (handler-case (let ((stat (sb-posix:stat (string-right-trim "/" path))))
+                  (values (sb-posix:stat-mtime stat) (sb-posix:stat-size stat)))
+    (error () (values 0 0))))
+
+(defun sort-sidebar-entries (paths)
+  "PATHS in the order \"Sidebar Sort\" says, the name breaking ties; a
+   folder has no size worth ordering by, and goes by its name for :SIZE."
+  (let ((keyed (mapcar (lambda (path)
+                         (multiple-value-bind (date size) (entry-stat path)
+                           (list path (string-downcase (entry-name path)) date
+                                 (if (directory-path-p path) -1 size)
+                                 (if (directory-path-p path)
+                                     ""
+                                     (string-downcase (or (pathname-type path) ""))))))
+                       paths)))
+    (flet ((by-name (a b) (string< (second a) (second b))))
+      (mapcar #'first
+              (stable-sort (sort keyed #'by-name)
+                           (ecase *sidebar-sort*
+                             (:name (constantly nil))
+                             (:kind (lambda (a b) (string< (fifth a) (fifth b))))
+                             (:date (lambda (a b) (> (third a) (third b))))
+                             (:size (lambda (a b) (> (fourth a) (fourth b))))))))))
+
 (defun sidebar-entries (directory)
-  "DIRECTORY's entries as paths: its directories, then its files, each by
-   name, but for those *SIDEBAR-IGNORED* names."
+  "DIRECTORY's entries as paths, in the order \"Sidebar Sort\" says, its
+   folders first while \"Sidebar Folders First\", but for those it leaves
+   out (SIDEBAR-IGNORED-P)."
   (or (gethash directory *sidebar-children*)
       (setf (gethash directory *sidebar-children*)
-            (flet ((keep (paths)
-                     (sort (remove-if (lambda (path)
-                                        (member (car (last (pathname-directory path)))
-                                                *sidebar-ignored* :test #'equal))
-                                      (mapcar #'namestring paths))
-                           #'string-lessp)))
-              (ignore-errors
-               (remove-if #'sidebar-ignored-p
-                          (append (keep (uiop:subdirectories directory))
-                                  (sort (mapcar #'namestring (uiop:directory-files directory))
-                                        #'string-lessp))))))))
+            (ignore-errors
+             (let ((folders (remove-if #'sidebar-ignored-p
+                                       (mapcar #'namestring (uiop:subdirectories directory))))
+                   (files (remove-if #'sidebar-ignored-p
+                                     (mapcar #'namestring (uiop:directory-files directory)))))
+               (if *sidebar-folders-first*
+                   (append (sort-sidebar-entries folders) (sort-sidebar-entries files))
+                   (sort-sidebar-entries (append folders files))))))))
 
 (defun sidebar-children (path)
   "What the outline shows under PATH: the projects at the top."
@@ -341,6 +376,39 @@
     (save-sidebar-roots)
     (when *sidebar-shown* (reload-sidebar))))
 
+(defun place-sidebar-root (root index)
+  "Put the project at ROOT at INDEX among the sidebar's projects, keep the
+   order, list them again with it chosen.  On the main thread."
+  (when (sidebar-root-p root)
+    (let* ((others (remove root *sidebar-roots* :test #'equal))
+           (index (max 0 (min index (length others)))))
+      (setf *sidebar-roots* (append (subseq others 0 index) (list root) (nthcdr index others)))
+      (save-sidebar-roots)
+      (when *sidebar-shown*
+        (reload-sidebar)
+        (let* ((outline (sidebar-outline))
+               (row (objc:invoke outline "rowForItem:" (sidebar-item root))))
+          (when (>= row 0)
+            (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                         (objc:invoke "NSIndexSet" "indexSetWithIndex:" row) nil)
+            (objc:invoke outline "scrollRowToVisible:" row)))))))
+
+(defun move-sidebar-root (root offset)
+  "Move the project at ROOT OFFSET places: up for -1, down for 1."
+  (let ((index (position root *sidebar-roots* :test #'equal)))
+    (when index
+      (place-sidebar-root root (+ index offset)))))
+
+(defun set-sidebar-sort (sort &optional (folders-first *sidebar-folders-first*))
+  "Order the sidebar by SORT, setting the editor's variables, whose next
+   frame lists it again so; and say so."
+  (post-to-editor
+   (list :call (lambda ()
+                 (setf (hi::variable-value 'heml::sidebar-sort :global) sort
+                       (hi::variable-value 'heml::sidebar-folders-first :global) folders-first)
+                 (hi::message "Sidebar sorted by ~(~A~)~:[~;, folders first~]."
+                              (if (eq sort :date) "date modified" sort) folders-first)))))
+
 (defun expanded-paths ()
   "The paths open in the tree, those above first."
   (let ((outline (sidebar-outline)))
@@ -350,17 +418,24 @@
             collect (item-path item))))
 
 (defun reload-sidebar ()
-  "List the projects again, keeping what is open in the tree."
+  "List the projects again, keeping what is open in the tree and what is
+   chosen; the file being edited is chosen when nothing was."
   (when *sidebar*
-    (let ((open (expanded-paths))
-          (outline (sidebar-outline)))
+    (let* ((open (expanded-paths))
+           (outline (sidebar-outline))
+           (row (objc:invoke outline "selectedRow"))
+           (chosen (and (>= row 0) (item-path (objc:invoke outline "itemAtRow:" row)))))
       (clrhash *sidebar-children*)
       (read-git-statuses)
       (objc:invoke outline "reloadData")
       (dolist (path open)
         (when (and path (probe-file path))
           (objc:invoke outline "expandItem:" (sidebar-item path))))
-      (follow-sidebar-file))))
+      (let ((row (if chosen (objc:invoke outline "rowForItem:" (sidebar-item chosen)) -1)))
+        (if (>= row 0)
+            (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                         (objc:invoke "NSIndexSet" "indexSetWithIndex:" row) nil)
+            (follow-sidebar-file))))))
 
 (defun follow-sidebar-file ()
   "Show and choose the file being edited, opening the directories above it."
@@ -482,6 +557,14 @@
           ((and plain (string= characters "R"))
            (when path (reveal-in-finder path))
            t)
+          ((and plain (string= characters "s"))
+           (set-sidebar-sort (let ((orders '(:name :kind :date :size)))
+                               (or (second (member *sidebar-sort* orders)) (first orders))))
+           t)
+          ((and meta (member code '(125 126)))   ; Option-Down, Option-Up
+           (let ((root (and path (sidebar-root-of path))))
+             (when root (move-sidebar-root root (if (= code 126) -1 1))))
+           t)
           (t nil))))
 
 (objc:define-objc-method ("keyDown:" :void)
@@ -502,6 +585,56 @@
   (declare (ignore p))
   (when path
     (heml::show-in-other-window (heml::find-file-buffer path))))
+
+
+;;;; Projects dragged into another order.  Only a project's row drags, and
+;;;; only between projects at the top does it drop; the root dragged is
+;;;; kept here rather than read back from the pasteboard.
+
+(defparameter +sidebar-drag-type+ "org.lispnik.heml.sidebar-project")
+
+(defvar *sidebar-dragged-root* nil)
+
+(objc:define-objc-method ("outlineView:pasteboardWriterForItem:" objc:objc-object-pointer)
+    ((self sidebar-source) (outline objc:objc-object-pointer) (item objc:objc-object-pointer))
+  (declare (ignore outline))
+  (let ((path (item-path item)))
+    (cond ((and path (sidebar-root-p path))
+           (setf *sidebar-dragged-root* path)
+           (let ((writer (objc:alloc-init-object "NSPasteboardItem")))
+             (objc:invoke writer "setString:forType:" path +sidebar-drag-type+)
+             (objc:invoke writer "autorelease")))
+          (t (cffi:null-pointer)))))
+
+(objc:define-objc-method ("outlineView:validateDrop:proposedItem:proposedChildIndex:" (:unsigned :long))
+    ((self sidebar-source) (outline objc:objc-object-pointer) (info objc:objc-object-pointer)
+     (item objc:objc-object-pointer) (index :long))
+  (declare (ignore info))
+  (cond ((null *sidebar-dragged-root*) 0)
+        ;; Between projects: as proposed.
+        ((and (cffi:null-pointer-p item) (>= index 0)) 16)
+        ;; Onto a project's tree: before that project instead.
+        (t (let* ((path (item-path item))
+                  (root (and path (sidebar-root-of path)))
+                  (place (and root (position root *sidebar-roots* :test #'equal))))
+             (cond (place
+                    (unless (cffi:null-pointer-p outline)
+                      (objc:invoke outline "setDropItem:dropChildIndex:" (cffi:null-pointer) place))
+                    16)
+                   (t 0))))))
+
+(objc:define-objc-method ("outlineView:acceptDrop:item:childIndex:" objc:objc-bool)
+    ((self sidebar-source) (outline objc:objc-object-pointer) (info objc:objc-object-pointer)
+     (item objc:objc-object-pointer) (index :long))
+  (declare (ignore outline info))
+  (let ((root *sidebar-dragged-root*))
+    (setf *sidebar-dragged-root* nil)
+    (cond ((and root (cffi:null-pointer-p item) (>= index 0))
+           ;; INDEX counts the root dragged where it was.
+           (let ((from (position root *sidebar-roots* :test #'equal)))
+             (place-sidebar-root root (if (and from (< from index)) (1- index) index)))
+           t)
+          (t nil))))
 
 
 ;;;; The sidebar's menu.
@@ -552,28 +685,69 @@
 (objc:define-objc-method ("validateMenuItem:" objc:objc-bool)
     ((self sidebar-source) (item objc:objc-object-pointer))
   ;; Remove Project on a project's rows, Reveal on any row.
-  (case (objc:invoke item "tag")
-    (2 (and (clicked-root) t))
-    (3 (and (clicked-path) t))
-    (t t)))
+  (let ((tag (objc:invoke item "tag")))
+    ;; The orders' check marks, as they are.
+    (let ((sort (assoc tag *sidebar-sorts*)))
+      (cond (sort (objc:invoke item "setState:" (if (eq (second sort) *sidebar-sort*) 1 0)))
+            ((= tag 14) (objc:invoke item "setState:" (if *sidebar-folders-first* 1 0)))))
+    (case tag
+      ((2 6 7) (and (clicked-root) t))
+      (3 (and (clicked-path) t))
+      (t t))))
+
+(defun sidebar-menu-items (menu source entries)
+  (loop for (title selector tag) in entries
+        do (if (eq title :separator)
+               (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
+               (let ((item (objc:alloc-init-object "NSMenuItem")))
+                 (objc:invoke item "setTitle:" title)
+                 (objc:invoke item "setAction:" (objc:coerce-to-selector selector))
+                 (objc:invoke item "setTarget:" source)
+                 (objc:invoke item "setTag:" tag)
+                 (objc:invoke menu "addItem:" item)))))
 
 (defun make-sidebar-menu (source)
-  (let ((menu (make-menu "Sidebar")))
-    (loop for (title selector tag) in '(("Add Project…" "hemlSidebarAddProject:" 1)
-                                        ("Remove Project" "hemlSidebarRemoveProject:" 2)
-                                        (:separator)
-                                        ("Reveal in Finder" "hemlSidebarReveal:" 3)
-                                        ("Collapse All" "hemlSidebarCollapseAll:" 4)
-                                        ("Refresh" "hemlSidebarRefresh:" 5))
-          do (if (eq title :separator)
-                 (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
-                 (let ((item (objc:alloc-init-object "NSMenuItem")))
-                   (objc:invoke item "setTitle:" title)
-                   (objc:invoke item "setAction:" (objc:coerce-to-selector selector))
-                   (objc:invoke item "setTarget:" source)
-                   (objc:invoke item "setTag:" tag)
-                   (objc:invoke menu "addItem:" item))))
+  (let ((menu (make-menu "Sidebar"))
+        (sort (make-menu "Sort By"))
+        (sort-item (objc:alloc-init-object "NSMenuItem")))
+    (sidebar-menu-items menu source '(("Add Project…" "hemlSidebarAddProject:" 1)
+                                      ("Remove Project" "hemlSidebarRemoveProject:" 2)
+                                      ("Move Project Up" "hemlSidebarMoveUp:" 6)
+                                      ("Move Project Down" "hemlSidebarMoveDown:" 7)
+                                      (:separator)
+                                      ("Reveal in Finder" "hemlSidebarReveal:" 3)
+                                      ("Collapse All" "hemlSidebarCollapseAll:" 4)
+                                      ("Refresh" "hemlSidebarRefresh:" 5)
+                                      (:separator)))
+    (sidebar-menu-items sort source
+                        (append (loop for (tag nil title) in *sidebar-sorts*
+                                      collect (list title "hemlSidebarSort:" tag))
+                                '((:separator)
+                                  ("Folders First" "hemlSidebarFoldersFirst:" 14))))
+    (objc:invoke sort-item "setTitle:" "Sort By")
+    (objc:invoke sort-item "setSubmenu:" sort)
+    (objc:invoke menu "addItem:" sort-item)
     menu))
+
+(objc:define-objc-method ("hemlSidebarMoveUp:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (let ((root (clicked-root))) (when root (move-sidebar-root root -1))))
+
+(objc:define-objc-method ("hemlSidebarMoveDown:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (let ((root (clicked-root))) (when root (move-sidebar-root root 1))))
+
+(objc:define-objc-method ("hemlSidebarSort:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (let ((entry (assoc (objc:invoke sender "tag") *sidebar-sorts*)))
+    (when entry (set-sidebar-sort (second entry)))))
+
+(objc:define-objc-method ("hemlSidebarFoldersFirst:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (set-sidebar-sort *sidebar-sort* (not *sidebar-folders-first*)))
 
 (defconstant +material-sidebar+ 7)
 
@@ -605,6 +779,9 @@
     (objc:invoke outline "setTarget:" source)
     (objc:invoke outline "setAction:" (objc:coerce-to-selector "hemlSidebarClicked:"))
     (objc:invoke outline "setMenu:" (make-sidebar-menu source))
+    (objc:invoke outline "registerForDraggedTypes:"
+                 (coerce-to-ns-array (list (objc:string-to-ns-string +sidebar-drag-type+))))
+    (objc:invoke outline "setDraggingSourceOperationMask:forLocal:" 16 t)
     (objc:invoke scroll "setDocumentView:" outline)
     (objc:invoke scroll "setHasVerticalScroller:" t)
     (objc:invoke scroll "setAutohidesScrollers:" t)
@@ -657,9 +834,12 @@
   "Take the editor's variables, as a frame carries them, into the main
    thread's own copies.  On the main thread."
   (destructuring-bind (&key cursor-style cursor-blink pixel-scrolling mouse-wheel-lines
-                         sidebar-ignored sidebar-follow-projects sidebar-follow-file)
+                         sidebar-ignored sidebar-follow-projects sidebar-follow-file
+                         (sidebar-sort :name) (sidebar-folders-first t))
       settings
-    (let ((ignored-changed (not (equal sidebar-ignored *sidebar-ignored*))))
+    (let ((ignored-changed (not (and (equal sidebar-ignored *sidebar-ignored*)
+                                     (eq sidebar-sort *sidebar-sort*)
+                                     (eq (and sidebar-folders-first t) *sidebar-folders-first*)))))
       (setf *cursor-style* (if (eq cursor-style :block) :block :bar)
             *cursor-blink* (and cursor-blink t)
             *pixel-scrolling* (and pixel-scrolling t)
@@ -668,7 +848,9 @@
                                        3)
             *sidebar-ignored* sidebar-ignored
             *sidebar-follow-projects* (and sidebar-follow-projects t)
-            *sidebar-follow-file* (and sidebar-follow-file t))
+            *sidebar-follow-file* (and sidebar-follow-file t)
+            *sidebar-sort* (if (member sidebar-sort '(:name :kind :date :size)) sidebar-sort :name)
+            *sidebar-folders-first* (and sidebar-folders-first t))
       (when (and ignored-changed *sidebar-shown*)
         (reload-sidebar))
       (request-redraw))))
