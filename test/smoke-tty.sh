@@ -1204,8 +1204,14 @@ send C-a C-k
 type_text "$C/proj/src/hello.txt"
 send Enter
 expect 'first line' "a file of the project is visited"
-send C-c a a
-expect "CONFIG=$C/config" "C-c a a runs Claude with the project's Claude directory" 10
+send 'M-`'
+sleep 0.3
+type_text 'Claude'
+send Enter
+expect 'Claude:' "Claude has a menu of its own"
+type_text 'Run Claude'
+send Enter
+expect "CONFIG=$C/config" "whose Run Claude runs it with the project's Claude directory" 10
 expect "PWD=$C/proj" "at the project's root"
 expect_re 'PORT=[0-9][0-9]* IDE=true' "and told where Heml serves it as its IDE"
 checks=$((checks + 1))

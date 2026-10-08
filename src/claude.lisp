@@ -60,16 +60,16 @@
           (select-window (other-window))
           (change-to-buffer buffer)))))
 
-(defcommand "Claude" (p)
+(defcommand "Claude" (p &optional ask)
   "Run Claude Code in a terminal beside this window, at this buffer's
    project's root, with Heml as its IDE; or go back to the one running
-   there.  With an argument, ask what to run."
+   there.  With an argument, or ASK (the menu's Run…), ask what to run."
   "Run Claude Code."
   (let* ((root (claude-root))
          (running (claude-term-buffer root)))
     (if running
         (show-in-other-window running)
-        (let* ((command (if p
+        (let* ((command (if (or p ask)
                             (prompt-for-string :prompt "Run: " :default (value claude-program))
                             (value claude-program)))
                (words (cl-ppcre:split "\\s+" (string-trim " " command))))
@@ -161,7 +161,12 @@
 (bind-key "Claude Send Region" #k"control-c a r")
 (bind-key "Claude Send File" #k"control-c a f")
 
-(add-menu-item "Tools" :separator)
-(add-menu-item "Tools" '("Claude" "Claude"))
-(add-menu-item "Tools" '("Send Region to Claude" "Claude Send Region"))
-(add-menu-item "Tools" '("Send File to Claude" "Claude Send File"))
+(define-menu "Claude" (:after "Git")
+  ("Run Claude" "Claude")
+  ("Run…" (:command "Claude" t))
+  :separator
+  ("Send Region or Line" "Claude Send Region")
+  ("Send File" "Claude Send File")
+  :separator
+  ("Accept Proposed Change" "Claude Accept Diff")
+  ("Reject Proposed Change" "Claude Reject Diff"))
