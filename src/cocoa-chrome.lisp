@@ -280,7 +280,9 @@
                    (if (objc:invoke-bool sender "isItemExpanded:" item)
                        (objc:invoke sender "collapseItem:" item)
                        (objc:invoke sender "expandItem:" item)))
-                  (t (post-to-editor (list :open path)))))))
+                  ;; Visited, and the keys the editor's again.
+                  (t (post-to-editor (list :open path))
+                     (focus-editor))))))
     (error (condition) (log-error "sidebar click" condition))))
 
 
@@ -395,6 +397,110 @@
               (changed (follow-sidebar-file)))))))
 
 
+;;;; The sidebar's keys, as treemacs has them: M-0 goes between it and the
+;;;; editor (Escape and C-g go back too); Return visits the file chosen and
+;;;; goes back, o visits it in the other window, Tab opens or closes a
+;;;; directory, a adds a project, d removes the one chosen, g lists them
+;;;; again, R shows the file in Finder.  Arrows and typing a name are
+;;;; AppKit's own.
+
+(objc:define-objc-class sidebar-outline ()
+  ()
+  (:objc-class-name "HemlSidebarOutline")
+  (:objc-superclass-name "NSOutlineView"))
+
+(defun focus-editor ()
+  (let ((display *display*))
+    (when display
+      (objc:invoke (display-window display) "makeFirstResponder:" (display-view display)))))
+
+(defun focus-sidebar ()
+  "The keyboard to the sidebar, shown first if it is not, with the file
+   being edited chosen when nothing is."
+  (unless *sidebar-shown* (show-sidebar t))
+  (when *sidebar*
+    (let ((outline (sidebar-outline)))
+      (when (minusp (objc:invoke outline "selectedRow"))
+        (follow-sidebar-file))
+      (objc:invoke (display-window *display*) "makeFirstResponder:" outline))))
+
+(defun selected-path ()
+  (let* ((outline (sidebar-outline))
+         (row (objc:invoke outline "selectedRow")))
+    (and (>= row 0) (item-path (objc:invoke outline "itemAtRow:" row)))))
+
+(defun toggle-sidebar-directory (path)
+  (let ((outline (sidebar-outline))
+        (item (sidebar-item path)))
+    (if (objc:invoke-bool outline "isItemExpanded:" item)
+        (objc:invoke outline "collapseItem:" item)
+        (objc:invoke outline "expandItem:" item))))
+
+(defun reveal-in-finder (path)
+  (objc:invoke (objc:invoke "NSWorkspace" "sharedWorkspace")
+               "selectFile:inFileViewerRootedAtPath:" (string-right-trim "/" path) ""))
+
+(defun sidebar-key (event)
+  "Act on the key EVENT in the sidebar, or say it is not one of its own."
+  (let* ((characters (objc:ns-string-to-string (objc:invoke event "charactersIgnoringModifiers")))
+         (flags (objc:invoke event "modifierFlags"))
+         (code (objc:invoke event "keyCode"))
+         (control (logtest flags +control-mask+))
+         (meta (meta-p flags))
+         (plain (not (or control meta (logtest flags +command-key-mask+))))
+         (path (selected-path)))
+    (cond ((and meta (string= characters "0")) (focus-editor) t)
+          ((or (= code 53) (and control (string-equal characters "g"))) (focus-editor) t)
+          ((and plain (member code '(36 76)))  ; Return, Enter
+           (cond ((null path))
+                 ((directory-path-p path) (toggle-sidebar-directory path))
+                 (t (post-to-editor (list :open path)) (focus-editor)))
+           t)
+          ((and plain (= code 48))             ; Tab
+           (when (and path (directory-path-p path)) (toggle-sidebar-directory path))
+           t)
+          ((and plain (string= characters "o"))
+           (when (and path (not (directory-path-p path)))
+             (post-to-editor (list :command "Sidebar Visit Other Window" path))
+             (focus-editor))
+           t)
+          ((and plain (string= characters "a"))
+           (let ((directory (choose-directory)))
+             (when directory (add-sidebar-root directory)))
+           t)
+          ((and plain (string= characters "d"))
+           (let ((root (and path (sidebar-root-of path))))
+             (when root (remove-sidebar-root root)))
+           t)
+          ((and plain (string= characters "g"))
+           (mapc #'fetch-sidebar-ignores *sidebar-roots*)
+           (reload-sidebar)
+           t)
+          ((and plain (string= characters "R"))
+           (when path (reveal-in-finder path))
+           t)
+          (t nil))))
+
+(objc:define-objc-method ("keyDown:" :void)
+    ((self sidebar-outline) (event objc:objc-object-pointer))
+  (unless (handler-case (sidebar-key event)
+            (error (condition) (log-error "sidebar key" condition) t))
+    (objc:invoke (objc:current-super) "keyDown:" event)))
+
+(hi::defcommand "Sidebar Focus" (p)
+  "Go to the sidebar, showing it if it is hidden; M-0 there comes back."
+  "Go to the sidebar."
+  (declare (ignore p))
+  (on-main-thread (focus-sidebar)))
+
+(hi::defcommand "Sidebar Visit Other Window" (p &optional path)
+  "Visit PATH, the sidebar's file, in the other window."
+  "Visit a file in the other window."
+  (declare (ignore p))
+  (when path
+    (heml::show-in-other-window (heml::find-file-buffer path))))
+
+
 ;;;; The sidebar's menu.
 
 (defun choose-directory ()
@@ -425,10 +531,7 @@
     ((self sidebar-source) (sender objc:objc-object-pointer))
   (declare (ignore sender))
   (handler-case (let ((path (clicked-path)))
-                  (when path
-                    (objc:invoke (objc:invoke "NSWorkspace" "sharedWorkspace")
-                                 "selectFile:inFileViewerRootedAtPath:"
-                                 (string-right-trim "/" path) "")))
+                  (when path (reveal-in-finder path)))
     (error (condition) (log-error "sidebar reveal" condition))))
 
 (objc:define-objc-method ("hemlSidebarCollapseAll:" :void)
@@ -480,7 +583,7 @@
                               (vector 0d0 0d0 (df *sidebar-width*) (aref bounds 3))))
          (scroll (objc:invoke (objc:invoke "NSScrollView" "alloc") "initWithFrame:"
                               (vector 0d0 0d0 (df *sidebar-width*) (aref bounds 3))))
-         (outline (objc:invoke (objc:invoke "NSOutlineView" "alloc") "initWithFrame:"
+         (outline (objc:invoke (objc:invoke "HemlSidebarOutline" "alloc") "initWithFrame:"
                                (vector 0d0 0d0 (df *sidebar-width*) (aref bounds 3))))
          (column (objc:invoke (objc:invoke "NSTableColumn" "alloc") "initWithIdentifier:" "name"))
          (source (objc:objc-object-pointer (make-instance 'sidebar-source))))

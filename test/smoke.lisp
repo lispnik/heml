@@ -1070,6 +1070,42 @@
                                                  (heml.cocoa::item-path
                                                   (objc:invoke outline "itemAtRow:" row)))))))
                            5))
+        ;; Its keys: M-0 to it and back, Return visits what is chosen.
+        (labels ((outline () (third heml.cocoa::*sidebar*))
+                 (focused-p (view)
+                   (main (cffi:pointer-eq (objc:invoke (window) "firstResponder") (funcall view))))
+                 (sidebar-press (characters code &optional (flags 0))
+                   (main (objc:invoke (window) "sendEvent:"
+                                      (objc:invoke "NSEvent"
+                                                   "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"
+                                                   10 (vector 0d0 0d0) flags 0d0
+                                                   (objc:invoke (window) "windowNumber") nil
+                                                   characters characters nil code)))))
+          (post-key #\0 "Meta")
+          (check "M-0 goes to the sidebar"
+                 (wait-until (lambda () (focused-p #'outline)) 5))
+          (main (let ((row (objc:invoke (outline) "rowForItem:"
+                                        (heml.cocoa::sidebar-item (concatenate 'string root ".heml-project")))))
+                  (objc:invoke (outline) "selectRowIndexes:byExtendingSelection:"
+                               (objc:invoke "NSIndexSet" "indexSetWithIndex:" row) nil)))
+          (sidebar-press (string #\Return) 36)
+          (check "Return there visits the file chosen, and the keys go back to the editor"
+                 (and (wait-until (lambda ()
+                                    (let ((pathname (hi::buffer-pathname (hi::current-buffer))))
+                                      (and pathname (equal ".heml-project" (file-namestring pathname)))))
+                                  5)
+                      (focused-p #'view)))
+          (post-key #\0 "Meta")
+          (wait-until (lambda () (focused-p #'outline)) 5)
+          ;; Option is Meta: the left one's mask with Option's.
+          (sidebar-press "0" 29 (logior (ash 1 19) #x20))
+          (check "and M-0 there comes back"
+                 (wait-until (lambda () (focused-p #'view)) 5))
+          (post-key #\0 "Meta")
+          (wait-until (lambda () (focused-p #'outline)) 5)
+          (sidebar-press (string (code-char 27)) 53)
+          (check "as Escape does"
+                 (wait-until (lambda () (focused-p #'view)) 5)))
         (check "a project's :ignore patterns are left out of its tree"
                (wait-until (lambda ()
                              (main (notany (lambda (path) (search "hidden/" path))

@@ -241,6 +241,8 @@ that, and should not also reach the editor as a key."
   (flet ((key (name &rest modifiers)
            (heml-ext:make-key-event name (modifier-bits modifiers))))
     (install-palette-bindings #'key)
+    ;; As treemacs's: to the sidebar, and M-0 there comes back.
+    (hi::bind-key "Sidebar Focus" (key "0" "Meta"))
     (hi::bind-key "Mouse Set Point" (key "Leftdown"))
     (hi::bind-key "Mouse Drag Region" (key "Leftup"))
     (hi::bind-key "Mouse Extend Region" (key "Leftdown" "Shift"))
