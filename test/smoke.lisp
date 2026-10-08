@@ -139,7 +139,16 @@
                                                                 "mainMenu")
                                                    "itemWithTitle:" menu)
                                       "submenu"))
-               (index (objc:invoke submenu "indexOfItemWithTitle:" title)))
+               ;; An item with a key binding is titled with it, after a tab.
+               (index (or (loop for i below (objc:invoke submenu "numberOfItems")
+                                for shown = (objc:ns-string-to-string
+                                             (objc:invoke (objc:invoke submenu "itemAtIndex:" i) "title"))
+                                when (or (string= shown title)
+                                         (and (> (length shown) (length title))
+                                              (string= title shown :end2 (length title))
+                                              (char= (char shown (length title)) #\Tab)))
+                                  return i)
+                          -1)))
           (assert (>= index 0) () "No item ~S in the ~A menu." title menu)
           (objc:invoke submenu "performActionForItemAtIndex:" index))))
 
@@ -797,6 +806,14 @@
 
 (defun claude-ide-checks ()
   (note "Heml as Claude Code's IDE")
+  (check "the Claude menu shows each item's keys beside it"
+         (let ((title (main (let* ((bar (objc:invoke (objc.runloop:shared-application) "mainMenu"))
+                                   (claude (objc:invoke (objc:invoke bar "itemWithTitle:" "Claude")
+                                                        "submenu"))
+                                   (run (objc:invoke claude "itemAtIndex:" 0)))
+                              (objc:ns-string-to-string
+                               (objc:invoke (objc:invoke run "attributedTitle") "string"))))))
+           (and (search "Run Claude" title) (search "C-c a a" title))))
   (let* ((root (merge-pathnames "claude/proj/" *out*))
          (config (merge-pathnames "claude/config/" *out*))
          (file (merge-pathnames "notes.txt" root)))

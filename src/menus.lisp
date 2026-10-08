@@ -132,11 +132,72 @@ no MODE, in every other buffer."
 
 (defun copy-menus ()
   "The menus as plain lists, (TITLE MODE ROLE ENTRIES), for a frontend to
-build from on another thread."
+build from on another thread.  An entry whose command a key runs has the
+key's name as :BINDING, for the frontend to show beside it."
   (mapcar (lambda (menu)
             (list (menu-title menu) (menu-mode menu) (menu-role menu)
-                  (copy-tree (menu-entries menu))))
+                  (mapcar (lambda (entry)
+                            (let ((binding (menu-entry-binding entry (menu-mode menu))))
+                              (if binding
+                                  (append (copy-tree entry) (list :binding binding))
+                                  (copy-tree entry))))
+                          (menu-entries menu))))
           *menus*))
+
+
+;;;; The keys beside the items.
+
+(defparameter *pointer-key-scanner*
+  (cl-ppcre:create-scanner "(?i)^(left|middle|right)(down|up|drag)|scroll|menucommand|queuedcommand")
+  "The keysyms that are no keys one types: the mouse's, and the frontend's
+own.")
+
+(defun key-events-of (key)
+  (if (vectorp key) (coerce key 'list) (list key)))
+
+(defun typed-key-p (key)
+  "Whether KEY is one typed, and so worth showing: no mouse key, and no
+Super, a Mac's Command, which an item's own :KEY shows."
+  (let ((super (ignore-errors (heml-ext::key-event-modifier-mask "Super"))))
+    (every (lambda (event)
+             (and (not (and super (logtest super (heml-ext::key-event-bits event))))
+                  (notany (lambda (name) (cl-ppcre:scan *pointer-key-scanner* name))
+                          (heml-ext::keysym-names (heml-ext::key-event-keysym event)))))
+           (key-events-of key))))
+
+(defun key-display-string (key)
+  "KEY as a menu shows it.  Heml binds what follows C-c as Hyper, which is
+how one types it: C-c a a, not H-a a."
+  (let ((text (with-output-to-string (stream) (print-pretty-key key stream))))
+    (cl-ppcre:regex-replace-all
+     "(^| )H-" (cl-ppcre:regex-replace-all "(^| )C-H-" text "\\1C-c C-") "\\1C-c ")))
+
+(defun menu-entry-binding (entry mode)
+  "The keys that run ENTRY's command, as a menu shows them, or NIL: those
+in MODE, the menu's, first, then global ones, then a minor mode's, the
+shortest.  An entry with a key of its own, or whose command it gives
+arguments a key would not, has none."
+  (let ((command (menu-entry-command entry)))
+    (when (and command (null (rest command))
+               (not (getf (cddr entry) :key)))
+      (let* ((object (getstring (first command) *command-names*))
+             (places (and object
+                          (remove-if-not (lambda (place) (typed-key-p (first place)))
+                                         (command-bindings object)))))
+        (flet ((rank (place)
+                 (cond ((and mode (eq (second place) :mode)
+                             (string-equal (third place) mode))
+                        0)
+                       ((eq (second place) :global) 1)
+                       ((eq (second place) :mode) 2)
+                       (t 3))))
+          (let ((best (first (sort (copy-list places)
+                                   (lambda (a b)
+                                     (or (< (rank a) (rank b))
+                                         (and (= (rank a) (rank b))
+                                              (< (length (key-events-of (first a)))
+                                                 (length (key-events-of (first b)))))))))))
+            (and best (key-display-string (first best)))))))))
 
 (defun menu-entry-command (entry)
   "The command ENTRY runs, as (NAME . ARGUMENTS), or NIL when it does

@@ -384,7 +384,7 @@
     (when value
       (or (uri-file value) value))))
 
-(defun file-buffer (path)
+(defun ide-file-buffer (path)
   "The buffer visiting PATH, or NIL."
   (let ((truename (probe-file path)))
     (and truename
@@ -450,10 +450,10 @@
     ((equal name "getDiagnostics")
      (text-content (ide-diagnostics (argument-path arguments "uri"))))
     ((equal name "checkDocumentDirty")
-     (let ((buffer (file-buffer (argument-path arguments "uri" "filePath"))))
+     (let ((buffer (ide-file-buffer (argument-path arguments "uri" "filePath"))))
        (text-content (json "isDirty" (and buffer (buffer-modified buffer) t)))))
     ((equal name "saveDocument")
-     (let ((buffer (file-buffer (argument-path arguments "uri" "filePath"))))
+     (let ((buffer (ide-file-buffer (argument-path arguments "uri" "filePath"))))
        (cond (buffer
               (save-file-command nil buffer)
               (text-content (json "saved" t)))
@@ -604,7 +604,7 @@
 (defun revert-when-written (path)
   "Claude Code writes an accepted change itself: read the file again into
    its buffer, unless that has changes of its own, once it is written."
-  (let ((buffer (file-buffer path))
+  (let ((buffer (ide-file-buffer path))
         (date (and (probe-file path) (file-write-date path)))
         (waited 0))
     (when (and buffer (not (buffer-modified buffer)))

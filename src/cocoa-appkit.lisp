@@ -1763,15 +1763,62 @@ that exists, ready to save."
 (defun make-menu (title)
   (objc:invoke (objc:invoke "NSMenu" "alloc") "initWithTitle:" title))
 
-(defun menu-entry (entry target)
-  "The NSMenuItem for ENTRY of a menu, its actions TARGET's."
+(defun menu-font ()
+  (objc:invoke "NSFont" "menuFontOfSize:" 0d0))
+
+(defun menu-text-width (string)
+  (aref (objc:invoke (objc:string-to-ns-string string) "sizeWithAttributes:"
+                     (let ((attributes (objc:alloc-init-object "NSMutableDictionary")))
+                       (objc:invoke attributes "setObject:forKey:" (menu-font) "NSFont")
+                       attributes))
+        0))
+
+(defun binding-tab-stop (entries)
+  "Where a menu's key bindings end, right-aligned: past its widest item."
+  (loop for entry in entries
+        when (consp entry)
+          maximize (+ (menu-text-width (first entry)) 32
+                      (let ((binding (getf (cddr entry) :binding)))
+                        (if binding (menu-text-width binding) 0)))))
+
+(defun titled-with-binding (title binding tab-stop)
+  "TITLE with BINDING after it at TAB-STOP, right-aligned and grey, as an
+   attributed string: a key sequence such as C-c a a is no key equivalent
+   AppKit can show."
+  (let ((style (objc:alloc-init-object "NSMutableParagraphStyle"))
+        (plain (objc:alloc-init-object "NSMutableDictionary"))
+        (grey (objc:alloc-init-object "NSMutableDictionary"))
+        (text (objc:invoke (objc:invoke "NSMutableAttributedString" "alloc") "init")))
+    (objc:invoke style "setTabStops:"
+                 (objc:invoke "NSArray" "arrayWithObject:"
+                              (objc:invoke (objc:invoke "NSTextTab" "alloc")
+                                           "initWithTextAlignment:location:options:"
+                                           2 (df tab-stop) ; right-aligned
+                                           (objc:alloc-init-object "NSDictionary"))))
+    (dolist (attributes (list plain grey))
+      (objc:invoke attributes "setObject:forKey:" (menu-font) "NSFont")
+      (objc:invoke attributes "setObject:forKey:" style "NSParagraphStyle"))
+    (objc:invoke grey "setObject:forKey:" (objc:invoke "NSColor" "secondaryLabelColor") "NSColor")
+    (flet ((add (string attributes)
+             (objc:invoke text "appendAttributedString:"
+                          (objc:invoke (objc:invoke "NSAttributedString" "alloc")
+                                       "initWithString:attributes:" string attributes))))
+      (add (format nil "~A~C" title #\Tab) plain)
+      (add binding grey))
+    text))
+
+(defun menu-entry (entry target &optional tab-stop)
+  "The NSMenuItem for ENTRY of a menu, its actions TARGET's; a key binding
+   the entry has is shown at TAB-STOP."
   (if (eq entry :separator)
       (objc:invoke "NSMenuItem" "separatorItem")
-      (destructuring-bind (title action &key key modifiers hidden) entry
+      (destructuring-bind (title action &key key modifiers hidden binding) entry
         (when (stringp action)
           (setf action (list :command action)))
         (let ((item (objc:alloc-init-object "NSMenuItem")))
           (objc:invoke item "setTitle:" title)
+          (when (and binding tab-stop (not key))
+            (objc:invoke item "setAttributedTitle:" (titled-with-binding title binding tab-stop)))
           (cond ((eq action :services)
                  (let ((services (make-menu title)))
                    (objc:invoke item "setSubmenu:" services)
@@ -1798,9 +1845,12 @@ that exists, ready to save."
           item))))
 
 (defun build-menu (title entries target)
-  (let ((menu (make-menu title)))
+  (let ((menu (make-menu title))
+        (tab-stop (and (some (lambda (entry) (and (consp entry) (getf (cddr entry) :binding)))
+                             entries)
+                       (binding-tab-stop entries))))
     (dolist (entry entries menu)
-      (objc:invoke menu "addItem:" (menu-entry entry target)))))
+      (objc:invoke menu "addItem:" (menu-entry entry target tab-stop)))))
 
 (defvar *context-menu-specs* '()
   "The right-click menus the menu bar was last built with, as (MODE . ENTRIES).
