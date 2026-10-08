@@ -920,7 +920,7 @@ again."
                   (equal (screen-title screen) (screen-shown-title screen)))
         (let ((title (setf (screen-shown-title screen) (screen-title screen))))
           (on-main-thread (show-title title)
-                          (note-sidebar-root (fifth title)))))
+                          (note-sidebar-title title))))
       (unless (or (null (screen-tabs screen))
                   (equal (screen-tabs screen) (screen-shown-tabs screen)))
         (let ((tabs (setf (screen-shown-tabs screen) (screen-tabs screen))))

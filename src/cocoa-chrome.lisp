@@ -34,6 +34,20 @@
 
 
 ;;;; The sidebar.
+;;;
+;;; A workspace of projects, as Emacs's treemacs has: each project's root is
+;;; a node at the top, its files under it.  A project is added when one of
+;;; its files is visited (*SIDEBAR-FOLLOW-PROJECTS*), from the sidebar's
+;;; menu (Add Project...), or with "Sidebar Add Project"; Remove Project
+;;; takes one away.  The file being edited is shown and chosen in the tree
+;;; (*SIDEBAR-FOLLOW-FILE*), what Git says of each file colours it, and a
+;;; directory with changes in it is coloured too.  The projects are kept
+;;; between launches, and what is open in the tree is kept as it is listed
+;;; again.
+
+(defvar *remember-chrome* t
+  "Whether the sidebar and the tabs are as they were when last closed.  The
+   smoke test leaves them alone.")
 
 (objc:define-objc-class sidebar-source ()
   ()
@@ -41,16 +55,29 @@
   (:objc-protocols "NSOutlineViewDataSource" "NSOutlineViewDelegate"))
 
 (defvar *sidebar-shown* nil
-  "Whether the sidebar of the project's files is shown.")
+  "Whether the sidebar of the projects' files is shown.")
 
-(defparameter *sidebar-width* 220
+(defparameter *sidebar-width* 240
   "The sidebar's width when it is first shown, in points.")
 
 (defvar *sidebar* nil
   "(SPLIT EFFECT OUTLINE SOURCE) once the sidebar has been made.")
 
-(defvar *sidebar-root* nil
-  "The directory the sidebar shows, a namestring.")
+(defvar *sidebar-roots* '()
+  "The projects the sidebar shows, as their directories' namestrings, in
+   order.  On the main thread.")
+
+(defvar *sidebar-root-names* (make-hash-table :test 'equal)
+  "A project's name, as its settings give it, by its root, when known.")
+
+(defvar *sidebar-follow-projects* t
+  "Whether visiting a file of a project not in the sidebar adds it.")
+
+(defvar *sidebar-follow-file* t
+  "Whether the file being edited is shown and chosen in the sidebar.")
+
+(defvar *sidebar-file* nil
+  "The file being edited, as the last frame said.")
 
 (defvar *sidebar-items* (make-hash-table :test 'equal)
   "Each path the sidebar has shown to its NSString, kept, so that the
@@ -63,7 +90,8 @@
   "Each directory listed to its entries, as paths.")
 
 (defvar *sidebar-git* (make-hash-table :test 'equal)
-  "Each file Git says something of to :MODIFIED or :NEW.")
+  "Each file Git says something of to :MODIFIED or :NEW, and each directory
+   with such a file in it to :INSIDE.")
 
 (defparameter *sidebar-ignored* '(".git" ".DS_Store" ".hg" ".svn")
   "Names the sidebar does not list.")
@@ -75,13 +103,17 @@
               (gethash path *sidebar-items*) string))))
 
 (defun item-path (item)
+  "ITEM's path, or NIL for the outline's top, the workspace."
   (if (cffi:null-pointer-p item)
-      *sidebar-root*
+      nil
       (gethash (cffi:pointer-address item) *sidebar-paths*)))
 
 (defun directory-path-p (path)
   (let ((length (length path)))
     (and (plusp length) (char= (char path (1- length)) #\/))))
+
+(defun sidebar-root-p (path)
+  (member path *sidebar-roots* :test #'equal))
 
 (defun sidebar-entries (directory)
   "DIRECTORY's entries as paths: its directories, then its files, each by
@@ -102,26 +134,39 @@
                                         (mapcar #'namestring (uiop:directory-files directory)))
                              #'string-lessp)))))))
 
-(defun read-git-statuses (root)
-  "What Git says of ROOT's files, into *SIDEBAR-GIT*."
+(defun sidebar-children (path)
+  "What the outline shows under PATH: the projects at the top."
+  (if path (sidebar-entries path) *sidebar-roots*))
+
+(defun read-git-statuses ()
+  "What Git says of each project's files, into *SIDEBAR-GIT*, with the
+   directories between a changed file and its project marked :INSIDE."
   (clrhash *sidebar-git*)
-  (let ((output (ignore-errors
-                 (uiop:run-program (list "git" "-C" root "status" "--porcelain=v1" "-z"
-                                         "--untracked-files=all")
-                                   :output :string :ignore-error-status t))))
-    (when output
-      (dolist (entry (uiop:split-string output :separator (string (code-char 0))))
-        (when (> (length entry) 3)
-          (let ((path (concatenate 'string root (subseq entry 3))))
-            (setf (gethash path *sidebar-git*)
-                  (if (string= (subseq entry 0 2) "??") :new :modified))))))))
+  (dolist (root *sidebar-roots*)
+    (let ((output (ignore-errors
+                   (uiop:run-program (list "git" "-C" root "status" "--porcelain=v1" "-z"
+                                           "--untracked-files=all")
+                                     :output :string :ignore-error-status t))))
+      (when output
+        (dolist (entry (uiop:split-string output :separator (string (code-char 0))))
+          (when (> (length entry) 3)
+            (let ((path (concatenate 'string root (subseq entry 3))))
+              (setf (gethash path *sidebar-git*)
+                    (if (string= (subseq entry 0 2) "??") :new :modified))
+              ;; Each directory from the file up to the project.
+              (loop for slash = (position #\/ path :end (1- (length path)) :from-end t)
+                      then (position #\/ path :end slash :from-end t)
+                    while (and slash (> slash (length root)))
+                    do (let ((directory (subseq path 0 (1+ slash))))
+                         (unless (gethash directory *sidebar-git*)
+                           (setf (gethash directory *sidebar-git*) :inside)))))))))))
 
 (objc:define-objc-method ("outlineView:numberOfChildrenOfItem:" :long)
     ((self sidebar-source) (outline objc:objc-object-pointer) (item objc:objc-object-pointer))
   (declare (ignore outline))
   (handler-case
       (let ((path (item-path item)))
-        (if (and path (directory-path-p path)) (length (sidebar-entries path)) 0))
+        (if (or (null path) (directory-path-p path)) (length (sidebar-children path)) 0))
     (error (condition) (log-error "sidebar children" condition) 0)))
 
 (objc:define-objc-method ("outlineView:child:ofItem:" objc:objc-object-pointer)
@@ -129,7 +174,7 @@
      (item objc:objc-object-pointer))
   (declare (ignore outline))
   (handler-case
-      (sidebar-item (nth index (sidebar-entries (item-path item))))
+      (sidebar-item (nth index (sidebar-children (item-path item))))
     (error (condition) (log-error "sidebar child" condition) (cffi:null-pointer))))
 
 (objc:define-objc-method ("outlineView:isItemExpandable:" objc:objc-bool)
@@ -139,9 +184,10 @@
     (and path (directory-path-p path))))
 
 (defun entry-name (path)
-  (if (directory-path-p path)
-      (car (last (pathname-directory path)))
-      (file-namestring path)))
+  (cond ((sidebar-root-p path)
+         (or (gethash path *sidebar-root-names*) (car (last (pathname-directory path)))))
+        ((directory-path-p path) (car (last (pathname-directory path))))
+        (t (file-namestring path))))
 
 (objc:define-objc-method ("outlineView:viewForTableColumn:item:" objc:objc-object-pointer)
     ((self sidebar-source) (outline objc:objc-object-pointer) (column objc:objc-object-pointer)
@@ -149,20 +195,31 @@
   (declare (ignore outline column))
   (handler-case
       (let* ((path (item-path item))
+             (root (sidebar-root-p path))
              (cell (objc:invoke (objc:invoke "NSTableCellView" "alloc") "initWithFrame:"
                                 (vector 0d0 0d0 200d0 20d0)))
              (image (objc:invoke (objc:invoke "NSImageView" "alloc") "initWithFrame:"
                                  (vector 2d0 2d0 16d0 16d0)))
              (text (objc:invoke "NSTextField" "labelWithString:" (entry-name path)))
-             (status (gethash (string-right-trim "/" path) *sidebar-git*)))
+             (status (gethash (if (directory-path-p path) path (string-right-trim "/" path))
+                              *sidebar-git*)))
         (objc:invoke image "setImage:"
-                     (objc:invoke (objc:invoke "NSWorkspace" "sharedWorkspace") "iconForFile:" path))
+                     (if root
+                         (objc:invoke "NSImage" "imageWithSystemSymbolName:accessibilityDescription:"
+                                      "shippingbox" "Project")
+                         (objc:invoke (objc:invoke "NSWorkspace" "sharedWorkspace") "iconForFile:" path)))
         (objc:invoke text "setFrame:" (vector 22d0 1d0 170d0 18d0))
         (objc:invoke text "setAutoresizingMask:" 2)
         (objc:invoke text "setLineBreakMode:" 4)
+        (when root
+          (objc:invoke text "setFont:" (objc:invoke "NSFont" "boldSystemFontOfSize:" 0d0))
+          (objc:invoke cell "setToolTip:" path))
         (when status
           (objc:invoke text "setTextColor:"
-                       (objc:invoke "NSColor" (if (eq status :new) "systemGreenColor" "systemOrangeColor"))))
+                       (objc:invoke "NSColor" (case status
+                                                (:new "systemGreenColor")
+                                                (:modified "systemOrangeColor")
+                                                (t "systemBrownColor")))))
         (objc:invoke cell "addSubview:" image)
         (objc:invoke cell "addSubview:" text)
         (objc:invoke cell "setImageView:" image)
@@ -188,6 +245,189 @@
                   (t (post-to-editor (list :open path)))))))
     (error (condition) (log-error "sidebar click" condition))))
 
+
+;;;; The workspace's projects.
+
+(defun sidebar-outline () (third *sidebar*))
+
+(defun clicked-path ()
+  "The path of the row the sidebar's menu was opened on, or NIL."
+  (let ((row (objc:invoke (sidebar-outline) "clickedRow")))
+    (and (>= row 0) (item-path (objc:invoke (sidebar-outline) "itemAtRow:" row)))))
+
+(defun clicked-root ()
+  "The project of the row the sidebar's menu was opened on."
+  (let ((path (clicked-path)))
+    (and path (find-if (lambda (root) (uiop:string-prefix-p root path)) *sidebar-roots*))))
+
+(defun save-sidebar-roots ()
+  (when *remember-chrome*
+    (objc:invoke (objc:invoke "NSUserDefaults" "standardUserDefaults") "setObject:forKey:"
+                 (coerce-to-ns-array (mapcar #'objc:string-to-ns-string *sidebar-roots*))
+                 "HemlSidebarRoots")))
+
+(defun saved-sidebar-roots ()
+  (let ((array (objc:invoke (objc:invoke "NSUserDefaults" "standardUserDefaults")
+                            "stringArrayForKey:" "HemlSidebarRoots")))
+    (unless (cffi:null-pointer-p array)
+      (remove-if-not #'probe-file
+                     (mapcar #'objc:ns-string-to-string (coerce-ns-array array))))))
+
+(defun coerce-to-ns-array (objects)
+  (let ((array (objc:invoke "NSMutableArray" "array")))
+    (dolist (object objects array)
+      (objc:invoke array "addObject:" object))))
+
+(defun add-sidebar-root (root &optional name)
+  "Put the project at ROOT, a directory, in the sidebar, at its end.  On the
+   main thread."
+  (let ((root (namestring (uiop:ensure-directory-pathname root))))
+    (when name (setf (gethash root *sidebar-root-names*) name))
+    (unless (sidebar-root-p root)
+      (setf *sidebar-roots* (append *sidebar-roots* (list root)))
+      (save-sidebar-roots)
+      (when *sidebar-shown*
+        (reload-sidebar)
+        (objc:invoke (sidebar-outline) "expandItem:" (sidebar-item root))))))
+
+(defun remove-sidebar-root (root)
+  "Take the project at ROOT out of the sidebar.  On the main thread."
+  (when (sidebar-root-p root)
+    (setf *sidebar-roots* (remove root *sidebar-roots* :test #'equal))
+    (save-sidebar-roots)
+    (when *sidebar-shown* (reload-sidebar))))
+
+(defun expanded-paths ()
+  "The paths open in the tree, those above first."
+  (let ((outline (sidebar-outline)))
+    (loop for row below (objc:invoke outline "numberOfRows")
+          for item = (objc:invoke outline "itemAtRow:" row)
+          when (objc:invoke-bool outline "isItemExpanded:" item)
+            collect (item-path item))))
+
+(defun reload-sidebar ()
+  "List the projects again, keeping what is open in the tree."
+  (when *sidebar*
+    (let ((open (expanded-paths))
+          (outline (sidebar-outline)))
+      (clrhash *sidebar-children*)
+      (read-git-statuses)
+      (objc:invoke outline "reloadData")
+      (dolist (path open)
+        (when (and path (probe-file path))
+          (objc:invoke outline "expandItem:" (sidebar-item path))))
+      (follow-sidebar-file))))
+
+(defun follow-sidebar-file ()
+  "Show and choose the file being edited, opening the directories above it."
+  (let ((file *sidebar-file*)
+        (outline (and *sidebar* (sidebar-outline))))
+    (when (and file outline *sidebar-follow-file* *sidebar-shown*)
+      (let ((root (find-if (lambda (root) (uiop:string-prefix-p root file)) *sidebar-roots*)))
+        (when root
+          ;; Each directory from the project down to the file's.
+          (objc:invoke outline "expandItem:" (sidebar-item root))
+          (loop for slash = (position #\/ file :start (length root))
+                  then (position #\/ file :start (1+ slash))
+                while slash
+                do (objc:invoke outline "expandItem:" (sidebar-item (subseq file 0 (1+ slash)))))
+          (let ((row (objc:invoke outline "rowForItem:" (sidebar-item file))))
+            (when (>= row 0)
+              (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                           (objc:invoke "NSIndexSet" "indexSetWithIndex:" row) nil)
+              (objc:invoke outline "scrollRowToVisible:" row))))))))
+
+(defun note-sidebar-title (title)
+  "The frame's title, (NAME FILE MODIFIED PROJECT ROOT): its project joins
+   the sidebar, its file is followed, and Git is asked again when the file
+   is saved."
+  (destructuring-bind (name file modified project root) title
+    (declare (ignore name))
+    (let ((saved (and *sidebar-file* (equal file *sidebar-file*) (not modified))))
+      (when (and root project)
+        (setf (gethash (namestring (uiop:ensure-directory-pathname root)) *sidebar-root-names*)
+              project))
+      (when (and root *sidebar-follow-projects*)
+        (add-sidebar-root root))
+      (let ((changed (not (equal file *sidebar-file*))))
+        (setf *sidebar-file* file)
+        (cond ((and *sidebar-shown* saved)
+               (reload-sidebar))
+              (changed (follow-sidebar-file)))))))
+
+
+;;;; The sidebar's menu.
+
+(defun choose-directory ()
+  "A directory chosen in an open panel, or NIL."
+  (let ((panel (objc:invoke "NSOpenPanel" "openPanel")))
+    (objc:invoke panel "setCanChooseDirectories:" t)
+    (objc:invoke panel "setCanChooseFiles:" nil)
+    (objc:invoke panel "setAllowsMultipleSelection:" nil)
+    (objc:invoke panel "setPrompt:" "Add Project")
+    (when (= 1 (objc:invoke panel "runModal"))
+      (objc:ns-string-to-string (objc:invoke (objc:invoke panel "URL") "path")))))
+
+(objc:define-objc-method ("hemlSidebarAddProject:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (handler-case (let ((directory (choose-directory)))
+                  (when directory (add-sidebar-root directory)))
+    (error (condition) (log-error "sidebar add" condition))))
+
+(objc:define-objc-method ("hemlSidebarRemoveProject:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (handler-case (let ((root (clicked-root)))
+                  (when root (remove-sidebar-root root)))
+    (error (condition) (log-error "sidebar remove" condition))))
+
+(objc:define-objc-method ("hemlSidebarReveal:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (handler-case (let ((path (clicked-path)))
+                  (when path
+                    (objc:invoke (objc:invoke "NSWorkspace" "sharedWorkspace")
+                                 "selectFile:inFileViewerRootedAtPath:"
+                                 (string-right-trim "/" path) "")))
+    (error (condition) (log-error "sidebar reveal" condition))))
+
+(objc:define-objc-method ("hemlSidebarCollapseAll:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (objc:invoke (sidebar-outline) "collapseItem:collapseChildren:" (cffi:null-pointer) t))
+
+(objc:define-objc-method ("hemlSidebarRefresh:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (reload-sidebar))
+
+(objc:define-objc-method ("validateMenuItem:" objc:objc-bool)
+    ((self sidebar-source) (item objc:objc-object-pointer))
+  ;; Remove Project on a project's rows, Reveal on any row.
+  (case (objc:invoke item "tag")
+    (2 (and (clicked-root) t))
+    (3 (and (clicked-path) t))
+    (t t)))
+
+(defun make-sidebar-menu (source)
+  (let ((menu (make-menu "Sidebar")))
+    (loop for (title selector tag) in '(("Add Project…" "hemlSidebarAddProject:" 1)
+                                        ("Remove Project" "hemlSidebarRemoveProject:" 2)
+                                        (:separator)
+                                        ("Reveal in Finder" "hemlSidebarReveal:" 3)
+                                        ("Collapse All" "hemlSidebarCollapseAll:" 4)
+                                        ("Refresh" "hemlSidebarRefresh:" 5))
+          do (if (eq title :separator)
+                 (objc:invoke menu "addItem:" (objc:invoke "NSMenuItem" "separatorItem"))
+                 (let ((item (objc:alloc-init-object "NSMenuItem")))
+                   (objc:invoke item "setTitle:" title)
+                   (objc:invoke item "setAction:" (objc:coerce-to-selector selector))
+                   (objc:invoke item "setTarget:" source)
+                   (objc:invoke item "setTag:" tag)
+                   (objc:invoke menu "addItem:" item))))
+    menu))
+
 (defconstant +material-sidebar+ 7)
 
 (defun make-sidebar (display)
@@ -202,7 +442,7 @@
          (outline (objc:invoke (objc:invoke "NSOutlineView" "alloc") "initWithFrame:"
                                (vector 0d0 0d0 (df *sidebar-width*) (aref bounds 3))))
          (column (objc:invoke (objc:invoke "NSTableColumn" "alloc") "initWithIdentifier:" "name"))
-         (source (make-instance 'sidebar-source)))
+         (source (objc:objc-object-pointer (make-instance 'sidebar-source))))
     (objc:invoke effect "setMaterial:" +material-sidebar+)
     (objc:invoke effect "setBlendingMode:" 0)
     (objc:invoke column "setWidth:" (df (- *sidebar-width* 20)))
@@ -213,10 +453,11 @@
         (objc:invoke outline "setStyle:" 3)            ; a source list
         (objc:invoke outline "setSelectionHighlightStyle:" 1))
     (objc:invoke outline "setBackgroundColor:" (objc:invoke "NSColor" "clearColor"))
-    (objc:invoke outline "setDataSource:" (objc:objc-object-pointer source))
-    (objc:invoke outline "setDelegate:" (objc:objc-object-pointer source))
-    (objc:invoke outline "setTarget:" (objc:objc-object-pointer source))
+    (objc:invoke outline "setDataSource:" source)
+    (objc:invoke outline "setDelegate:" source)
+    (objc:invoke outline "setTarget:" source)
     (objc:invoke outline "setAction:" (objc:coerce-to-selector "hemlSidebarClicked:"))
+    (objc:invoke outline "setMenu:" (make-sidebar-menu source))
     (objc:invoke scroll "setDocumentView:" outline)
     (objc:invoke scroll "setHasVerticalScroller:" t)
     (objc:invoke scroll "setAutohidesScrollers:" t)
@@ -238,12 +479,6 @@
     (objc:invoke window "makeFirstResponder:" view)
     (setf *sidebar* (list split effect outline source))))
 
-(defun reload-sidebar ()
-  (when (and *sidebar* *sidebar-root*)
-    (clrhash *sidebar-children*)
-    (read-git-statuses *sidebar-root*)
-    (objc:invoke (third *sidebar*) "reloadData")))
-
 (defun show-sidebar (shown)
   "Show the sidebar, or hide it.  On the main thread."
   (let ((display *display*))
@@ -251,6 +486,10 @@
       (setf *sidebar-shown* shown)
       (save-preference "HemlSidebarShown" (if shown 1 0))
       (when (and shown (null *sidebar*))
+        (when *remember-chrome*
+          (dolist (root (saved-sidebar-roots))
+            (unless (sidebar-root-p root)
+              (setf *sidebar-roots* (append *sidebar-roots* (list root))))))
         (make-sidebar display))
       (when *sidebar*
         (destructuring-bind (split effect &rest rest) *sidebar*
@@ -259,17 +498,40 @@
           (objc:invoke split "adjustSubviews")
           (when shown
             (objc:invoke split "setPosition:ofDividerAtIndex:" (df *sidebar-width*) 0)
-            (reload-sidebar))))
+            (reload-sidebar)
+            ;; The projects open at first.
+            (dolist (root *sidebar-roots*)
+              (objc:invoke (sidebar-outline) "expandItem:" (sidebar-item root)))
+            (follow-sidebar-file))))
       (objc:invoke (display-window display) "makeFirstResponder:" (display-view display)))))
 
 (defun toggle-sidebar ()
   (show-sidebar (not *sidebar-shown*)))
 
-(defun note-sidebar-root (root)
-  "The current buffer's project is ROOT: the sidebar shows it."
-  (when (and root (not (equal root *sidebar-root*)))
-    (setf *sidebar-root* root)
-    (when *sidebar-shown* (reload-sidebar))))
+(hi::defcommand "Sidebar Add Project" (p)
+  "Put a project in the sidebar: this buffer's, or with an argument, a
+   directory asked for."
+  "Put a project in the sidebar."
+  (let ((root (if p
+                  (namestring (hi::prompt-for-file :prompt "Add project: "
+                                                   :default (heml::buffer-default-directory
+                                                             (hi::current-buffer))
+                                                   :must-exist t))
+                  (or (heml::buffer-project-root (hi::current-buffer))
+                      (hi::editor-error "This buffer is in no project.")))))
+    (on-main-thread (add-sidebar-root root) (show-sidebar t))))
+
+(hi::defcommand "Sidebar Remove Project" (p)
+  "Take a project out of the sidebar, asked for among those it shows."
+  "Take a project out of the sidebar."
+  (declare (ignore p))
+  (let ((roots (copy-list *sidebar-roots*)))
+    (unless roots (hi::editor-error "The sidebar shows no project."))
+    (let ((root (nth-value 1 (hi::prompt-for-keyword
+                              (list (hi::make-string-table
+                                     :initial-contents (mapcar (lambda (root) (cons root root)) roots)))
+                              :prompt "Remove project: " :help "A project the sidebar shows."))))
+      (on-main-thread (remove-sidebar-root root)))))
 
 
 ;;;; Tabs, one for each file open.
@@ -409,10 +671,6 @@
   (let ((defaults (objc:invoke "NSUserDefaults" "standardUserDefaults")))
     (unless (cffi:null-pointer-p (objc:invoke defaults "objectForKey:" key))
       (objc:invoke defaults "integerForKey:" key))))
-
-(defvar *remember-chrome* t
-  "Whether the sidebar and the tabs are as they were when last closed.  The
-   smoke test leaves them alone.")
 
 (defun restore-chrome (display)
   "At the window's making: its view followed, and the sidebar and tabs as

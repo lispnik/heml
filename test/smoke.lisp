@@ -1019,12 +1019,48 @@
              (wait-until (lambda ()
                            (main (and heml.cocoa::*sidebar*
                                       (plusp (objc:invoke (third heml.cocoa::*sidebar*) "numberOfRows"))
-                                      (find "Makefile" (heml.cocoa::sidebar-entries heml.cocoa::*sidebar-root*)
-                                            :test #'search))))
+                                      (some (lambda (root)
+                                              (find "Makefile" (heml.cocoa::sidebar-entries root)
+                                                    :test #'search))
+                                            heml.cocoa::*sidebar-roots*))))
                          5))
       (check "and the editor is narrower beside it"
              (wait-until (lambda () (< (heml.cocoa::screen-columns heml.cocoa::*screen*) columns)) 5))
-      (shot "sidebar")
+      ;; A second project, as treemacs keeps several: visiting its file adds
+      ;; it, and the file is chosen in the tree.
+      (let* ((second (merge-pathnames "second-project/" *out*))
+             (file (merge-pathnames "src/notes.txt" second))
+             (root (namestring second)))
+        (ensure-directories-exist file)
+        (with-open-file (out (merge-pathnames ".heml-project" second) :direction :output
+                                                                       :if-exists :supersede)
+          (write-line "(:name \"second\")" out))
+        (with-open-file (out file :direction :output :if-exists :supersede)
+          (write-line "notes" out))
+        (post (list :open (namestring file)))
+        (settle)
+        (check "visiting a file of another project adds it to the sidebar"
+               (wait-until (lambda () (main (and (member root heml.cocoa::*sidebar-roots* :test #'equal)
+                                                 (> (length heml.cocoa::*sidebar-roots*) 1))))
+                           5))
+        (check "each project at the top of the tree"
+               (main (= (length heml.cocoa::*sidebar-roots*)
+                        (loop with outline = (third heml.cocoa::*sidebar*)
+                              for row below (objc:invoke outline "numberOfRows")
+                              count (= 0 (objc:invoke outline "levelForRow:" row))))))
+        (check "and the file being edited is chosen in it"
+               (wait-until (lambda ()
+                             (main (let* ((outline (third heml.cocoa::*sidebar*))
+                                          (row (objc:invoke outline "selectedRow")))
+                                     (and (>= row 0)
+                                          (equal (namestring file)
+                                                 (heml.cocoa::item-path
+                                                  (objc:invoke outline "itemAtRow:" row)))))))
+                           5))
+        (shot "sidebar" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
+        (main (heml.cocoa::remove-sidebar-root root))
+        (check "and Remove Project takes it away"
+               (main (not (member root heml.cocoa::*sidebar-roots* :test #'equal)))))
       (main (heml.cocoa::show-sidebar nil))
       (settle)
       (check "hidden, the editor has its width again"
