@@ -20,7 +20,11 @@
     ("Start language servers" "Language Servers")
     ("Mark lines changed since the last commit" "Git Fringe")
     ("Reopen each project's files and windows" "Project Sessions")
-    ("Indent with tabs" "Indent with Tabs"))
+    ("Indent with tabs" "Indent with Tabs")
+    ("Scroll by points with a trackpad, bouncing at the ends" "Pixel Scrolling")
+    ("Add a visited file's project to the sidebar" "Sidebar Follow Projects")
+    ("Show the file being edited in the sidebar" "Sidebar Follow File")
+    ("Tell Claude Code what is selected" "Claude Send Selection"))
   "(TITLE VARIABLE): a check box for each Heml variable, true or false.")
 
 (defvar *settings-window* nil)
@@ -65,11 +69,12 @@
         (declare (ignore title))
         (format out "(setf (heml-interface:variable-value (heml-interface:string-to-variable ~S)~{ ~S~})~%      ~S)~%"
                 name (variable-mode name) (and (setting-value name) t))))
-    ;; The Mac's own, which a terminal Heml has no package for.
-    (format out "(let ((package (find-package \"HEML.COCOA\")))~%  (when package~%")
-    (format out "    (setf (symbol-value (find-symbol \"*CURSOR-STYLE*\" package)) ~S~%" *cursor-style*)
-    (format out "          (symbol-value (find-symbol \"*CURSOR-BLINK*\" package)) ~S)))~%"
-            *cursor-blink*)))
+    ;; The caret's, which only the Mac's editor defines.
+    (format out "(when (find-package \"HEML.COCOA\")~%")
+    (dolist (name '("Cursor Style" "Cursor Blink"))
+      (format out "  (setf (heml-interface:variable-value (heml-interface:string-to-variable ~S) :global)~%        ~S)~%"
+              name (setting-value name)))
+    (format out ")~%")))
 
 (defun write-settings ()
   "Put the settings in the init file, in place of what the window wrote
@@ -120,8 +125,11 @@
                                  :bar :block)
               *cursor-blink* (= 1 (objc:invoke (cdr (assoc :blink *settings-controls*)) "state"))
               *caret-shown* t)
+        (set-setting "Cursor Style" *cursor-style*)
+        (set-setting "Cursor Blink" *cursor-blink*)
         (request-redraw)
-        (write-settings))
+        ;; Written once the editor has them.
+        (post-to-editor (list :call (lambda () (on-main-thread (write-settings))))))
     (error (condition) (log-error "settings caret" condition))))
 
 (objc:define-objc-method ("hemlChooseFont:" :void)
@@ -212,9 +220,10 @@
         do (cond ((eq key :font)
                   (objc:invoke control "setStringValue:" (font-description)))
                  ((eq key :caret)
-                  (objc:invoke control "selectItemAtIndex:" (if (eq *cursor-style* :bar) 0 1)))
+                  (objc:invoke control "selectItemAtIndex:"
+                               (if (eq (setting-value "Cursor Style") :block) 1 0)))
                  ((eq key :blink)
-                  (objc:invoke control "setState:" (if *cursor-blink* 1 0)))
+                  (objc:invoke control "setState:" (if (setting-value "Cursor Blink") 1 0)))
                  ((stringp key)
                   (objc:invoke control "setState:" (if (setting-value key) 1 0))))))
 

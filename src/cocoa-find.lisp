@@ -15,6 +15,18 @@
 
 ;;;; The editor's side.
 
+(hi::defhvar "Find Bar Case"
+  "Whether the find bar's search minds case: :IGNORE, never; :MATCH,
+   always; :SMART, only when what is looked for has a capital in it."
+  :value :smart)
+
+(defun find-case-sensitive-p (string)
+  "Whether looking for STRING minds case, as \"Find Bar Case\" says."
+  (case (hi::variable-value 'heml::find-bar-case)
+    (:match t)
+    (:ignore nil)
+    (t (some #'upper-case-p string))))
+
 (defvar *find-string* nil
   "What the find bar looks for while it is open, or NIL.")
 
@@ -28,13 +40,16 @@
   "(BUFFER SIGNATURE STRING . MATCHES), the last buffer's matches.")
 
 (defun find-matches (buffer string)
-  "Where STRING is in BUFFER, ignoring case, in order: a vector of (INDEX
-   LINE CHARPOS), INDEX the line's place in the buffer."
-  (let ((signature (hi::buffer-signature buffer)))
+  "Where STRING is in BUFFER, minding case as \"Find Bar Case\" says, in
+   order: a vector of (INDEX LINE CHARPOS), INDEX the line's place in the
+   buffer."
+  (let* ((signature (hi::buffer-signature buffer))
+         (test (if (find-case-sensitive-p string) #'char= #'char-equal))
+         (key (list string test)))
     (if (and *find-cache*
              (eq (first *find-cache*) buffer)
              (eql (second *find-cache*) signature)
-             (equal (third *find-cache*) string))
+             (equal (third *find-cache*) key))
         (cdddr *find-cache*)
         (let ((matches (make-array 16 :adjustable t :fill-pointer 0)))
           (when (plusp (length string))
@@ -42,11 +57,11 @@
                   for index from 0
                   while line
                   do (loop with text = (hi::line-string line)
-                           for start = (search string text :test #'char-equal)
-                             then (search string text :test #'char-equal :start2 (1+ start))
+                           for start = (search string text :test test)
+                             then (search string text :test test :start2 (1+ start))
                            while start
                            do (vector-push-extend (list index line start) matches))))
-          (setf *find-cache* (list* buffer signature string matches))
+          (setf *find-cache* (list* buffer signature key matches))
           matches))))
 
 (defun mark-place (mark)
@@ -100,7 +115,8 @@
       (list *find-string*
             (position-if (lambda (match) (and (eq (second match) line) (= (third match) charpos)))
                          matches)
-            (length matches)))))
+            (length matches)
+            (find-case-sensitive-p *find-string*)))))
 
 (hi::defcommand "Find Bar Start" (p &optional (string ""))
   "The find bar opened: what is typed in it is looked for from here."
@@ -318,7 +334,8 @@
     (objc:invoke (third *find-bar*) "setStringValue:"
                  (if (null find)
                      ""
-                     (destructuring-bind (string index count) find
+                     (destructuring-bind (string index count &optional case) find
+                       (declare (ignore case))
                        (cond ((zerop (length string)) "")
                              ((zerop count) "Not found")
                              (index (format nil "~D of ~D" (1+ index) count))
@@ -331,6 +348,7 @@
 (defun draw-find-matches (display screen)
   (let* ((find (screen-shown-find screen))
          (string (first find))
+         (test (if (fourth find) #'char= #'char-equal))
          (x (screen-shown-cursor-x screen))
          (y (screen-shown-cursor-y screen))
          (rows (screen-shown-rows screen)))
@@ -351,9 +369,9 @@
                     for text = (row-text (svref rows row))
                     do (loop with end = (min last (length text))
                              for start = (and (< first end)
-                                              (search string text :test #'char-equal
+                                              (search string text :test test
                                                                   :start2 first :end2 end))
-                               then (search string text :test #'char-equal
+                               then (search string text :test test
                                                         :start2 (1+ start) :end2 end)
                              while start
                              do (fill-rect (objc:invoke (ns-color display "systemYellowColor")

@@ -108,6 +108,10 @@ uses so as not to overwrite the user's clipboard.")
   ;; The find bar's (STRING INDEX COUNT) while it is open (cocoa-find.lisp).
   (find nil)
   (shown-find nil)
+  ;; The current buffer's values of the editor variables the main thread
+  ;; acts on, as a property list (EDITOR-SETTINGS).
+  (settings nil)
+  (shown-settings nil)
   ;; Frames presented, so that the main thread knows when one has come.
   (frames 0 :type fixnum)
   ;; The files open, for their tabs: (CURRENT (NAME MODIFIED TITLE) ...).
@@ -749,13 +753,10 @@ font has no face for is the upright face slanted."
       (draw-segment display text position (length text) line nil))))
 
 (defvar *cursor-style* :bar
-  "How the caret is drawn: :BAR, a thin line before the character, in the
-   accent colour, as a Mac text view draws it; or :BLOCK, the character in
-   reverse, as a terminal does.")
+  "How the caret is drawn: \"Cursor Style\", as the editor last said.")
 
 (defvar *cursor-blink* t
-  "Whether the caret blinks while nothing is typed, as a Mac text view's
-   does.")
+  "Whether the caret blinks: \"Cursor Blink\", as the editor last said.")
 
 (defparameter *blink-interval* 0.53d0
   "Seconds the caret is shown, and then hidden, as it blinks.")
@@ -916,6 +917,10 @@ again."
                   (equal (screen-mode screen) (screen-shown-mode screen)))
         (let ((mode (setf (screen-shown-mode screen) (screen-mode screen))))
           (on-main-thread (show-mode-menus mode))))
+      (unless (or (null (screen-settings screen))
+                  (equal (screen-settings screen) (screen-shown-settings screen)))
+        (let ((settings (setf (screen-shown-settings screen) (screen-settings screen))))
+          (on-main-thread (apply-editor-settings settings))))
       (unless (or (null (screen-title screen))
                   (equal (screen-title screen) (screen-shown-title screen)))
         (let ((title (setf (screen-shown-title screen) (screen-title screen))))
@@ -1112,8 +1117,9 @@ posts only when the pointer reaches another cell.")
   "The part of a line scrolled but not yet posted: a trackpad reports its
 movement in points, a fraction of a line at a time.")
 
-(defparameter *lines-per-wheel-step* 3
-  "Lines a notch of a mouse wheel scrolls.  A trackpad scrolls by distance.")
+(defvar *lines-per-wheel-step* 3
+  "Lines a notch of a mouse wheel scrolls: \"Mouse Wheel Lines\", as the
+   editor last said.")
 
 ;;; Scrolling by points, as a Mac text view scrolls with a trackpad.  The
 ;;; editor scrolls by lines; between them the main thread draws the window's
@@ -1125,8 +1131,8 @@ movement in points, a fraction of a line at a time.")
 ;;; scroll events after the fingers leave.
 ;;;
 (defvar *pixel-scrolling* t
-  "Whether a trackpad scrolls by points, with a bounce at the ends.  NIL
-   scrolls by whole lines, as a mouse wheel does.")
+  "Whether a trackpad scrolls by points: \"Pixel Scrolling\", as the
+   editor last said.")
 
 (defparameter *overscroll-limit* 1/4
   "How far past an end the text can be pulled, as a fraction of its

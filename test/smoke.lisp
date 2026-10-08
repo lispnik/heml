@@ -900,6 +900,16 @@
       (search-for "zebra")
       (check "what is not there says so"
              (status-is "Not found"))
+      ;; "Find Bar Case": a capital minds case, or :MATCH always, :IGNORE never.
+      (search-for "Apple")
+      (check "with a capital in it, only that case is found"
+             (status-is "1 of 1"))
+      (post (list :call (lambda () (setf (hi::variable-value 'heml::find-bar-case :global) :ignore))))
+      (search-for "Apple ")
+      (search-for "Apple")
+      (check "and with Find Bar Case :IGNORE, every case"
+             (status-is "1 of 3"))
+      (post (list :call (lambda () (setf (hi::variable-value 'heml::find-bar-case :global) :smart))))
       (search-for "fruit")
       (status-is "1 of 1")
       (main (heml.cocoa::hide-find-bar))
@@ -1034,7 +1044,10 @@
         (ensure-directories-exist file)
         (with-open-file (out (merge-pathnames ".heml-project" second) :direction :output
                                                                        :if-exists :supersede)
-          (write-line "(:name \"second\")" out))
+          (write-line "(:name \"second\" :ignore (\"hidden/\"))" out))
+        (ensure-directories-exist (merge-pathnames "hidden/" second))
+        (with-open-file (out (merge-pathnames "scratch.tmp" second) :direction :output
+                                                                    :if-exists :supersede))
         (with-open-file (out file :direction :output :if-exists :supersede)
           (write-line "notes" out))
         (post (list :open (namestring file)))
@@ -1057,6 +1070,27 @@
                                                  (heml.cocoa::item-path
                                                   (objc:invoke outline "itemAtRow:" row)))))))
                            5))
+        (check "a project's :ignore patterns are left out of its tree"
+               (wait-until (lambda ()
+                             (main (notany (lambda (path) (search "hidden/" path))
+                                           (heml.cocoa::sidebar-entries root))))
+                           5))
+        (post (list :call (lambda ()
+                            (setf (hi::variable-value 'heml::sidebar-ignored :global)
+                                  (list ".git" ".DS_Store" "scratch.tmp")))))
+        (check "and so are the names in Sidebar Ignored"
+               (wait-until (lambda ()
+                             (main (and (member "scratch.tmp" heml.cocoa::*sidebar-ignored*
+                                                :test #'equal)
+                                        (notany (lambda (path) (search "scratch.tmp" path))
+                                                (heml.cocoa::sidebar-entries root)))))
+                           5))
+        (post (list :call (lambda ()
+                            (setf (hi::variable-value 'heml::cursor-style :global) :block))))
+        (check "Cursor Style, an editor variable, sets how the caret is drawn"
+               (wait-until (lambda () (main (eq heml.cocoa::*cursor-style* :block))) 5))
+        (post (list :call (lambda ()
+                            (setf (hi::variable-value 'heml::cursor-style :global) :bar))))
         (shot "sidebar" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
         (main (heml.cocoa::remove-sidebar-root root))
         (check "and Remove Project takes it away"

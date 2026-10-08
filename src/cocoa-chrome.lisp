@@ -71,10 +71,12 @@
   "A project's name, as its settings give it, by its root, when known.")
 
 (defvar *sidebar-follow-projects* t
-  "Whether visiting a file of a project not in the sidebar adds it.")
+  "Whether visiting a file of a project not in the sidebar adds it:
+   \"Sidebar Follow Projects\", as the editor last said.")
 
 (defvar *sidebar-follow-file* t
-  "Whether the file being edited is shown and chosen in the sidebar.")
+  "Whether the file being edited is shown and chosen in the sidebar:
+   \"Sidebar Follow File\", as the editor last said.")
 
 (defvar *sidebar-file* nil
   "The file being edited, as the last frame said.")
@@ -93,8 +95,46 @@
   "Each file Git says something of to :MODIFIED or :NEW, and each directory
    with such a file in it to :INSIDE.")
 
-(defparameter *sidebar-ignored* '(".git" ".DS_Store" ".hg" ".svn")
-  "Names the sidebar does not list.")
+(defvar *sidebar-ignored* '(".git" ".DS_Store" ".hg" ".svn")
+  "Names the sidebar does not list: \"Sidebar Ignored\", as the editor last
+   said.")
+
+(defvar *sidebar-root-ignores* (make-hash-table :test 'equal)
+  "Each project's .heml-project :ignore patterns, by its root, as the
+   editor read them.")
+
+(defun sidebar-root-of (path)
+  "The project of the sidebar's that PATH is in: the innermost, for a
+   project within another's directory."
+  (let ((best nil))
+    (dolist (root *sidebar-roots* best)
+      (when (and (uiop:string-prefix-p root path)
+                 (or (null best) (> (length root) (length best))))
+        (setf best root)))))
+
+(defun sidebar-ignored-p (path)
+  "Whether the sidebar leaves PATH out: its name is in \"Sidebar Ignored\",
+   or its project's :ignore patterns leave it out."
+  (let ((name (if (directory-path-p path)
+                  (car (last (pathname-directory path)))
+                  (file-namestring path)))
+        (root (sidebar-root-of path)))
+    (or (member name *sidebar-ignored* :test #'equal)
+        (and root
+             (let ((patterns (gethash root *sidebar-root-ignores*)))
+               (and patterns
+                    (heml::ignored-file-p (subseq path (length root)) patterns)))))))
+
+(defun fetch-sidebar-ignores (root)
+  "Have the editor read ROOT's :ignore patterns, and list the sidebar again
+   with them."
+  (post-to-editor
+   (list :call (lambda ()
+                 (let ((patterns (ignore-errors (getf (heml::project-settings root) :ignore))))
+                   (on-main-thread
+                     (unless (equal patterns (gethash root *sidebar-root-ignores*))
+                       (setf (gethash root *sidebar-root-ignores*) patterns)
+                       (when *sidebar-shown* (reload-sidebar)))))))))
 
 (defun sidebar-item (path)
   (or (gethash path *sidebar-items*)
@@ -127,12 +167,10 @@
                                       (mapcar #'namestring paths))
                            #'string-lessp)))
               (ignore-errors
-               (append (keep (uiop:subdirectories directory))
-                       (sort (remove-if (lambda (path)
-                                          (member (file-namestring path) *sidebar-ignored*
-                                                  :test #'equal))
-                                        (mapcar #'namestring (uiop:directory-files directory)))
-                             #'string-lessp)))))))
+               (remove-if #'sidebar-ignored-p
+                          (append (keep (uiop:subdirectories directory))
+                                  (sort (mapcar #'namestring (uiop:directory-files directory))
+                                        #'string-lessp))))))))
 
 (defun sidebar-children (path)
   "What the outline shows under PATH: the projects at the top."
@@ -258,7 +296,7 @@
 (defun clicked-root ()
   "The project of the row the sidebar's menu was opened on."
   (let ((path (clicked-path)))
-    (and path (find-if (lambda (root) (uiop:string-prefix-p root path)) *sidebar-roots*))))
+    (and path (sidebar-root-of path))))
 
 (defun save-sidebar-roots ()
   (when *remember-chrome*
@@ -286,6 +324,7 @@
     (unless (sidebar-root-p root)
       (setf *sidebar-roots* (append *sidebar-roots* (list root)))
       (save-sidebar-roots)
+      (fetch-sidebar-ignores root)
       (when *sidebar-shown*
         (reload-sidebar)
         (objc:invoke (sidebar-outline) "expandItem:" (sidebar-item root))))))
@@ -323,7 +362,7 @@
   (let ((file *sidebar-file*)
         (outline (and *sidebar* (sidebar-outline))))
     (when (and file outline *sidebar-follow-file* *sidebar-shown*)
-      (let ((root (find-if (lambda (root) (uiop:string-prefix-p root file)) *sidebar-roots*)))
+      (let ((root (sidebar-root-of file)))
         (when root
           ;; Each directory from the project down to the file's.
           (objc:invoke outline "expandItem:" (sidebar-item root))
@@ -400,6 +439,8 @@
 (objc:define-objc-method ("hemlSidebarRefresh:" :void)
     ((self sidebar-source) (sender objc:objc-object-pointer))
   (declare (ignore sender))
+  ;; A project's settings may have changed too.
+  (mapc #'fetch-sidebar-ignores *sidebar-roots*)
   (reload-sidebar))
 
 (objc:define-objc-method ("validateMenuItem:" objc:objc-bool)
@@ -489,7 +530,8 @@
         (when *remember-chrome*
           (dolist (root (saved-sidebar-roots))
             (unless (sidebar-root-p root)
-              (setf *sidebar-roots* (append *sidebar-roots* (list root))))))
+              (setf *sidebar-roots* (append *sidebar-roots* (list root)))
+              (fetch-sidebar-ignores root))))
         (make-sidebar display))
       (when *sidebar*
         (destructuring-bind (split effect &rest rest) *sidebar*
@@ -504,6 +546,26 @@
               (objc:invoke (sidebar-outline) "expandItem:" (sidebar-item root)))
             (follow-sidebar-file))))
       (objc:invoke (display-window display) "makeFirstResponder:" (display-view display)))))
+
+(defun apply-editor-settings (settings)
+  "Take the editor's variables, as a frame carries them, into the main
+   thread's own copies.  On the main thread."
+  (destructuring-bind (&key cursor-style cursor-blink pixel-scrolling mouse-wheel-lines
+                         sidebar-ignored sidebar-follow-projects sidebar-follow-file)
+      settings
+    (let ((ignored-changed (not (equal sidebar-ignored *sidebar-ignored*))))
+      (setf *cursor-style* (if (eq cursor-style :block) :block :bar)
+            *cursor-blink* (and cursor-blink t)
+            *pixel-scrolling* (and pixel-scrolling t)
+            *lines-per-wheel-step* (if (and (integerp mouse-wheel-lines) (plusp mouse-wheel-lines))
+                                       mouse-wheel-lines
+                                       3)
+            *sidebar-ignored* sidebar-ignored
+            *sidebar-follow-projects* (and sidebar-follow-projects t)
+            *sidebar-follow-file* (and sidebar-follow-file t))
+      (when (and ignored-changed *sidebar-shown*)
+        (reload-sidebar))
+      (request-redraw))))
 
 (defun toggle-sidebar ()
   (show-sidebar (not *sidebar-shown*)))

@@ -650,8 +650,13 @@
 
 (defvar *ide-last-selection-sent* nil)
 
+(defhvar "Claude Send Selection"
+  "Whether Claude Code is told what is selected as the selection changes,
+   as VS Code's extension tells it.  It may still ask."
+  :value t)
+
 (defun ide-send-selection ()
-  (when *ide-clients*
+  (when (and *ide-clients* (value claude-send-selection))
     (let ((selection (buffer-selection (current-buffer))))
       (when selection
         (unless (jref selection "selection" "isEmpty")

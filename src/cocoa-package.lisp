@@ -15,17 +15,13 @@
            #:*right-option-is-meta*
            #:*initial-columns*
            #:*initial-lines*
-           ;; Settings an init file may change.
-           #:*cursor-style*
-           #:*cursor-blink*
+           ;; Settings an init file may change.  Those an editor variable
+           ;; holds -- Cursor Style, Pixel Scrolling, Sidebar Ignored and
+           ;; the like -- are set as editor variables.
            #:*blink-interval*
-           #:*pixel-scrolling*
            #:*overscroll-limit*
            #:*scroller-shown-for*
            #:*sidebar-width*
-           #:*sidebar-follow-projects*
-           #:*sidebar-follow-file*
-           #:*sidebar-ignored*
            #:*tabs-shown*
            #:*remember-chrome*
            #:*remember-window-frame*

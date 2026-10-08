@@ -440,6 +440,53 @@ another window is on its right."
               (screen-cursor-y screen) line
               (device-dirty device) t)))))
 
+(hi::defhvar "Cursor Style"
+  "How the Cocoa editor draws the caret: :BAR, a thin line before the
+   character in the accent colour, as a Mac text view does; or :BLOCK, the
+   character in reverse, as a terminal does."
+  :value :bar)
+
+(hi::defhvar "Cursor Blink"
+  "Whether the Cocoa editor's caret blinks while nothing is typed."
+  :value t)
+
+(hi::defhvar "Pixel Scrolling"
+  "Whether a trackpad scrolls the Cocoa editor by points, with a bounce at
+   the ends; NIL scrolls by whole lines, as a mouse wheel does."
+  :value t)
+
+(hi::defhvar "Mouse Wheel Lines"
+  "How many lines a notch of a mouse wheel scrolls.  A trackpad scrolls by
+   distance."
+  :value 3)
+
+(hi::defhvar "Sidebar Ignored"
+  "Names the sidebar does not list, in every project.  A project's
+   .heml-project :ignore patterns, which C-x p f leaves out, are left out
+   of its tree too."
+  :value '(".git" ".DS_Store" ".hg" ".svn"))
+
+(hi::defhvar "Sidebar Follow Projects"
+  "Whether visiting a file of a project the sidebar does not show adds it."
+  :value t)
+
+(hi::defhvar "Sidebar Follow File"
+  "Whether the file being edited is shown and chosen in the sidebar."
+  :value t)
+
+(defun editor-settings ()
+  "The current buffer's values of the variables the main thread acts on,
+   for each frame to carry: they may be the buffer's mode's, or its
+   project's."
+  (flet ((value (name) (hi::variable-value (hi::string-to-variable name))))
+    (list :cursor-style (value "Cursor Style")
+          :cursor-blink (value "Cursor Blink")
+          :pixel-scrolling (value "Pixel Scrolling")
+          :mouse-wheel-lines (value "Mouse Wheel Lines")
+          :sidebar-ignored (value "Sidebar Ignored")
+          :sidebar-follow-projects (value "Sidebar Follow Projects")
+          :sidebar-follow-file (value "Sidebar Follow File"))))
+
 (defun buffer-title (buffer)
   "What the window's title bar says of BUFFER: (NAME FILE MODIFIED PROJECT
    ROOT), ROOT its project's directory."
@@ -560,6 +607,7 @@ another window is on its right."
     (let ((buffer (hi::current-buffer)))
       (unless (eq buffer hi::*echo-area-buffer*)
         (setf (screen-mode *screen*) (hi::buffer-major-mode buffer)
+              (screen-settings *screen*) (editor-settings)
               (screen-title *screen*) (buffer-title buffer)
               (screen-tabs *screen*) (buffer-tabs buffer))))
     (setf (screen-popup *screen*) (popup-descriptor)
