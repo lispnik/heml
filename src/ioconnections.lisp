@@ -414,15 +414,20 @@
    (loop for (name . value) in environment
          do (cffi:foreign-funcall "setenv" :string name :string value :int 1 :int))
    (reset-child-signals)
-   (close-other-descriptors)
-   (let ((n (length args)))
+   (let ((n (length args))
+         (path (cffi:foreign-string-alloc file)))
      (cffi:with-foreign-object (argv :pointer (1+ n))
        (iter:iter (iter:for i from 0)
                   (iter:for arg in args)
                   (setf (cffi:mem-aref argv :pointer i)
                         (cffi:foreign-string-alloc arg)))
        (setf (cffi:mem-aref argv :pointer n) (cffi:null-pointer))
-       (isys:execvp file argv)))))
+       ;; The editor's descriptors closed last, with nothing of Lisp's
+       ;; after: the runtime may use one of them (ECL's did, now and then,
+       ;; and the child ended with 127 before it ran the program).
+       (close-other-descriptors)
+       (cffi:foreign-funcall "execvp" :pointer path :pointer argv :int)
+       (error "execvp ~A failed." file)))))
 
 (defun %fork-and-exec (file args &optional directory slave-pty-name environment terminal)
   (multiple-value-bind (stdin-read stdin-write)
