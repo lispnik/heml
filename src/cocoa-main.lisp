@@ -25,6 +25,12 @@ perform delivered through the run loop is not an event, so one is posted."
                               (vector 0d0 0d0) 0 0d0 0 nil 0 0 0)
                  t)))
 
+;;; libvterm is loaded on the main thread, where CFFI would load it anyway:
+;;; asked from the editor's thread, CFFI waits for the initial thread, which
+;;; is in [NSApp run] and answers only when a callback happens to come.
+(setf heml::*libvterm-loader*
+      (lambda () (call-on-main-thread-and-wait 'vterm:ensure-libvterm)))
+
 (defmethod hi::invoke-with-editor-thread ((backend (eql :cocoa)) fun)
   (when *hosted*
     (return-from hi::invoke-with-editor-thread (start-hosted-thread fun)))

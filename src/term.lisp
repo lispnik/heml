@@ -505,10 +505,17 @@
         for name = (if (= i 1) "*terminal*" (format nil "*terminal<~D>*" i))
         unless (getstring name *buffer-names*) return name))
 
+(defvar *libvterm-loader* 'vterm:ensure-libvterm
+  "What loads libvterm, the first time a terminal is made.  On SBCL, CFFI
+   loads a library on the process's initial thread and waits for it; a
+   frontend whose initial thread runs its own event loop -- Cocoa's runs
+   [NSApp run] there -- has it done there itself, or the editor's thread
+   waits for ever.")
+
 (defun make-term (command directory &key environment name)
   "Run COMMAND in DIRECTORY in a new terminal, in a buffer NAME or the next
    *terminal*, with ENVIRONMENT, an alist, beside the terminal's own."
-  (handler-case (vterm:ensure-libvterm)
+  (handler-case (funcall *libvterm-loader*)
     (error ()
       (editor-error "libvterm is not installed (brew install libvterm).")))
   (let* ((buffer (make-buffer (or name (new-term-buffer-name)) :modes '("Term")
