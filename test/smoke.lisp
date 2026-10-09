@@ -3021,18 +3021,56 @@ gamma
  (lambda ()
    (sleep 600)
    (note "smoke: no result after ten minutes")
-   ;; Where the editor and the run are, so that a hang says why.
+   ;; Where every thread is, so that a hang says why: each one's Lisp
+   ;; backtrace, on the process's own output (the editor's thread binds
+   ;; *STANDARD-OUTPUT* to its own), and the native stacks, which show a
+   ;; thread waiting in the system or a lock where Lisp cannot be asked.
    (dolist (thread (sb-thread:list-all-threads))
-     (when (member (sb-thread:thread-name thread) '("Heml" "smoke") :test #'equal)
+     (unless (eq thread sb-thread:*current-thread*)
        (ignore-errors
         (sb-thread:interrupt-thread
          thread
          (let ((name (sb-thread:thread-name thread)))
            (lambda ()
-             (format t "~&smoke: the ~A thread:~%" name)
-             (sb-debug:print-backtrace :count 40 :stream *standard-output*)
-             (finish-output)))))))
-   (sleep 3)
+             (let ((out sb-sys:*stdout*))
+               (format out "~&smoke: the ~A thread:~%" name)
+               (sb-debug:print-backtrace :count 40 :stream out)
+               (finish-output out))))))))
+   (sleep 5)
+   ;; What each thread is waiting for: a mutex, with its owner, or a queue.
+   (dolist (thread (sb-thread:list-all-threads))
+     (ignore-errors
+      (let ((waiting (sb-thread::thread-waiting-for thread)))
+        (when waiting
+          (format sb-sys:*stdout* "~&smoke: ~A waits for ~S~@[, held by ~A~]~%"
+                  (sb-thread:thread-name thread) waiting
+                  (and (typep waiting 'sb-thread:mutex)
+                       (let ((owner (sb-thread:mutex-owner waiting)))
+                         (and owner (sb-thread:thread-name owner)))))))))
+   (ignore-errors
+    (let ((stacks (uiop:run-program (list "sample" (princ-to-string (sb-posix:getpid)) "2")
+                                    :output :string :error-output :output
+                                    :ignore-error-status t)))
+      ;; The editor's thread's Lisp frames, named: an interrupt cannot
+      ;; reach a thread waiting with interrupts deferred, but its native
+      ;; stack's addresses can be looked up here, in the same image.
+      (let* ((start (search ": Heml" stacks))
+             (end (and start (search "Thread_" stacks :start2 (1+ start)))))
+        (when start
+          (format sb-sys:*stdout* "~&smoke: the Heml thread's Lisp frames, innermost last:~%")
+          (let ((last nil))
+            (cl-ppcre:do-register-groups (address) ("\\[0x(8[0-9a-f]+)\\]" (subseq stacks start end))
+              (let* ((code (ignore-errors
+                            (sb-di::code-header-from-pc
+                             (sb-sys:int-sap (parse-integer address :radix 16)))))
+                     (name (and code (ignore-errors
+                                      (sb-c::compiled-debug-info-name
+                                       (sb-kernel:%code-debug-info code))))))
+                (unless (equal name last)
+                  (format sb-sys:*stdout* "  ~S~%" name)
+                  (setf last name)))))))
+      (format sb-sys:*stdout* "~&smoke: native stacks:~%~A~%" stacks)))
+   (finish-output sb-sys:*stdout*)
    (sb-ext:exit :code 2 :abort t))
  :name "smoke watchdog")
 

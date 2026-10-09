@@ -353,7 +353,7 @@
           "--eval" registry
           "--eval" load-heml
           ;; SBCL has taken its own options out of *POSIX-ARGV* by now.
-          "--eval" "(progn (main (rest sb-ext:*posix-argv*)) (uiop:quit))"
+          "--eval" "(progn (heml::main (rest sb-ext:*posix-argv*)) (uiop:quit))"
           "--end-toplevel-options"
           "--slave")
     ;; ECL reads every --eval before it evaluates any, so nothing here may

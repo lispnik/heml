@@ -84,7 +84,7 @@
     (with-pop-up-display (s)
       (write-string (eval-form-in-server-1
                      info
-                     (format nil "(describe-symbol-aux ~A)"
+                     (format nil "(heml::describe-symbol-aux ~A)"
                              (slave-symbol-form (apropos-entry-slavesym entry))))
                     s))))
 

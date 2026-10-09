@@ -343,7 +343,7 @@
                        (ignore-errors
                         (eval-form-in-server-1
                          info
-                         (format nil "(%symbol-completions ~S ~S)" package-name name)))))
+                         (format nil "(heml::%symbol-completions ~S ~S)" package-name name)))))
                    (ignore-errors (%symbol-completions package-name name)))))
            (symbols (remove name symbols :key #'car :test #'string=))
            (tokens (unless colon
@@ -952,7 +952,7 @@
                                   (when info
                                     (ignore-errors
                                      (eval-form-in-server-1
-                                      info (format nil "(%arglist-string ~S ~S)"
+                                      info (format nil "(heml::%arglist-string ~S ~S)"
                                                    name package)))))
                                 (ignore-errors (%arglist-string name package)))))
                  (when (stringp text)

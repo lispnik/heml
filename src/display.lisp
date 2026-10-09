@@ -242,7 +242,7 @@
 ;;;
 (defun redisplay-window (window)
   "Rebuild the window's image and draw it.  NOTE: the device's redisplay
-   method may throw to 'redisplay-catcher to abort redisplay."
+   method may throw to 'hi::redisplay-catcher to abort redisplay."
   (update-window-image window)
   (device-redisplay (device-hunk-device (window-hunk window)) window)
   nil)
