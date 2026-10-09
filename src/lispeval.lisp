@@ -280,6 +280,13 @@
 
 ;;; EVAL-FORM-IN-SERVER -- Public.
 ;;;
+(defhvar "Slave Answer Timeout"
+  "Seconds the editor waits for a slave's answer to what it asks of it --
+   completions, descriptions, argument lists -- before giving up with an
+   error; NIL waits as long as it takes.  Evaluations queued for a slave
+   (\"Editor Evaluate\" and the like) are not waited for."
+  :value 10)
+
 (defun eval-form-in-server (server-info form
                             &optional (package (package-at-point)))
   "This evals form, a simple-string, in the server for server-info.  Package
@@ -295,8 +302,17 @@
     (editor-error "Server ~S is currently busy.  See \"List Operations\"."
                   (server-info-name server-info)))
   (multiple-value-bind (values error)
-                       (heml.wire:remote-value (server-info-wire server-info)
-                         (server-eval-form package form))
+      (let ((hi::*wire-deadline*
+              (let ((seconds (value slave-answer-timeout)))
+                (and (realp seconds) (plusp seconds)
+                     (+ (get-internal-real-time)
+                        (round (* seconds internal-time-units-per-second)))))))
+        (handler-case
+            (heml.wire:remote-value (server-info-wire server-info)
+              (server-eval-form package form))
+          (hi::wire-timeout ()
+            (editor-error "~A did not answer in ~D seconds (\"Slave Answer Timeout\")."
+                          (server-info-name server-info) (value slave-answer-timeout)))))
     (when error
       (editor-error "The server died before finishing"))
     values))

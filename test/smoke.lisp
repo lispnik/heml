@@ -1221,6 +1221,14 @@
 
 (defvar *corpus-result* nil)
 
+(defvar *slow-answer* nil
+  "What asking a slave that answers too late gave: (TEXT SECONDS).")
+
+(defun count-matches (needle haystack)
+  (loop with start = 0
+        for at = (search needle haystack :start2 start)
+        while at count t do (setf start (1+ at))))
+
 (defun lisp-edit-checks ()
   (note "structural editing in Lisp mode, from sexp-edit")
   (let ((file (merge-pathnames "sexp.lisp" *out*)))
@@ -2851,6 +2859,35 @@ gamma
   (check "a slave Lisp evaluates"
          (wait-until (lambda () (search (format nil "~%42") (buffer-text)))))
   (shot "slave")
+  ;; A slave that does not answer in time is given up on, with an error,
+  ;; rather than waited for for ever.
+  (setf *slow-answer* nil)
+  (post (list :call (lambda ()
+                      (setf (hi:variable-value 'heml::slave-answer-timeout :global) 1)
+                      (heml::queue-command
+                       (lambda ()
+                         (let ((start (get-internal-real-time)))
+                           (setf *slow-answer*
+                                 (list (handler-case
+                                           (progn (heml::eval-form-in-server
+                                                   (heml::get-current-eval-server t)
+                                                   "(progn (sleep 3) 1)")
+                                                  "answered")
+                                         (error (condition) (princ-to-string condition)))
+                                       (/ (- (get-internal-real-time) start)
+                                          internal-time-units-per-second))))
+                         (setf (hi:variable-value 'heml::slave-answer-timeout :global) 10))))))
+  (check "a slave that does not answer in time is given up on, with an error"
+         (wait-until (lambda () (and *slow-answer*
+                                     (search "did not answer" (first *slow-answer*))
+                                     (< (second *slow-answer*) 2.5)))
+                     10))
+  ;; Its late answer does no harm: it answers the next question.
+  (sleep 3)
+  (post-text "(+ 40 2)
+")
+  (check "and it answers what is asked of it next"
+         (wait-until (lambda () (>= (count-matches (format nil "~%42") (buffer-text)) 2)) 10))
 
   (note "lists")
   (extended-command "List Slaves")

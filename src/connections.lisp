@@ -554,6 +554,13 @@
 
 ;;; wire interaction
 
+(defvar *wire-deadline* nil
+  "When waiting for a wire's answer gives up, as an internal real time, or
+   NIL to wait as long as it takes.  EVAL-FORM-IN-SERVER binds it.")
+
+(define-condition wire-timeout (error) ()
+  (:report "The other side of the wire did not answer in time."))
+
 (defstruct (connection-device
              (:include heml.wire:device)
            (:conc-name device-)
@@ -610,6 +617,15 @@
        (let ((previous-counter (device-filter-counter device)))
          (incf (device-reading device))
          (iter:iter (iter:while (eql previous-counter (device-filter-counter device)))
-                    (dispatch-events)))
+                    (if *wire-deadline*
+                        ;; Waiting only so long: a slave that never answers
+                        ;; (one that did not start, or is stuck) left the
+                        ;; editor waiting for ever.
+                        (let ((left (/ (- *wire-deadline* (get-internal-real-time))
+                                       internal-time-units-per-second)))
+                          (unless (plusp left)
+                            (error 'wire-timeout))
+                          (dispatch-events-for (min left 1/2)))
+                        (dispatch-events))))
     (decf (device-reading device)))
   0)

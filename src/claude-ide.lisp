@@ -23,6 +23,10 @@
 ;;;   notified   selection_changed {text, filePath, fileUrl, selection},
 ;;;              at_mentioned {filePath, lineStart, lineEnd}, lines from 0
 ;;;              as claude-code-ide.el sends them (monet.el counts from 1)
+;;;
+;;; Claude Code 2.1.294, run in a Heml terminal, connected so: the token in
+;;; the header, MCP 2025-11-25, ide_connected, tools/list; /ide shows Heml
+;;; connected, and a selection shows in its prompt.
 
 (in-package :heml)
 
