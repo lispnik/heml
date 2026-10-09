@@ -771,21 +771,36 @@ font has no face for is the upright face slanted."
   (setf *caret-moved-at* (get-internal-real-time)
         *caret-shown* t))
 
+(defvar *caret-rect* nil
+  "Where DRAW-CURSOR last drew the bar, as #(LEFT TOP WIDTH HEIGHT) in the
+   view's points, or NIL: all a blink has to redraw.")
+
 (defun blink-caret ()
   "From the view's timer, on the main thread: the caret on or off, unless it
    moved a moment ago; and a scroll bar away once it has been shown long
-   enough."
-  (when (scrollers-to-hide-p)
-    (let ((display *display*))
-      (when display
-        (objc:invoke (display-view display) "setNeedsDisplay:" t))))
-  (let ((still (/ (- (get-internal-real-time) *caret-moved-at*)
-                  internal-time-units-per-second)))
-    (when (and *cursor-blink* (eq *cursor-style* :bar) (> still *blink-interval*))
-      (setf *caret-shown* (not *caret-shown*))
-      (let ((display *display*))
-        (when display
-          (objc:invoke (display-view display) "setNeedsDisplay:" t))))))
+   enough.
+
+   Only in the key window, and only the caret's own rectangle.  Redrawing the
+   whole window twice a second, key or not, kept the main thread drawing on a
+   machine that draws slowly -- a CI runner with no GPU -- and starved what
+   else wanted it: a host's work stalled for minutes behind it.  A Mac text
+   view does not blink its caret in a window that is not key either; it is
+   grey and steady there (DRAW-CURSOR)."
+  (let ((display *display*))
+    (when display
+      (when (scrollers-to-hide-p)
+        (objc:invoke (display-view display) "setNeedsDisplay:" t))
+      (let ((still (/ (- (get-internal-real-time) *caret-moved-at*)
+                      internal-time-units-per-second)))
+        (cond ((not (heml-window-key-p))
+               ;; Shown when the window is key again, before the first blink.
+               (setf *caret-shown* t))
+              ((and *cursor-blink* (eq *cursor-style* :bar) (> still *blink-interval*))
+               (setf *caret-shown* (not *caret-shown*))
+               (let ((rect *caret-rect*))
+                 (if rect
+                     (objc:invoke (display-view display) "setNeedsDisplayInRect:" rect)
+                     (objc:invoke (display-view display) "setNeedsDisplay:" t)))))))))
 
 ;;; Scroll bars as the Mac's own overlay ones are: a thin rounded thumb at
 ;;; a window's right edge, shown while it scrolls and for a moment after.
@@ -847,7 +862,9 @@ font has no face for is the upright face slanted."
              (color (foreground-color display)))
         (cond ((eq *cursor-style* :bar)
                ;; Before the character, the height of the line; steady and
-               ;; grey in a window that is not the key one.
+               ;; grey in a window that is not the key one.  Remembered,
+               ;; with a point to spare, for BLINK-CARET.
+               (setf *caret-rect* (vector (df (- left 1)) (df (- top 1)) 4d0 (df (+ height 2))))
                (cond ((not key-window-p)
                       (fill-rect (ns-color display "tertiaryLabelColor") left top 2 height))
                      (*caret-shown*
