@@ -1210,6 +1210,20 @@
                (wait-until (lambda () (main (eq heml.cocoa::*cursor-style* :block))) 5))
         (post (list :call (lambda ()
                             (setf (hi:variable-value 'heml::cursor-style :global) :bar))))
+        ;; The blink: never in a window that is not key, where it starved a
+        ;; slow machine's main thread of everything else; and in the key one,
+        ;; only the caret's own rectangle.
+        (check "a window that is not key does not blink its caret"
+               (main (let ((window (window)))
+                       (objc:invoke window "resignKeyWindow")
+                       (setf heml.cocoa::*caret-shown* nil
+                             heml.cocoa::*caret-moved-at* 0)
+                       (heml.cocoa::blink-caret)
+                       (prog1 (and (not (heml.cocoa::heml-window-key-p))
+                                   heml.cocoa::*caret-shown*)
+                         (objc:invoke window "makeKeyWindow")))))
+        (check "and the bar's rectangle is kept, for a blink to redraw alone"
+               (wait-until (lambda () (main (vectorp heml.cocoa::*caret-rect*))) 5))
         (shot "sidebar" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
         (main (heml.cocoa::remove-sidebar-root root))
         (check "and Remove Project takes it away"
