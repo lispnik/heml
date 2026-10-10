@@ -27,7 +27,8 @@
            #:*remember-window-frame*
            #:*palette-rows*
            #:*palette-width*
-           #:*popup-padding*)
+           #:*popup-padding*
+           #:*title-file-icon*)
   (:documentation "The native macOS backend.
 
 AppKit owns the main thread and runs its own event loop there.  Heml

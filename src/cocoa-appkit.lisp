@@ -970,6 +970,20 @@ again."
 ;;; icon (Command-click on the title shows the folder it is in), a dot in
 ;;; the close button while it has unsaved changes, and the project under it.
 ;;;
+(defvar *title-file-icon* t
+  "Whether a file's window shows the file's icon in its title bar, the proxy
+   that Command-click on the title opens.  -setRepresentedURL: fetches that
+   icon from IconServices by a synchronous XPC on the main thread, and where
+   the icon service is slow -- an Intel CI runner, minutes on end -- every
+   other thing waiting for the main thread waits with it.  A host's driven
+   test turns it off.")
+
+(defun represented-path (window)
+  "The file WINDOW's title bar stands for, as a namestring, or NIL."
+  (let ((url (objc:invoke window "representedURL")))
+    (and (not (cffi:null-pointer-p url))
+         (objc:ns-string-to-string (objc:invoke url "path")))))
+
 (defun show-title (title)
   (destructuring-bind (name file modified project &optional root) title
     (declare (ignore root))
@@ -980,10 +994,15 @@ again."
         (when (objc:invoke-bool window "respondsToSelector:"
                                 (objc:coerce-to-selector "setSubtitle:"))
           (objc:invoke window "setSubtitle:" (or project "")))
-        (objc:invoke window "setRepresentedURL:"
-                     (if file
-                         (objc:invoke "NSURL" "fileURLWithPath:" file)
-                         (cffi:null-pointer)))
+        ;; Only when the file changes: a title changes far more often -- the
+        ;; edited dot comes and goes as the buffer does -- and each sending
+        ;; asks IconServices again (*TITLE-FILE-ICON*).
+        (let ((shown (and *title-file-icon* file)))
+          (unless (equal shown (represented-path window))
+            (objc:invoke window "setRepresentedURL:"
+                         (if shown
+                             (objc:invoke "NSURL" "fileURLWithPath:" shown)
+                             (cffi:null-pointer)))))
         (objc:invoke window "setDocumentEdited:" (and modified t))))))
 
 

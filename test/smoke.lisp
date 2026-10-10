@@ -720,7 +720,18 @@
                           (and (search "titled.txt" (heml.cocoa::row-text row))
                                (some (lambda (run) (eq (getf (cddr run) :modeline) :active))
                                      (heml.cocoa::row-runs row))))
-                        (screen-rows*)))))))
+                        (screen-rows*))))
+      ;; The file's icon in the title bar costs a synchronous call to the
+      ;; icon service on the main thread, so a host can do without it.
+      (let ((title (list "titled.txt" (namestring (truename file)) nil nil)))
+        (main (setf heml.cocoa:*title-file-icon* nil)
+              (heml.cocoa::show-title title))
+        (check "with *TITLE-FILE-ICON* off, the window stands for no file"
+               (null (second (window-state))))
+        (main (setf heml.cocoa:*title-file-icon* t)
+              (heml.cocoa::show-title title))
+        (check "and on again, it stands for the file"
+               (equal (second (window-state)) (namestring (truename file))))))))
 
 (defun first-shown-line ()
   "The text of the current window's first line."
