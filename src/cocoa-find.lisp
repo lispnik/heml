@@ -3,7 +3,9 @@
 ;;; The find bar, as a Mac text editor has one: a search field under the
 ;;; title bar, ⌘F to it, Return and ⌘G for the next match, Shift-Return and
 ;;; ⇧⌘G for the one before, ⌘E to find what is selected, and every match in
-;;; sight highlighted.  Heml's own searches, C-s and C-r, are as they were.
+;;; sight highlighted; ⌥⌘F, or its Replace box, shows a row under it to
+;;; replace the match at point or every match.  Heml's own searches, C-s
+;;; and C-r, are as they were.
 ;;;
 ;;; The editor finds: the bar posts the commands below, which move point to
 ;;; a match and count them, and each frame carries the string, the matches'
@@ -159,6 +161,48 @@
     (setf *find-origin* nil))
   (setf *find-string* nil))
 
+(defun match-at-point (string)
+  "The match of STRING that point is at, or NIL."
+  (let ((point (hi:current-point)))
+    (find-if (lambda (match) (and (eq (second match) (hi:mark-line point))
+                                  (= (third match) (hi:mark-charpos point))))
+             (find-matches (hi:current-buffer) string))))
+
+(defun replace-match (match length replacement)
+  "Put REPLACEMENT in place of the LENGTH characters MATCH starts."
+  (hi:with-mark ((mark (hi:mark (second match) (third match)) :right-inserting))
+    (hi:delete-characters mark length)
+    (hi:insert-string mark replacement)
+    (hi:copy-mark mark)))
+
+(hi:defcommand "Find Bar Replace" (p &optional (replacement ""))
+  "Put REPLACEMENT in place of the match point is at, and go to the next;
+   at no match, only go to the next."
+  "Replace the match at point and find the next."
+  (declare (ignore p))
+  (let* ((string (or *find-string* *find-last-string*))
+         (match (and (plusp (length string)) (match-at-point string))))
+    (cond (match
+           (let ((after (replace-match match (length string) replacement)))
+             (find-and-go string after :forward :inclusive t)
+             (hi:delete-mark after)))
+          (t (find-and-go string (hi:current-point) :forward :inclusive t)))))
+
+(hi:defcommand "Find Bar Replace All" (p &optional (replacement ""))
+  "Put REPLACEMENT in place of every match of what the find bar looks for."
+  "Replace every match."
+  (declare (ignore p))
+  (let* ((string (or *find-string* *find-last-string*))
+         (matches (and (plusp (length string))
+                       (coerce (find-matches (hi:current-buffer) string) 'list))))
+    (if (null matches)
+        (hi:editor-error "~S is not found." string)
+        (progn
+          ;; From the last, so that the places of those before stand.
+          (dolist (match (reverse matches))
+            (hi:delete-mark (replace-match match (length string) replacement)))
+          (hi:message "Replaced ~D match~:P." (length matches))))))
+
 (hi:defcommand "Find Bar Use Selection" (p)
   "Have the find bar look for the selection, or the word at point."
   "Find the selection."
@@ -185,7 +229,8 @@
   (:objc-class-name "HemlFindTarget"))
 
 (defvar *find-bar* nil
-  "(CONTROLLER FIELD LABEL TARGET), made the first time the bar is shown.")
+  "(CONTROLLER FIELD LABEL TARGET REPLACE-CONTROLLER REPLACE-FIELD
+   REPLACE-BOX), made the first time the bar is shown.")
 
 (defvar *find-bar-shown* nil)
 
@@ -193,6 +238,14 @@
 
 (defun field-string ()
   (objc:ns-string-to-string (objc:invoke (find-field) "stringValue")))
+
+(defun replace-field () (sixth *find-bar*))
+
+(defun replace-string ()
+  (objc:ns-string-to-string (objc:invoke (replace-field) "stringValue")))
+
+(defun replace-shown-p ()
+  (and *find-bar* (not (objc:invoke-bool (fifth *find-bar*) "isHidden"))))
 
 (objc:define-objc-method ("hemlFindChanged:" :void)
     ((self find-target) (sender objc:objc-object-pointer))
@@ -210,6 +263,21 @@
   (declare (ignore sender))
   (find-bar-previous))
 
+(objc:define-objc-method ("hemlReplace:" :void)
+    ((self find-target) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (find-bar-replace))
+
+(objc:define-objc-method ("hemlReplaceAll:" :void)
+    ((self find-target) (sender objc:objc-object-pointer))
+  (declare (ignore sender))
+  (find-bar-replace-all))
+
+(objc:define-objc-method ("hemlReplaceShown:" :void)
+    ((self find-target) (sender objc:objc-object-pointer))
+  (handler-case (show-replace (= 1 (objc:invoke sender "state")))
+    (error (condition) (log-error "replace shown" condition))))
+
 (objc:define-objc-method ("hemlFindDone:" :void)
     ((self find-target) (sender objc:objc-object-pointer))
   (declare (ignore sender))
@@ -218,14 +286,19 @@
 (defconstant +shift-key-mask+ (ash 1 17))
 
 ;;; Return and Escape in the field: the next match, or with Shift the one
-;;; before, and closing the bar.
+;;; before, and closing the bar.  Return in the replacement's field
+;;; replaces.
 (objc:define-objc-method ("control:textView:doCommandBySelector:" objc:objc-bool)
     ((self find-target) (control objc:objc-object-pointer) (text-view objc:objc-object-pointer)
      (selector :pointer))
-  (declare (ignore control text-view))
+  (declare (ignore text-view))
   (handler-case
       (let ((name (cffi:foreign-funcall "sel_getName" :pointer selector :string)))
-        (cond ((string= name "insertNewline:")
+        (cond ((and (string= name "insertNewline:")
+                    (cffi:pointer-eq control (replace-field)))
+               (find-bar-replace)
+               t)
+              ((string= name "insertNewline:")
                (if (logtest +shift-key-mask+
                             (objc:invoke (objc:invoke (objc:invoke "NSApplication" "sharedApplication")
                                                       "currentEvent")
@@ -260,7 +333,9 @@
                              (vector 0d0 0d0 280d0 22d0)))
          (label (objc:invoke "NSTextField" "labelWithString:" ""))
          (done (objc:invoke "NSButton" "buttonWithTitle:target:action:" "Done" target
-                            (objc:coerce-to-selector "hemlFindDone:"))))
+                            (objc:coerce-to-selector "hemlFindDone:")))
+         (box (objc:invoke "NSButton" "checkboxWithTitle:target:action:" "Replace" target
+                           (objc:coerce-to-selector "hemlReplaceShown:"))))
     (objc:invoke field "setPlaceholderString:" "Find")
     (objc:invoke field "setSendsSearchStringImmediately:" t)
     (objc:invoke field "setTarget:" target)
@@ -278,7 +353,9 @@
     (objc:invoke stack "addArrangedSubview:"
                  (symbol-button "chevron.right" "Next match" target "hemlFindNext:"))
     (objc:invoke stack "addArrangedSubview:" label)
-    ;; Done at the far right.
+    ;; Replace and Done at the far right.
+    (objc:invoke box "setControlSize:" 1)
+    (objc:invoke stack "addView:inGravity:" box 3)
     (objc:invoke stack "addView:inGravity:" done 3)
     (objc:invoke stack "setClippingResistancePriority:forOrientation:" 1f0 0)
     (objc:invoke stack "setTranslatesAutoresizingMaskIntoConstraints:" t)
@@ -289,12 +366,67 @@
     (objc:invoke controller "setLayoutAttribute:" 4)      ; under the title bar
     (objc:invoke controller "setHidden:" t)
     (objc:invoke (display-window display) "addTitlebarAccessoryViewController:" controller)
-    (setf *find-bar* (list controller field label target))))
+    (multiple-value-bind (replace-controller replace-field) (make-replace-row display target)
+      (objc:invoke field "setNextKeyView:" replace-field)
+      (objc:invoke replace-field "setNextKeyView:" field)
+      (setf *find-bar* (list controller field label target
+                             replace-controller replace-field box)))))
+
+(defun make-replace-row (display target)
+  "The replacement's row, under the find bar's, as an accessory of its own,
+   hidden: its field, Replace and Replace All."
+  (let* ((controller (objc:alloc-init-object "NSTitlebarAccessoryViewController"))
+         (width (aref (objc:invoke (display-window display) "frame") 2))
+         (container (objc:invoke (objc:invoke "NSView" "alloc") "initWithFrame:"
+                                 (vector 0d0 0d0 (df width) 32d0)))
+         (stack (objc:invoke (objc:invoke "NSStackView" "alloc") "initWithFrame:"
+                             (vector 0d0 0d0 (df width) 32d0)))
+         (field (objc:invoke (objc:invoke "NSTextField" "alloc") "initWithFrame:"
+                             (vector 0d0 0d0 280d0 22d0)))
+         (one (objc:invoke "NSButton" "buttonWithTitle:target:action:" "Replace" target
+                           (objc:coerce-to-selector "hemlReplace:")))
+         (all (objc:invoke "NSButton" "buttonWithTitle:target:action:" "Replace All" target
+                           (objc:coerce-to-selector "hemlReplaceAll:"))))
+    (objc:invoke field "setPlaceholderString:" "Replace")
+    (objc:invoke field "setDelegate:" target)
+    (objc:invoke field "setBezelStyle:" 1)                ; rounded, as the search field
+    (objc:invoke (objc:invoke (objc:invoke field "widthAnchor") "constraintEqualToConstant:" 280d0)
+                 "setActive:" t)
+    (objc:invoke one "setControlSize:" 1)
+    (objc:invoke all "setControlSize:" 1)
+    (objc:invoke stack "setOrientation:" 0)
+    (objc:invoke stack "setSpacing:" 6d0)
+    (objc:invoke stack "setEdgeInsets:" (vector 4d0 10d0 4d0 10d0))
+    (objc:invoke stack "setAlignment:" 10)
+    (objc:invoke stack "addArrangedSubview:" field)
+    (objc:invoke stack "addArrangedSubview:" one)
+    (objc:invoke stack "addArrangedSubview:" all)
+    (objc:invoke stack "setClippingResistancePriority:forOrientation:" 1f0 0)
+    (objc:invoke stack "setTranslatesAutoresizingMaskIntoConstraints:" t)
+    (objc:invoke stack "setAutoresizingMask:" 18)
+    (objc:invoke container "setAutoresizingMask:" 2)
+    (objc:invoke container "addSubview:" stack)
+    (objc:invoke controller "setView:" container)
+    (objc:invoke controller "setLayoutAttribute:" 4)
+    (objc:invoke controller "setHidden:" t)
+    (objc:invoke (display-window display) "addTitlebarAccessoryViewController:" controller)
+    (values controller field)))
 
 (defun ensure-find-bar ()
   (or *find-bar*
       (let ((display *display*))
         (and display (make-find-bar display)))))
+
+(defun show-replace (shown)
+  "Show the replacement's row under the find bar's, or hide it."
+  (when *find-bar*
+    (objc:invoke (fifth *find-bar*) "setHidden:" (not shown))
+    (objc:invoke (seventh *find-bar*) "setState:" (if shown 1 0))))
+
+(defun show-find-and-replace ()
+  "⌥⌘F: the find bar with the replacement's row."
+  (show-find-bar)
+  (show-replace t))
 
 (defun show-find-bar ()
   "⌘F: the bar shown, and what it holds chosen, to type over."
@@ -308,6 +440,7 @@
 (defun hide-find-bar ()
   (when *find-bar*
     (objc:invoke (first *find-bar*) "setHidden:" t)
+    (show-replace nil)
     (setf *find-bar-shown* nil)
     (objc:invoke (display-window *display*) "makeFirstResponder:" (display-view *display*))
     (post-to-editor (list :command "Find Bar Done"))))
@@ -322,6 +455,15 @@
   (if (and (not *find-bar-shown*) (zerop (length (if *find-bar* (field-string) ""))))
       (show-find-bar)
       (post-to-editor (list :command "Find Bar Previous"))))
+
+(defun find-bar-replace ()
+  "Replace the match at point, and go to the next."
+  (when *find-bar*
+    (post-to-editor (list :command "Find Bar Replace" (replace-string)))))
+
+(defun find-bar-replace-all ()
+  (when *find-bar*
+    (post-to-editor (list :command "Find Bar Replace All" (replace-string)))))
 
 (defun set-find-field (string)
   "⌘E: STRING in the field, for ⌘G, without showing the bar."
@@ -383,8 +525,11 @@
 
 (heml-interface:add-menu-item "Edit" '("Find…" (:call show-find-bar) :key "f")
                               :before "Find Backward…")
-(heml-interface:add-menu-item "Edit" '("Find Next" (:call find-bar-next) :key "g")
+(heml-interface:add-menu-item "Edit" '("Find and Replace…" (:call show-find-and-replace)
+                                       :key "f" :modifiers (:option))
                               :after "Find…")
+(heml-interface:add-menu-item "Edit" '("Find Next" (:call find-bar-next) :key "g")
+                              :after "Find and Replace…")
 (heml-interface:add-menu-item "Edit" '("Find Previous" (:call find-bar-previous)
                                        :key "g" :modifiers (:shift))
                               :after "Find Next")
@@ -392,3 +537,7 @@
                                        :key "e")
                               :after "Find Previous")
 (heml-interface:remove-menu-item "Edit" "Find Backward…")
+
+;;; ⌥⌘F is the find bar's replacing, as in Mac editors; Query Replace keeps
+;;; its item, and its own key, M-%.
+(heml-interface:add-menu-item "Edit" '("Replace…" "Query Replace") :after "Use Selection for Find")

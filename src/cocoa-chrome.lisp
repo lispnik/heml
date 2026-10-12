@@ -479,8 +479,9 @@
 ;;;; editor (Escape and C-g go back too); Return visits the file chosen and
 ;;;; goes back, o visits it in the other window, Tab opens or closes a
 ;;;; directory, a adds a project, d removes the one chosen, g lists them
-;;;; again, R shows the file in Finder.  Arrows and typing a name are
-;;;; AppKit's own.
+;;;; again, R shows the file in Finder, s sorts the next way; n, N, r, D
+;;;; (or ⌘⌫), y and Y are the file operations below.  Arrows and typing a
+;;;; name are AppKit's own.
 
 (objc:define-objc-class sidebar-outline ()
   ()
@@ -561,6 +562,15 @@
            (set-sidebar-sort (let ((orders '(:name :kind :date :size)))
                                (or (second (member *sidebar-sort* orders)) (first orders))))
            t)
+          ((and plain (string= characters "n")) (sidebar-file-operation :new-file path) t)
+          ((and plain (string= characters "N")) (sidebar-file-operation :new-folder path) t)
+          ((and plain (string= characters "r")) (sidebar-file-operation :rename path) t)
+          ((or (and plain (string= characters "D"))
+               (and (= code 51) (logtest flags +command-key-mask+)))   ; ⌘⌫
+           (sidebar-file-operation :trash path)
+           t)
+          ((and plain (string= characters "y")) (sidebar-file-operation :copy-path path) t)
+          ((and plain (string= characters "Y")) (sidebar-file-operation :copy-relative-path path) t)
           ((and meta (member code '(125 126)))   ; Option-Down, Option-Up
            (let ((root (and path (sidebar-root-of path))))
              (when root (move-sidebar-root root (if (= code 126) -1 1))))
@@ -585,6 +595,191 @@
   (declare (ignore p))
   (when path
     (heml::show-in-other-window (heml::find-file-buffer path))))
+
+
+;;;; Files made, renamed and thrown away from the sidebar, as treemacs does
+;;;; them: the sidebar names the file and the editor asks, in its echo area,
+;;;; what to call it or whether to go on.  n makes a file, N a folder, r
+;;;; renames, D or ⌘⌫ moves to the Trash, y copies the path and Y the path
+;;;; within its project.
+
+(defun sidebar-directory-of (path)
+  "The directory a new file goes in from PATH: PATH itself when it is one."
+  (if (directory-path-p path) path (directory-namestring path)))
+
+(defun sidebar-show-path (path)
+  "List the sidebar again and choose PATH, the directories above it opened.
+   On the main thread."
+  (when *sidebar*
+    (reload-sidebar)
+    (let ((outline (sidebar-outline))
+          (root (sidebar-root-of path)))
+      (when root
+        (objc:invoke outline "expandItem:" (sidebar-item root))
+        (loop for slash = (position #\/ path :start (length root) :end (1- (length path)))
+                then (position #\/ path :start (1+ slash) :end (1- (length path)))
+              while slash
+              do (objc:invoke outline "expandItem:" (sidebar-item (subseq path 0 (1+ slash))))))
+      (let ((row (objc:invoke outline "rowForItem:" (sidebar-item path))))
+        (when (>= row 0)
+          (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                       (objc:invoke "NSIndexSet" "indexSetWithIndex:" row) nil)
+          (objc:invoke outline "scrollRowToVisible:" row))))))
+
+(defun abbreviated-path (path)
+  "PATH with the home directory as ~."
+  (let ((home (namestring (user-homedir-pathname))))
+    (if (uiop:string-prefix-p home path)
+        (concatenate 'string "~/" (subseq path (length home)))
+        path)))
+
+(defun path-leaf (path)
+  "The last name in PATH, a file's or a folder's."
+  (if (directory-path-p path) (car (last (pathname-directory path))) (file-namestring path)))
+
+(defun sidebar-new-name (prompt directory &optional default)
+  "A name asked for in the echo area, made a path in DIRECTORY; one there
+   already is refused."
+  (let* ((name (string-trim " " (hi:prompt-for-string :prompt prompt :default (or default "")
+                                                      :help "Type a name.")))
+         (path (concatenate 'string directory name)))
+    (when (zerop (length name))
+      (hi:editor-error "No name was given."))
+    (when (probe-file path)
+      (hi:editor-error "~A is there already." path))
+    path))
+
+(hi:defcommand "Sidebar New File" (p &optional directory)
+  "Make a file in DIRECTORY, the sidebar's, asking its name, and visit it.
+   A name with slashes makes the folders in it too."
+  "Make a file and visit it."
+  (declare (ignore p))
+  (when directory
+    (let ((path (sidebar-new-name (format nil "New file in ~A: " (abbreviated-path directory))
+                                  directory)))
+      (ensure-directories-exist path)
+      (with-open-file (out path :direction :output :if-exists nil :if-does-not-exist :create)
+        (declare (ignore out)))
+      (heml::find-file-command nil (pathname path))
+      (on-main-thread (sidebar-show-path path)))))
+
+(hi:defcommand "Sidebar New Folder" (p &optional directory)
+  "Make a folder in DIRECTORY, the sidebar's, asking its name."
+  "Make a folder."
+  (declare (ignore p))
+  (when directory
+    (let ((path (concatenate 'string
+                             (string-right-trim "/" (sidebar-new-name
+                                                     (format nil "New folder in ~A: "
+                                                             (abbreviated-path directory))
+                                                     directory))
+                             "/")))
+      (ensure-directories-exist path)
+      (hi:message "Made ~A." path)
+      (on-main-thread (sidebar-show-path path)))))
+
+(defun renamed-path (path from to)
+  "PATH as it is named once FROM, a file or a folder, is named TO; or NIL
+   when it is not FROM nor in it."
+  (cond ((string= path from) to)
+        ((and (directory-path-p from) (uiop:string-prefix-p from path))
+         (concatenate 'string to (subseq path (length from))))))
+
+(hi:defcommand "Sidebar Rename" (p &optional path)
+  "Rename PATH, the sidebar's file or folder, asking the new name; the
+   buffers of the files renamed follow them."
+  "Rename a file or a folder."
+  (declare (ignore p))
+  (when path
+    (let* ((folder (directory-path-p path))
+           (parent (directory-namestring (string-right-trim "/" path)))
+           (old (path-leaf path))
+           (new (sidebar-new-name (format nil "Rename ~A to: " old) parent old))
+           (new (if folder (concatenate 'string (string-right-trim "/" new) "/") new)))
+      (ensure-directories-exist new)
+      (heml::rename-path path new)
+      (dolist (buffer hi::*buffer-list*)
+        (let* ((pathname (hi:buffer-pathname buffer))
+               (moved (and pathname (renamed-path (namestring pathname) path new))))
+          (when moved
+            (setf (hi:buffer-pathname buffer) (pathname moved))
+            (let ((name (heml::pathname-to-buffer-name moved)))
+              (unless (hi:getstring name hi::*buffer-names*)
+                (setf (hi:buffer-name buffer) name))))))
+      (hi:message "Renamed ~A to ~A." old (path-leaf new))
+      (on-main-thread
+        ;; A project renamed is the same project.
+        (when (sidebar-root-p path)
+          (setf *sidebar-roots* (substitute new path *sidebar-roots* :test #'equal))
+          (save-sidebar-roots))
+        (when (equal *sidebar-file* path)
+          (setf *sidebar-file* new))
+        (sidebar-show-path new)))))
+
+(defvar *sidebar-trash-function* 'trash-path
+  "A function of a path that moves it to the Trash, or signals an error.")
+
+(defun trash-path (path)
+  "Move PATH to the Trash, as Finder does, whence it can be put back."
+  (let ((error (cffi:foreign-alloc :pointer :initial-element (cffi:null-pointer))))
+    (unwind-protect
+         (unless (objc:invoke-bool (objc:invoke "NSFileManager" "defaultManager")
+                                   "trashItemAtURL:resultingItemURL:error:"
+                                   (objc:invoke "NSURL" "fileURLWithPath:"
+                                                (string-right-trim "/" path))
+                                   (cffi:null-pointer) error)
+           (let ((condition (cffi:mem-ref error :pointer)))
+             (error "~A" (if (cffi:null-pointer-p condition)
+                             "it could not be moved"
+                             (objc:ns-string-to-string
+                              (objc:invoke condition "localizedDescription"))))))
+      (cffi:foreign-free error))))
+
+(hi:defcommand "Sidebar Move to Trash" (p &optional path)
+  "Move PATH, the sidebar's file or folder, to the Trash, after asking."
+  "Move a file or a folder to the Trash."
+  (declare (ignore p))
+  (when path
+    (when (hi:prompt-for-y-or-n :prompt (format nil "Move ~A to the Trash? " (path-leaf path))
+                                :default nil)
+      (let ((problem (call-on-main-thread-and-wait
+                      (lambda ()
+                        (handler-case (progn (funcall *sidebar-trash-function* path) nil)
+                          (error (condition) (princ-to-string condition)))))))
+        (when problem
+          (hi:editor-error "Could not move ~A to the Trash: ~A" (path-leaf path) problem))
+        (hi:message "Moved ~A to the Trash." (path-leaf path))
+        (on-main-thread (when *sidebar-shown* (reload-sidebar)))))))
+
+(defun copy-sidebar-path (path relative)
+  "Put PATH on the pasteboard, within its project when RELATIVE, and say
+   so.  On the main thread."
+  (let* ((root (sidebar-root-of path))
+         (text (string-right-trim "/" (if (and relative root (not (string= root path)))
+                                          (subseq path (length root))
+                                          path))))
+    (write-pasteboard text)
+    (post-to-editor (list :call (lambda () (hi:message "Copied ~A" text))))))
+
+(defun sidebar-file-operation (operation path)
+  "Do OPERATION, a keyword, to PATH, the sidebar's.  On the main thread:
+   what asks goes to the editor, with the keys."
+  (when path
+    (case operation
+      ((:trash :rename :new-file :new-folder)
+       (if (and (eq operation :trash) (sidebar-root-p path))
+           (post-to-editor (list :call (lambda ()
+                                         (hi:message "A project leaves the sidebar with Remove Project."))))
+           (progn
+             (post-to-editor
+              (ecase operation
+                (:new-file (list :command "Sidebar New File" (sidebar-directory-of path)))
+                (:new-folder (list :command "Sidebar New Folder" (sidebar-directory-of path)))
+                (:rename (list :command "Sidebar Rename" path))
+                (:trash (list :command "Sidebar Move to Trash" path))))
+             (focus-editor))))
+      (:copy-path (copy-sidebar-path path nil))
+      (:copy-relative-path (copy-sidebar-path path t)))))
 
 
 ;;;; Projects dragged into another order.  Only a project's row drags, and
@@ -692,7 +887,9 @@
             ((= tag 14) (objc:invoke item "setState:" (if *sidebar-folders-first* 1 0)))))
     (case tag
       ((2 6 7) (and (clicked-root) t))
-      (3 (and (clicked-path) t))
+      ((3 20 21 22 24 25) (and (clicked-path) t))
+      ;; A project leaves with Remove Project, not to the Trash.
+      (23 (let ((path (clicked-path))) (and path (not (sidebar-root-p path)))))
       (t t))))
 
 (defun sidebar-menu-items (menu source entries)
@@ -715,6 +912,14 @@
                                       ("Move Project Up" "hemlSidebarMoveUp:" 6)
                                       ("Move Project Down" "hemlSidebarMoveDown:" 7)
                                       (:separator)
+                                      ("New File…" "hemlSidebarFileOperation:" 20)
+                                      ("New Folder…" "hemlSidebarFileOperation:" 21)
+                                      ("Rename…" "hemlSidebarFileOperation:" 22)
+                                      ("Move to Trash" "hemlSidebarFileOperation:" 23)
+                                      (:separator)
+                                      ("Copy Path" "hemlSidebarFileOperation:" 24)
+                                      ("Copy Relative Path" "hemlSidebarFileOperation:" 25)
+                                      (:separator)
                                       ("Reveal in Finder" "hemlSidebarReveal:" 3)
                                       ("Collapse All" "hemlSidebarCollapseAll:" 4)
                                       ("Refresh" "hemlSidebarRefresh:" 5)
@@ -728,6 +933,17 @@
     (objc:invoke sort-item "setSubmenu:" sort)
     (objc:invoke menu "addItem:" sort-item)
     menu))
+
+(defparameter *sidebar-operation-tags*
+  '((20 . :new-file) (21 . :new-folder) (22 . :rename) (23 . :trash)
+    (24 . :copy-path) (25 . :copy-relative-path)))
+
+(objc:define-objc-method ("hemlSidebarFileOperation:" :void)
+    ((self sidebar-source) (sender objc:objc-object-pointer))
+  (handler-case
+      (let ((operation (cdr (assoc (objc:invoke sender "tag") *sidebar-operation-tags*))))
+        (when operation (sidebar-file-operation operation (clicked-path))))
+    (error (condition) (log-error "sidebar file operation" condition))))
 
 (objc:define-objc-method ("hemlSidebarMoveUp:" :void)
     ((self sidebar-source) (sender objc:objc-object-pointer))

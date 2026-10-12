@@ -983,6 +983,153 @@
       (post (list :named "Return" '())))
     (settle)))
 
+(defun find-replace-checks ()
+  (note "replacing from the find bar")
+  (let ((file (merge-pathnames "replace.txt" *out*)))
+    (with-open-file (out file :direction :output :if-exists :supersede)
+      (format out "one cat, two cats~%no dogs~%cat~%"))
+    (post (list :open (namestring file)))
+    (post-key #\< "Meta")
+    (settle)
+    (labels ((status ()
+               (main (objc:ns-string-to-string
+                      (objc:invoke (third heml.cocoa::*find-bar*) "stringValue"))))
+             (status-is (text)
+               (wait-until (lambda () (equal text (status))) 5))
+             (set-field (field string)
+               (main (objc:invoke field "setStringValue:" string)))
+             (search-for (string)
+               (main (let ((field (heml.cocoa::find-field)))
+                       (objc:invoke field "setStringValue:" string)
+                       (objc:invoke field "sendAction:to:" (objc:invoke field "action")
+                                    (objc:invoke field "target")))))
+             (text-is (text)
+               (wait-until (lambda () (equal text (buffer-text))) 5)))
+      (main (heml.cocoa::show-find-and-replace))
+      (check "⌥⌘F shows the find bar with the replacement's row"
+             (wait-until (lambda () (main (and (heml.cocoa::replace-shown-p)
+                                               (= 1 (objc:invoke (seventh heml.cocoa::*find-bar*)
+                                                                 "state")))))
+                         5))
+      (search-for "cat")
+      (status-is "1 of 3")
+      (set-field (main (heml.cocoa::replace-field)) "dog")
+      (main (heml.cocoa::find-bar-replace))
+      (check "Replace puts the replacement in place of the match at point"
+             (text-is (format nil "one dog, two cats~%no dogs~%cat~%")))
+      (check "and goes to the next"
+             (and (status-is "1 of 2")
+                  (= 13 (hi:mark-charpos (hi:current-point)))))
+      (shot "find-replace" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
+      ;; Return in the replacement's field replaces too.
+      (main (objc:invoke (fourth heml.cocoa::*find-bar*) "control:textView:doCommandBySelector:"
+                         (heml.cocoa::replace-field) (cffi:null-pointer)
+                         (objc:coerce-to-selector "insertNewline:")))
+      (check "as Return in its field does"
+             (text-is (format nil "one dog, two dogs~%no dogs~%cat~%")))
+      (set-field (main (heml.cocoa::replace-field)) "bird")
+      (main (heml.cocoa::find-bar-replace-all))
+      (check "Replace All replaces every match"
+             (and (text-is (format nil "one dog, two dogs~%no dogs~%bird~%"))
+                  (status-is "Not found")))
+      (search-for "dog")
+      (status-is "1 of 3")
+      (main (heml.cocoa::find-bar-replace-all))
+      (check "however many there are"
+             (text-is (format nil "one bird, two birds~%no birds~%bird~%")))
+      (post-key #\_ "Control")
+      (check "and one C-_ puts them all back"
+             (text-is (format nil "one dog, two dogs~%no dogs~%bird~%")))
+      (main (heml.cocoa::hide-find-bar))
+      (check "Done puts the replacement's row away too"
+             (wait-until (lambda () (main (not (heml.cocoa::replace-shown-p)))) 5)))))
+
+(defun sidebar-file-checks (root)
+  (note "files made, renamed and thrown away from the sidebar")
+  (let* ((outline (main (third heml.cocoa::*sidebar*)))
+         (src (concatenate 'string root "src/"))
+         (made (concatenate 'string src "made.txt"))
+         (renamed (concatenate 'string src "renamed.txt"))
+         (folder (concatenate 'string root "newdir/")))
+    (labels ((choose (path)
+               (main (objc:invoke outline "expandItem:" (heml.cocoa::sidebar-item root))
+                     (objc:invoke outline "selectRowIndexes:byExtendingSelection:"
+                                  (objc:invoke "NSIndexSet" "indexSetWithIndex:"
+                                               (objc:invoke outline "rowForItem:"
+                                                            (heml.cocoa::sidebar-item path)))
+                                  nil)))
+             (press-in-sidebar (characters code)
+               (main (objc:invoke (window) "makeFirstResponder:" outline)
+                     (objc:invoke (window) "sendEvent:"
+                                  (objc:invoke "NSEvent"
+                                               "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"
+                                               10 (vector 0d0 0d0) 0 0d0
+                                               (objc:invoke (window) "windowNumber") nil
+                                               characters characters nil code))))
+             (chosen ()
+               (main (let ((row (objc:invoke outline "selectedRow")))
+                       (and (>= row 0) (heml.cocoa::item-path (objc:invoke outline "itemAtRow:" row))))))
+             (current-file ()
+               (let ((pathname (hi:buffer-pathname (hi:current-buffer))))
+                 (and pathname (namestring pathname)))))
+      (choose src)
+      (press-in-sidebar "n" 45)
+      (post-text (format nil "made.txt~%"))
+      (check "n in the sidebar makes a file in the folder chosen, asking its name"
+             (wait-until (lambda () (probe-file made)) 5))
+      (check "and visits it, chosen in the sidebar"
+             (wait-until (lambda () (and (equal made (current-file)) (equal made (chosen)))) 5))
+      (main (heml.cocoa::sidebar-file-operation :new-folder (concatenate 'string root ".heml-project")))
+      (post-text (format nil "newdir~%"))
+      (check "New Folder makes a folder beside the file chosen"
+             (wait-until (lambda () (and (probe-file folder)
+                                         (equal folder (chosen))))
+                         5))
+      (main (heml.cocoa::sidebar-file-operation :rename made))
+      (dotimes (i (length "made.txt")) (post (list :named "Backspace" '())))
+      (post-text (format nil "renamed.txt~%"))
+      (check "Rename renames the file, offering its name to change"
+             (wait-until (lambda () (and (probe-file renamed) (not (probe-file made)))) 5))
+      (check "and its buffer follows it"
+             (wait-until (lambda () (and (equal renamed (current-file))
+                                         (eql 0 (search "renamed.txt" (hi:buffer-name (hi:current-buffer))))))
+                         5))
+      (main (heml.cocoa::sidebar-file-operation :copy-relative-path renamed))
+      (check "Copy Relative Path puts the path within its project on the pasteboard"
+             (wait-until (lambda () (equal "src/renamed.txt" (pasteboard-text))) 5))
+      (main (heml.cocoa::sidebar-file-operation :copy-path folder))
+      (check "and Copy Path the whole path"
+             (wait-until (lambda () (equal (string-right-trim "/" folder) (pasteboard-text))) 5))
+      ;; Not the real Trash.
+      (let ((trash (main heml.cocoa::*sidebar-trash-function*)))
+        (main (setf heml.cocoa::*sidebar-trash-function*
+                    (lambda (path)
+                      (if (heml.cocoa::directory-path-p path)
+                          (uiop:delete-directory-tree (pathname path) :validate t)
+                          (delete-file path)))))
+        (unwind-protect
+             (progn
+               (choose renamed)
+               (press-in-sidebar "D" 2)
+               (post-text "n")
+               (settle)
+               (check "D asks before it moves a file to the Trash"
+                      (probe-file renamed))
+               (main (heml.cocoa::sidebar-file-operation :trash folder))
+               (post-text "y")
+               (check "and moves it when told to"
+                      (wait-until (lambda () (and (not (probe-file folder))
+                                                  (main (not (member folder (heml.cocoa::sidebar-entries root)
+                                                                     :test #'equal)))))
+                                  5))
+               (main (heml.cocoa::sidebar-file-operation :trash root))
+               (settle)
+               (check "but a project is not thrown away"
+                      (and (probe-file root)
+                           (main (member root heml.cocoa::*sidebar-roots* :test #'equal)))))
+          (main (setf heml.cocoa::*sidebar-trash-function* trash))))
+      (delete-file renamed))))
+
 (defun chrome-checks ()
   (note "the sidebar, the tabs and the scroll bars")
   ;; Two files, and so two tabs.
@@ -1222,6 +1369,7 @@
         (post (list :call (lambda ()
                             (setf (hi:variable-value 'heml::cursor-style :global) :bar))))
         (shot "sidebar" (lambda () (objc:invoke (objc:invoke (window) "contentView") "superview")))
+        (sidebar-file-checks root)
         (main (heml.cocoa::remove-sidebar-root root))
         (check "and Remove Project takes it away"
                (main (not (member root heml.cocoa::*sidebar-roots* :test #'equal)))))
@@ -2326,6 +2474,7 @@ gamma
   (pixel-scroll-checks)
   (palette-checks)
   (find-bar-checks)
+  (find-replace-checks)
   (claude-ide-checks)
   (terminal-checks)
 
