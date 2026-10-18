@@ -258,7 +258,8 @@ while the current buffer is in the mode."
   ("Revert to Saved" "Revert File"))
 
 (define-menu "Edit" ()
-  ("Undo" "Undo" :key "z")
+  ("Undo" "New Undo" :key "z")
+  ("Redo" "Redo" :key "z" :modifiers (:shift))
   :separator
   ("Cut" "Kill Region" :key "x")
   ("Copy" "Save Region" :key "c")

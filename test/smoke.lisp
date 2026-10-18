@@ -1040,6 +1040,23 @@
       (post-key #\_ "Control")
       (check "and one C-_ puts them all back"
              (text-is (format nil "one dog, two dogs~%no dogs~%bird~%")))
+      (press-menu #\z)
+      (check "⌘Z is the same undo, going on to the change before"
+             (text-is (format nil "one dog, two dogs~%no dogs~%cat~%")))
+      (choose-menu-item "Edit" "Redo")
+      (check "Redo does again what was undone last"
+             (text-is (format nil "one dog, two dogs~%no dogs~%bird~%")))
+      (choose-menu-item "Edit" "Redo")
+      (check "and then what was undone before it"
+             (text-is (format nil "one bird, two birds~%no birds~%bird~%")))
+      (post-key #\_ "Control")
+      (post-key #\_ "Control")
+      (post-key #\< "Meta")
+      (post-text "x")
+      (choose-menu-item "Edit" "Redo")
+      (settle)
+      (check "but nothing once something else has changed the buffer"
+             (text-is (format nil "xone dog, two dogs~%no dogs~%cat~%")))
       (main (heml.cocoa::hide-find-bar))
       (check "Done puts the replacement's row away too"
              (wait-until (lambda () (main (not (heml.cocoa::replace-shown-p)))) 5)))))

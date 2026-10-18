@@ -883,6 +883,7 @@
 (bind-key "New Undo"           #k"control-_")
 (bind-key "New Undo"           #k"control-Delete")
 (bind-key "New Undo"           #k"control-x u")
+(bind-key "Redo"               #k"control-meta-_")
 
 (bind-key "Quickselect"           #k"control-c space")
 

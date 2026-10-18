@@ -166,6 +166,8 @@ The other list modes build their lines from state and keep each line's entry in 
 
 **Reading a file** (`read-file`, `files.lisp`) notes the whole of what it read for undoing once: noting each line took time as the square of the file's length, since a place is noted as a line's number, counted from the start.
 
+**Undo** (`new-undo.lisp`): every change to a buffer that records undo (`buffer-undo-p`) is pushed on its `buffer-undo-list`, and `*invoke-hook*` pushes `(:command c)` and point before each command, so a command's changes are a group. "New Undo" (`C-_`, `C-x u`, and Edit > Undo, ⌘Z) undoes the last group that changed the buffer, and again the one before, as a Mac application does, never undoing an undo: the group an undo or a redo makes is recorded in `*undo-equivalents*` with the place in the list whose state it left (`undoable-position` jumps there). "Redo" (`C-M-_`, as Emacs's `undo-redo`, and Edit > Redo, ⇧⌘Z) does the undos again, latest first, from `*redo-states*`, until a change other than an undo or a redo forgets them (`forget-overtaken-redos`); moving does not. Hemlock's own "Undo" (`undo.lisp`, which asks and knows only some commands) is still there for the commands that set it up, but no key or menu runs it.
+
 **Extending the editor.**
 - A variable's or a command's name is a string literal: never change one in place (`canonical-case` copies; it once upcased its argument, which renamed a command that shared a variable's name).
 - Commands are defined with `defcommand "Name" (p) ...`, which produces a function called `name-command`.

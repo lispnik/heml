@@ -29,7 +29,6 @@
 ;;;; TODO
 
 ;; - Some form of consolidation
-;; - Redo
 ;; - Ensure that what we indentified as a protocol of functions
 ;;   modifying a buffer is not violated. Both by runtime and compile
 ;;   time measures.
@@ -222,64 +221,151 @@
 
 ;;;;
 
-(defvar last-was-undo-p nil)
-(defvar this-is-undo-p nil)
-(defvar undoing-undo-list nil)
+;;; Undoing and redoing, as a Mac application does.  An undo or a redo is a
+;;; command whose changes are on the undo list too, but undoing never undoes
+;;; them: each such command's group (known by its (:COMMAND ...) cell) is
+;;; recorded in *UNDO-EQUIVALENTS* with the place in the list whose state it
+;;; left the buffer in, and undoing goes on from there.  So C-_ again and
+;;; again goes back command by command, and "Redo" does again, latest first,
+;;; what was undone, until something else changes the buffer.
+
+;;; A group's (:COMMAND ...) cell to (after . before): where undoing goes on
+;;; from after it, and for an undo, where it went on from before it.
+(defvar *undo-equivalents* (make-hash-table :test 'eq :weakness :key))
+
+;;; A buffer to (undos . top): the undos "Redo" can do again, latest first,
+;;; each (top-of-its-group . its-command-cell), and the top of the undo list
+;;; when the last undo or redo ended.
+(defvar *redo-states* (make-hash-table :test 'eq :weakness :key))
+
+(defun undo-change-p (entry buffer)
+  (and (member (car entry) '(insert-string insert-region delete-region))
+       (consp (cadr entry))
+       (eq (car (cadr entry)) buffer)))
+
+(defun undo-group-end (cell)
+  "The (:COMMAND ...) cell that ends the group CELL is in, or NIL."
+  (loop for c on cell
+        when (and (consp (car c)) (eq (caar c) :command))
+          return c))
+
+(defun undoable-position (cell buffer)
+  "Where undoing goes on from CELL: past the groups that undid or redid, to
+  the state each left the buffer in, and past those that changed nothing."
+  (loop
+    (let* ((end (undo-group-end cell))
+           (equivalent (and end (gethash end *undo-equivalents*))))
+      (cond (equivalent
+             (setf cell (car equivalent)))
+            ((or (null end)
+                 (loop for c on cell until (eq c end)
+                       thereis (undo-change-p (car c) buffer)))
+             (return cell))
+            (t
+             (setf cell (cdr end)))))))
+
+(defun revert-undo-entries (cell end buffer &key restore-point)
+  "Undoes the changes to BUFFER recorded from CELL to END, latest first,
+  leaving point at the last, or with RESTORE-POINT where it was before them.
+  Returns true when it changed the buffer."
+  (let ((changed nil)
+        (point (current-point)))
+    (loop for c on cell until (eq c end)
+          for entry = (car c)
+          when (and (consp (cadr entry)) (eq (car (cadr entry)) buffer))
+            do (case (car entry)
+                 ((insert-string insert-region)
+                  (let* ((matter (caddr entry))
+                         (n (length matter))
+                         (mark (apply #'position-mark (cadr entry))))
+                    ;; Firstly double check that the characters being
+                    ;; deleted are as expected.
+                    (with-mark ((check mark))
+                      (dotimes (i n)
+                        (unless (eql (next-character check) (char matter i))
+                          (error "Undo lost sync at line ~D column ~D"
+                                 (second (cadr entry)) (third (cadr entry))))
+                        (mark-after check)))
+                    (delete-characters mark n)
+                    (move-mark point mark)
+                    (setf changed t)))
+                 (delete-region
+                  (let ((mark (apply #'position-mark (cadr entry))))
+                    (move-mark point mark)
+                    (insert-string mark (caddr entry))
+                    (setf changed t)))
+                 (point-position
+                  (when restore-point
+                    (move-mark point (apply #'position-mark (cadr entry)))))))
+    changed))
+
+(defun undo-own-group (buffer)
+  "This command's (:COMMAND ...) cell, which the invoke hook pushed with the
+  point before it."
+  (unless (buffer-undo-p buffer)
+    (editor-error "Undo is off in this buffer."))
+  (let ((own (cdr (buffer-undo-list buffer))))
+    (assert (and (consp (car own)) (eq (caar own) :command)))
+    own))
+
+(defun redo-state (buffer)
+  (or (gethash buffer *redo-states*)
+      (setf (gethash buffer *redo-states*) (cons nil nil))))
+
+(defun forget-overtaken-redos (buffer own)
+  "Forgets what \"Redo\" could do in BUFFER when anything else has changed it
+  since the last undo or redo."
+  (let ((state (redo-state buffer)))
+    (unless (loop for c on (cdr own)
+                  when (eq c (cdr state)) return t
+                  never (undo-change-p (car c) buffer))
+      (setf (car state) nil))
+    state))
+
+(defun undone-command-name (end)
+  (let ((command (and end (cadr (car end)))))
+    (if (commandp command) (command-name command) "the change")))
 
 (defcommand "New Undo" (p)
-  ""
-  ""
-  (setf this-is-undo-p t)
-  ;; ### pop the "New Undo" log entry
+  "Undoes the last command that changed the buffer, and again the one before
+  that.  \"Redo\" does again what was undone."
+  "Undoes the last command that changed the current buffer."
+  (declare (ignore p))
   (let* ((buffer (current-buffer))
-         (undo-list (if last-was-undo-p
-                        undoing-undo-list
-                        (cddr (buffer-undo-list buffer))))
-         (modifiedp nil))
-    (block baz
-      (loop
-          (let ((chunk (pop undo-list)))
-            (when (or (null chunk)
-                      (and (eq (car chunk) :command) modifiedp))
-              (let ((name (cadr chunk)))
-                (if name
-                    (message "~S" name)
-                    (message "No further undo information")))
-              (return-from baz nil))
-            (when (and (not (eq (car chunk) :command))
-                       (consp (cadr chunk))
-                       (eq (car (cadr chunk)) buffer))
-              (case (car chunk)
-                (insert-string
-                 (let* ((p (cadr chunk))
-                        (matter (caddr chunk))
-                        (n (length matter)))
-                   ;; Firstly double check that the characters being
-                   ;; deleted are as expected.
-                   (let ((mark (apply #'position-mark p)))
-                     (dotimes (i n)
-                       (let ((c (next-character mark)))
-                         (unless (eql c (schar matter i))
-                           (error "Undo lost sync at line ~D colum ~D"
-                                  (mark-line mark) (mark-charpos mark))))
-                       (mark-after mark)))
-                   (let ((mark (apply #'position-mark p)))
-                     (delete-characters mark n)
-                     (setf modifiedp t))))
-                (delete-region
-                 (let ((p (cadr chunk))
-                       (matter (caddr chunk)))
-                   (let ((mark (apply #'position-mark p)))
-                     (insert-string mark matter)
-                     (setf modifiedp t))))
-                (point-position
-                 (move-mark (current-point) (apply #'position-mark (cadr chunk)))) )))))
+         (own (undo-own-group buffer))
+         (state (forget-overtaken-redos buffer own))
+         (start (undoable-position (cdr own) buffer))
+         (end (undo-group-end start)))
+    (unless (revert-undo-entries start end buffer :restore-point t)
+      (editor-error "No further undo information."))
+    (setf (gethash own *undo-equivalents*) (cons (cdr end) start))
+    (push (cons (buffer-undo-list buffer) own) (car state))
+    (setf (cdr state) (buffer-undo-list buffer))
+    (message "Undid ~A." (undone-command-name end))))
 
-    (setf undoing-undo-list undo-list) ))
+(defcommand "Redo" (p)
+  "Does again what the last undo undid, and again the undo before that, until
+  something else changes the buffer."
+  "Does again what the last undo undid."
+  (declare (ignore p))
+  (let* ((buffer (current-buffer))
+         (own (undo-own-group buffer))
+         (state (forget-overtaken-redos buffer own))
+         (undo (pop (car state))))
+    (unless undo
+      (editor-error "Nothing to redo."))
+    (destructuring-bind (top . undo-own) undo
+      (revert-undo-entries top undo-own buffer)
+      ;; Undoing now goes on from where that undo did.
+      (setf (gethash own *undo-equivalents*)
+            (list (cdr (gethash undo-own *undo-equivalents*))))
+      (setf (cdr state) (buffer-undo-list buffer))
+      (message "Redid ~A."
+               (undone-command-name
+                (undo-group-end (cdr (gethash undo-own *undo-equivalents*))))))))
 
 (defun new-undo-invoke-hook (command p)
   (declare (ignore p))
-  (setf this-is-undo-p nil)
   (let ((buffer (current-buffer)))
     (when (and buffer (buffer-undo-p buffer))
       (push (list :command command) (buffer-undo-list buffer))
@@ -289,8 +375,7 @@
 
 (defparameter *invoke-hook* #'(lambda (command p)
                                 (new-undo-invoke-hook command p)
-                                (funcall (command-function command) p)
-                                (setf last-was-undo-p this-is-undo-p))
+                                (funcall (command-function command) p))
   "This function is called by the command interpreter when it wants to invoke a
   command.  The arguments are the command to invoke and the prefix argument.
   The default value just calls the Command-Function with the prefix argument.")
