@@ -127,19 +127,23 @@
 
 (defvar *modeline-field-names* (make-hash-table))
 
-;; TODO -- This might be more robust if we make it a macro. In particular,
-;; repeatadly loading a file in which this function is used on the top
-;; level generates a warning.
+;;; A field made again with a name that is taken -- a file of fields loaded
+;;; again, or a function that makes its field each time -- is the same field
+;;; with the new width and function, so the modelines that show it, which
+;;; hold the object, show the new one.
 (defun make-modeline-field (&key name width function)
-  "Returns a modeline-field object."
+  "Returns a modeline-field object, the one already named NAME, if there is
+   one, with WIDTH and FUNCTION."
   (unless (or (eq width nil) (and (integerp width) (plusp width)))
     (error "Width must be nil or a positive integer."))
-  (when (gethash name *modeline-field-names*)
-    ;; this used to be a cerror, but I found that too annoying.
-    (warn "Modeline field ~S already exists."
-          (gethash name *modeline-field-names*)))
-  (setf (gethash name *modeline-field-names*)
-        (%make-modeline-field name function width)))
+  (let ((field (gethash name *modeline-field-names*)))
+    (cond (field
+           (setf (modeline-field-width field) width
+                 (modeline-field-function field) function)
+           field)
+          (t
+           (setf (gethash name *modeline-field-names*)
+                 (%make-modeline-field name function width))))))
 
 (defun modeline-field (name)
   "Returns the modeline-field object named name.  If none exists, return nil."

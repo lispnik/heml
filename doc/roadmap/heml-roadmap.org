@@ -76,7 +76,12 @@
 
 
 
-*** TODO Make make-modeline-field a macro?
+*** DONE Make make-modeline-field a macro?
+
+    Done without a macro on 2026-10-18: making a field whose name is
+    taken now changes that field's width and function in place, with
+    no warning, so a file loaded again neither warns nor leaves the
+    modelines showing the old function.
 
     file: src/window.lisp
 
