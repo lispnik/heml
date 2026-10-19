@@ -117,6 +117,7 @@
 ;;; Projects (project.lisp), on C-x p, as in Emacs.
 (bind-key "Project Find File" #k"control-x p f")
 (bind-key "Project Grep" #k"control-x p g")
+(bind-key "Find in Project" #k"control-x p /")
 (bind-key "Project Compile" #k"control-x p c")
 (bind-key "Project Shell Command" #k"control-x p !")
 (bind-key "Project Shell" #k"control-x p s")

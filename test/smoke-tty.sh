@@ -701,6 +701,23 @@ expect ' config: hello from settings' "and the setting it asked Heml for"
 send Escape
 sleep 0.3
 send C-x 1
+# Every server's problems in the project, in one list.
+send C-c '!'
+expect 'Problems in ' "C-c ! lists the project's problems" 20
+expect 'error    fake error' "each server's, with its severity"
+send q
+sleep 0.3
+send C-x 1
+# C-x p / finds text in the project's files, as it is.
+send C-x p /
+sleep 0.5
+send C-a C-k
+type_text '(defcommand "Find in Project"'
+send Enter
+expect 'src/project.lisp:' "C-x p / finds text in the project's files, parentheses and all" 20
+send q
+sleep 0.3
+send C-x 1
 # What the server says of a line is shown after its end; what it says can
 # be folded is; and a completion that is a snippet has places to fill in.
 send M-x

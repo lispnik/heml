@@ -320,6 +320,7 @@ while the current buffer is in the mode."
 
 (define-menu "Project" ()
   ("Find File…" "Project Find File")
+  ("Find…" "Find in Project")
   ("Search…" "Project Grep")
   ("Replace…" "Project Replace")
   ("Compile…" "Project Compile")

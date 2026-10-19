@@ -1059,7 +1059,27 @@
              (text-is (format nil "xone dog, two dogs~%no dogs~%cat~%")))
       (main (heml.cocoa::hide-find-bar))
       (check "Done puts the replacement's row away too"
-             (wait-until (lambda () (main (not (heml.cocoa::replace-shown-p)))) 5)))))
+             (wait-until (lambda () (main (not (heml.cocoa::replace-shown-p)))) 5))
+      ;; ⇧⌘F: the project's files searched for what the find bar holds, as
+      ;; it is -- parentheses and quotes are no pattern.
+      (set-field (main (heml.cocoa::find-field)) "(defcommand \"Find in Project\"")
+      (main (heml.cocoa::find-in-project))
+      (check "⇧⌘F asks what to find in the project, offering what the find bar holds"
+             (wait-until (lambda ()
+                           (search "(defcommand \"Find in Project\""
+                                   (buffer-text hi:*echo-area-buffer*)))
+                         5))
+      (post (list :named "Return" '()))
+      (check "and lists where the text is, as it is"
+             (wait-until (lambda ()
+                           (let ((grep (hi:getstring "*grep*" hi:*buffer-names*)))
+                             (and grep
+                                  (search "src/project.lisp:" (buffer-text grep))
+                                  (search " -F " (hi:variable-value 'heml::grep-command
+                                                                    :buffer grep)))))
+                         20))
+      (post-key #\x "Control") (post-key #\1)
+      (settle))))
 
 (defun sidebar-file-checks (root)
   (note "files made, renamed and thrown away from the sidebar")
@@ -2442,6 +2462,30 @@ gamma
            (find "(1 error)" (map 'list #'heml.cocoa::row-text
                                   (screen-rows*))
                  :test #'search))
+    ;; Every server's problems in the project, in one list.
+    (post-key #\c "Control") (post-key #\!)
+    (check "C-c ! lists the project's problems, each server's"
+           (wait-until (lambda ()
+                         (and (equal "*Problems*" (hi:buffer-name (hi:current-buffer)))
+                              (search "Problems in " (buffer-text))
+                              (search "fake.pas" (buffer-text))
+                              (search "error    fake error" (buffer-text))))
+                       10))
+    (check "the error in the error colour"
+           (wait-until (lambda () (equal '(:fg 1 :bold t) (run-font-at "error    fake error" 0)))
+                       5))
+    (let ((location (heml::line-location (hi:mark-line (hi:current-point)))))
+      (post (list :named "Return" '()))
+      (check "and Return visits one"
+             (wait-until (lambda ()
+                           (and location
+                                (equal (hi:buffer-pathname (hi:current-buffer)) (first location))
+                                (= (second location)
+                                   (hi:count-lines (hi:region (hi:buffer-start-mark (hi:current-buffer))
+                                                              (hi:current-point))))))
+                         10)))
+    (post-key #\x "Control") (post-key #\1)
+    (settle)
     (post-key #\c "Control") (post-key #\s "Control")
     (post-key #\a "Control") (post-key #\k "Control")
     (post-text "fake

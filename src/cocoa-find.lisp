@@ -538,6 +538,18 @@
                               :after "Find Previous")
 (heml-interface:remove-menu-item "Edit" "Find Backward…")
 
+;;; ⇧⌘F searches the project's files, as in Mac editors, offering what the
+;;; find bar holds: a command, so that it prompts in the echo area, which is
+;;; given the keyboard.
+(defun find-in-project ()
+  (let ((string (and *find-bar* (field-string))))
+    (post-to-editor (list :command "Find in Project" string))
+    (focus-editor)))
+
+(heml-interface:add-menu-item "Edit" '("Find in Project…" (:call find-in-project)
+                                       :key "f" :modifiers (:shift))
+                              :after "Find and Replace…")
+
 ;;; ⌥⌘F is the find bar's replacing, as in Mac editors; Query Replace keeps
 ;;; its item, and its own key, M-%.
 (heml-interface:add-menu-item "Edit" '("Replace…" "Query Replace") :after "Use Selection for Find")

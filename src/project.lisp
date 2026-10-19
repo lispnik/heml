@@ -441,6 +441,26 @@
                                                 (and (plusp (length word)) word)))))
     (grep-command nil (recursive-grep-command-line pattern) root)))
 
+(defcommand "Find in Project" (p &optional default)
+  "Search the files of this project for some text, as it is, from its root,
+   minding case only when the text has a capital, and list what is found.
+   The text offered is DEFAULT, the selection or the word at point."
+  "Search this project's files for some text."
+  (declare (ignore p))
+  (let* ((root (current-project-root))
+         (region (and (region-active-p) (region-to-string (current-region))))
+         (text (prompt-for-string
+                :prompt (format nil "Find in ~A: " (project-name root))
+                :default (cond ((plusp (length default)) default)
+                               ((and region (plusp (length region))
+                                     (not (find #\Newline region)))
+                                region)
+                               (t (let ((word (word-at-point)))
+                                    (and (plusp (length word)) word)))))))
+    (when (zerop (length text))
+      (editor-error "Nothing to find."))
+    (grep-command nil (recursive-grep-command-line text :fixed t) root)))
+
 (defcommand "Project Compile" (p)
   "Compile this project, from its root.  Its last command is remembered."
   "Compile this project, from its root."

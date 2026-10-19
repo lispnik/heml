@@ -318,12 +318,15 @@
     (grep-command nil (recursive-grep-command-line pattern)
                   (directory-namestring (merge-pathnames directory (default-directory))))))
 
-(defun recursive-grep-command-line (pattern)
-  "A command searching the files under its directory for PATTERN."
+(defun recursive-grep-command-line (pattern &key fixed)
+  "A command searching the files under its directory for PATTERN, or with
+   FIXED for the text itself, minding case only when it has a capital."
   (if (find-program "rg")
       ;; ripgrep leaves out what .gitignore does, and binaries.
-      (format nil "rg -n --no-heading --color never -e ~A ." (shell-quote pattern))
-      (format nil "grep -rnH -I --exclude-dir=.git --exclude-dir=.hg -e ~A ."
+      (format nil "rg -n --no-heading --color never ~:[~;-F -S ~]-e ~A ."
+              fixed (shell-quote pattern))
+      (format nil "grep -rnH -I ~:[~;-F ~]~:[~;-i ~]--exclude-dir=.git --exclude-dir=.hg -e ~A ."
+              fixed (and fixed (string= pattern (string-downcase pattern)))
               (shell-quote pattern))))
 
 (defun find-program (name)
