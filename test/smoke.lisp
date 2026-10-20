@@ -1558,6 +1558,80 @@
       (post-key #\x "Control") (post-key #\k) (post (list :named "Return" '()))
       (settle))))
 
+(defun font-at-offset (fonts offset)
+  "The font FONTS, as DIRED-LINE-FONTS gives them, have at OFFSET."
+  (cdr (find-if (lambda (entry) (<= (car entry) offset)) (reverse fonts))))
+
+(defun dired-colour-checks ()
+  (note "dired colours")
+  (let* ((now (get-universal-time))
+         (line "  -rwxr-x---  1 nobody  2.5M Oct 20 11:03 tool.tar.gz")
+         (fonts (heml::dired-line-fonts line (list :mtime (- now 60)) now)))
+    (flet ((at (text &optional (fonts fonts) (line line))
+             (font-at-offset fonts (search text line))))
+      (check "Dired colours each permission: r, w, x and -"
+             (equal (list 3 1 2 heml::*dired-grey*)
+                    (list (font-at-offset fonts 3) (font-at-offset fonts 4)
+                          (font-at-offset fonts 5) (font-at-offset fonts 11))))
+      (check "a size in megabytes, and a date within the hour"
+             (and (eql 3 (at "2.5M")) (equal '(:fg 2 :bold t) (at "Oct"))))
+      (check "an executable's name is green"
+             (eql 2 (at "tool.tar.gz")))
+      (let* ((line "  -rw-r--r--  1 nobody  2.5G Oct 20  2001 old.tar.gz~")
+             (fonts (heml::dired-line-fonts line (list :mtime (- now (* 3 365 86400))) now)))
+        (check "gigabytes are bold red, an old date dark grey, a backup grey"
+               (and (equal '(:fg 1 :bold t) (at "2.5G" fonts line))
+                    (equal heml::*dired-dark-grey* (at "Oct" fonts line))
+                    (eql heml::*dired-grey* (at "old.tar" fonts line)))))
+      (let ((line "  -rw-r--r--  1 nobody  12K Oct 20 11:03 a.tar.gz"))
+        (check "an archive is red"
+               (eql 1 (at "a.tar" (heml::dired-line-fonts line '() now) line)))
+        (check "a file Git calls changed is orange, a new one green, an ignored one grey"
+               (and (equal '(:fg 208) (at "a.tar" (heml::dired-line-fonts line '(:git :modified) now) line))
+                    (equal '(:fg 2) (at "a.tar" (heml::dired-line-fonts line '(:git :new) now) line))
+                    (eql heml::*dired-grey*
+                         (at "a.tar" (heml::dired-line-fonts line '(:git :ignored) now) line))))
+        (check "$LS_COLORS names a type's colour as ls reads it"
+               (equal '(:fg 208 :underline t)
+                      (heml::ls-colors-font (heml::ls-colors-table "di=01;34:*.tar.gz=04;38;5;208")
+                                            #\- "rw-r--r--" "a.tar.gz" nil))))
+      (let ((line "  lrwxr-xr-x  1 nobody  7 Oct 20 11:03 gone -> nowhere"))
+        (check "a broken link is red and italic, its target plain"
+               (let ((fonts (heml::dired-line-fonts line '(:broken t) now)))
+                 (and (equal '(:fg 1 :italic t) (at "gone" fonts line))
+                      (eql 0 (at "nowhere" fonts line))))))))
+  (let ((repo (merge-pathnames "dired-git/" *out*)))
+    (uiop:delete-directory-tree repo :validate t :if-does-not-exist :ignore)
+    (ensure-directories-exist repo)
+    (flet ((sh (command)
+             (uiop:run-program (list "/bin/sh" "-c" command) :directory (namestring repo))))
+      (sh "git init -q -b main && git config user.email t@example.com && git config user.name Test")
+      (sh "echo one > changed.txt && echo two > clean.txt && echo '*.log' > .gitignore && git add . && git commit -q -m First")
+      (sh "echo more >> changed.txt && echo new > new.txt && echo log > x.log")
+      (post (list :command "Dired" (namestring repo)))
+      (settle)
+      (check "Dired colours what Git says: changed, new and ignored"
+             (wait-until (lambda ()
+                           (and (equal '(:fg 208) (run-font-at "changed.txt" 0))
+                                (equal '(:fg 2) (run-font-at "new.txt" 0))
+                                (eql heml::*dired-grey* (run-font-at "x.log" 0))))
+                         10))
+      (shot "dired-colours")
+      (check "and a file it has as committed plainly"
+             (member (run-font-at "clean.txt" 0) '(0 nil)))
+      (post (list :open (namestring (merge-pathnames "clean.txt" repo))))
+      (settle)
+      (post-text "x")
+      (post-key #\x "Control") (post-key #\s "Control")
+      (settle)
+      (post (list :command "Dired" (namestring repo)))
+      (check "saving a file colours it as changed in its Dired"
+             (wait-until (lambda () (equal '(:fg 208) (run-font-at "clean.txt" 0))) 10))
+      (post-key #\x "Control") (post-key #\k) (post (list :named "Return" '()))
+      (settle)
+      (post (list :command "Kill Buffer" "clean.txt"))
+      (settle))))
+
 (defun debugger-checks ()
   (note "debugging")
   (let ((file (merge-pathnames "prog.py" *out*)))
@@ -2525,6 +2599,7 @@ gamma
   (language-server-kind-checks)
   (debugger-checks)
   (git-checks)
+  (dired-colour-checks)
   (selection-checks)
   (lisp-edit-checks)
   (highlight-checks)
@@ -3194,6 +3269,8 @@ gamma
     (ensure-directories-exist home)
     (sb-posix:setenv "HOME" (namestring home) 1)
     (sb-posix:unsetenv "XDG_CONFIG_HOME")
+    ;; Dired's colours are its own, not those of whoever runs the test.
+    (sb-posix:unsetenv "LS_COLORS")
     (choose-menu-item "Heml" "Settings…")
     (settle)
     (check "Settings… opens the Settings window"

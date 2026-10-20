@@ -10,6 +10,8 @@
 ;;; Simple directory editing support.
 ;;; This file contains site dependent calls.
 ;;;
+
+(declaim (ftype function dired-note-line-facts))
 ;;; Written by Blaine Burks and Bill Chiles.
 ;;;
 
@@ -547,6 +549,7 @@ is the size of what the top directory holds."
                         (unless (eq sort :name) sort))
                 (dolist (entry entries)
                   (format s "  ~A~%" (cdr entry)))))))
+          (dired-note-line-facts buffer directory entries)
           (dired-file-line point 0)
           (values (delete-if #'directoryp pathnames) dired-files))))))
 
@@ -1049,46 +1052,15 @@ is the size of what the top directory holds."
 
 
 
-;;;; Colours.
+;;;; The columns of a file's line.
 
-;;; The header is bold; a directory is blue, a symbolic link cyan and an
-;;; executable green; a file flagged for deletion is red all along, and a
-;;; marked one bold yellow.
+;;; A file's line: its flag, mode, links, owner, size and date, and then its
+;;; name.  Its colours are in dired-colours.lisp.
 ;;;
 (defparameter *dired-line-scanner*
   (cl-ppcre:create-scanner
    "^(.) ([dlpscb-])\\S{9}\\s+\\d+\\s+\\S+\\s+\\S+\\s+\\w{3}\\s+\\d+\\s+(?:\\d\\d:\\d\\d|\\d{4}) "))
 
-(defun dired-line-fonts (string)
-  "Where LINE's colours start, as ((POSITION . FONT) ...)."
-  (multiple-value-bind (start end) (cl-ppcre:scan *dired-line-scanner* string)
-    (cond
-      ((zerop (length string)) '())
-      ((not start)
-       (if (member (char string 0) '(#\Space #\D)) '() (list (cons 0 '(:bold t)))))
-      ((char= (char string 0) #\D) (list (cons 0 1)))
-      ((char= (char string 0) #\*) (list (cons 0 '(:fg 3 :bold t))))
-      (t
-       (let ((font (case (char string 2)
-                     (#\d '(:fg 4 :bold t))
-                     (#\l 6)
-                     (t (and (find #\x string :start 3 :end 12) 2)))))
-         (when font
-           (let ((arrow (search " -> " string :start2 end)))
-             (list* (cons end font)
-                    (when arrow (list (cons arrow 0)))))))))))
-
-(defun dired-highlight-line (line)
-  (let ((old (getf (line-plist line) 'dired-marks)))
-    (unless (and old (eq (car old) (line-signature line)))
-      (dolist (mark (cdr old))
-        (delete-font-mark mark))
-      (setf (getf (line-plist line) 'dired-marks)
-            (cons (line-signature line)
-                  (loop for (position . font) in (dired-line-fonts (line-string line))
-                        collect (font-mark line position font)))))))
-
-(define-mode-highlighter "Dired" 'dired-highlight-line :marks 'dired-marks)
 
 
 
@@ -1470,8 +1442,6 @@ is the size of what the top directory holds."
 (defmode "Wdired" :major-p t
   :documentation "Editing the names in a Dired listing: C-c C-c renames the
    files whose names were changed; C-c C-k goes back to Dired as it was.")
-
-(define-mode-highlighter "Wdired" 'dired-highlight-line :marks 'dired-marks)
 
 (defun dired-line-name (string)
   "The name a Dired line shows, or NIL when it is not a file line."

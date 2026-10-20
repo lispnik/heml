@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.." || exit 1
 state=$PWD/build/smoke-tty-state
 rm -rf "$state"
 tmux new-session -d -s "$session" -x 100 -y 30 \
-     "HEML_STATE_DIRECTORY='$state' $LISP $quiet \
+     "HEML_STATE_DIRECTORY='$state' LS_COLORS= $LISP $quiet \
         --eval '(asdf:load-system :heml.tty)' \
         --eval '(setf (symbol-value (uiop:find-symbol* :*additional-language-servers* :heml)) nil)' \
         --eval '(uiop:symbol-call :heml :set-lsp-inlay-hints nil)' \
@@ -158,6 +158,14 @@ send Enter
 expect 'abbrev.lisp' "and Dired lists it, though its name has no slash"
 expect_re '/src/  ([0-9]* entries, ' "a header names the directory, its entries and their size"
 expect_re ' [0-9.]*K [A-Z][a-z][a-z] ' "sizes are human-readable"
+checks=$((checks + 1))
+if tmux capture-pane -p -e -t "$session" | grep ' entries, ' | grep -q '34m'; then
+    echo "  ok    the header names the directory in blue"
+else
+    echo "  FAIL  the header names the directory in blue"
+    tmux capture-pane -p -e -t "$session" | grep ' entries, ' | cat -v | sed 's/^/        | /'
+    failures=$((failures + 1))
+fi
 checks=$((checks + 1))
 if [ "$(screen | grep -E '^  [dlpscb-][rwxs-]{9} ' | sed -E 's/^(.*)[A-Z][a-z]{2} [ 0-9][0-9] .*/\1/' | awk '{ print length }' | sort -u | wc -l)" -eq 1 ]; then
     echo "  ok    every line's date is in the same column"

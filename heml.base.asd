@@ -240,6 +240,7 @@
                (:file "dabbrev")
                (:file "menus")
                (:file "git" :depends-on ("results" "grep" "menus"))
+               (:file "dired-colours" :depends-on ("diredcoms" "dired-compress" "git"))
                (:file "bindings")
                (:file "slave-list")))
      ;; The iolib event loop and connections, which every backend uses.

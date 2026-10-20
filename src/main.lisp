@@ -565,7 +565,8 @@ GB
 ;;; asked what it has, and the variables wanted are taken from it.
 
 (defvar *shell-environment-variables*
-  '("PATH" "MANPATH" "LANG" "LC_ALL" "LC_CTYPE" "SSH_AUTH_SOCK" "GPG_AGENT_INFO")
+  '("PATH" "MANPATH" "LANG" "LC_ALL" "LC_CTYPE" "SSH_AUTH_SOCK" "GPG_AGENT_INFO"
+    "LS_COLORS")
   "The environment variables Heml takes from the user's login shell.")
 
 (defvar *import-shell-environment* :auto

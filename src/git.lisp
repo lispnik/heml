@@ -588,12 +588,18 @@
                         (equal (buffer-git-root buffer) root)))
                  *buffer-list*))
 
+(defvar *git-change-functions* '()
+  "Functions of a repository's root, called when Heml has changed what Git
+   says of it.")
+
 (defun git-changed (root)
   "The repository ROOT has changed: make its status buffers again, and its
    files' marks."
   (dolist (buffer (git-status-buffers root))
     (git-status-fill buffer))
-  (forget-git-bases root))
+  (forget-git-bases root)
+  (dolist (function *git-change-functions*)
+    (funcall function root)))
 
 (defcommand "Git Status" (p)
   "Show the state of this buffer's repository: what is changed, staged and
