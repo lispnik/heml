@@ -126,6 +126,11 @@
                                    :device (pathname-device dpn)
                                    :directory (pathname-directory dpn))
                          :must-exist nil)))
+         ;; /foo/bar names the directory /foo/bar/ when there is one.
+         (directory (if (and (pathname-name directory)
+                             (ignore-errors (uiop:directory-exists-p directory)))
+                        (uiop:ensure-directory-pathname directory)
+                        directory))
          (pattern (if patternp
                       (prompt-for-string
                        :prompt "Filename pattern: "

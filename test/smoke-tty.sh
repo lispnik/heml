@@ -153,9 +153,9 @@ expect '(New File)' "C-x C-f on a new name starts a new file"
 send C-x d
 expect 'Edit Directory:' "C-x d asks for a directory to edit"
 send C-a C-k
-type_text "$PWD/src/"
+type_text "$PWD/src"
 send Enter
-expect 'abbrev.lisp' "and Dired lists it"
+expect 'abbrev.lisp' "and Dired lists it, though its name has no slash"
 expect_re '/src/  ([0-9]* entries, ' "a header names the directory, its entries and their size"
 expect_re ' [0-9.]*K [A-Z][a-z][a-z] ' "sizes are human-readable"
 checks=$((checks + 1))
